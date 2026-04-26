@@ -188,7 +188,7 @@ async fn deploy_unsupported_gateway_returns_400() {
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
   <process id="gw_process">
     <startEvent id="start"/>
-    <exclusiveGateway id="gw"/>
+    <parallelGateway id="gw"/>
     <endEvent id="end"/>
     <sequenceFlow id="f1" sourceRef="start" targetRef="gw"/>
     <sequenceFlow id="f2" sourceRef="gw" targetRef="end"/>
@@ -209,8 +209,8 @@ async fn deploy_unsupported_gateway_returns_400() {
         body["error"]
             .as_str()
             .unwrap_or("")
-            .contains("exclusiveGateway"),
-        "error message should mention exclusiveGateway, got: {}",
+            .contains("parallelGateway"),
+        "error message should mention parallelGateway, got: {}",
         body["error"]
     );
 }

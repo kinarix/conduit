@@ -1,5 +1,5 @@
 use conduit::db;
-use conduit::engine::Engine;
+use conduit::engine::{Engine, VariableInput};
 use conduit::state::GraphCache;
 use serde_json::json;
 use sqlx::PgPool;
@@ -329,7 +329,7 @@ async fn complete_user_task_advances_token_to_end() {
         .unwrap();
     let task_id = tasks[0].id;
 
-    engine.complete_user_task(task_id).await.unwrap();
+    engine.complete_user_task(task_id, &[]).await.unwrap();
 
     // Instance should now be completed
     let refreshed = db::process_instances::get_by_id(&pool, instance.id)
@@ -370,7 +370,7 @@ async fn complete_user_task_closes_history_entry() {
         .unwrap()[0]
         .id;
 
-    engine.complete_user_task(task_id).await.unwrap();
+    engine.complete_user_task(task_id, &[]).await.unwrap();
 
     let history = db::execution_history::list_by_instance(&pool, instance.id)
         .await
@@ -390,7 +390,7 @@ async fn complete_user_task_closes_history_entry() {
 #[tokio::test]
 async fn complete_task_not_found_returns_error() {
     let (_, engine) = setup().await;
-    let result = engine.complete_user_task(Uuid::new_v4()).await;
+    let result = engine.complete_user_task(Uuid::new_v4(), &[]).await;
     assert!(matches!(
         result,
         Err(conduit::error::EngineError::NotFound(_))
@@ -423,9 +423,9 @@ async fn complete_already_completed_task_returns_conflict() {
         .unwrap()[0]
         .id;
 
-    engine.complete_user_task(task_id).await.unwrap();
+    engine.complete_user_task(task_id, &[]).await.unwrap();
 
-    let result = engine.complete_user_task(task_id).await;
+    let result = engine.complete_user_task(task_id, &[]).await;
     assert!(matches!(
         result,
         Err(conduit::error::EngineError::Conflict(_))
@@ -463,4 +463,324 @@ async fn engine_cold_cache_can_start_instance() {
         .unwrap();
 
     assert_eq!(instance.state, "running");
+}
+
+// ─── Phase 6: variable passing ───────────────────────────────────────────────
+
+fn var(name: &str, value_type: &str, value: serde_json::Value) -> VariableInput {
+    VariableInput {
+        name: name.to_string(),
+        value_type: value_type.to_string(),
+        value,
+    }
+}
+
+#[tokio::test]
+async fn complete_task_with_variables_writes_to_db() {
+    let (pool, engine) = setup().await;
+    let org_id = create_org(&pool).await;
+
+    let def = db::process_definitions::insert(
+        &pool,
+        org_id,
+        None,
+        &unique_key("eng"),
+        1,
+        None,
+        &linear_bpmn(),
+        &json!({}),
+    )
+    .await
+    .unwrap();
+    let instance = engine
+        .start_instance(def.id, org_id, &json!({}))
+        .await
+        .unwrap();
+    let task_id = db::tasks::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap()[0]
+        .id;
+
+    engine
+        .complete_user_task(
+            task_id,
+            &[
+                var("approved", "boolean", json!(true)),
+                var("amount", "integer", json!(2500)),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let vars = db::variables::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(vars.len(), 2);
+
+    let approved = vars.iter().find(|v| v.name == "approved").unwrap();
+    assert_eq!(approved.value_type, "boolean");
+    assert_eq!(approved.value, json!(true));
+
+    let amount = vars.iter().find(|v| v.name == "amount").unwrap();
+    assert_eq!(amount.value_type, "integer");
+    assert_eq!(amount.value, json!(2500));
+}
+
+// ─── Phase 6: exclusive gateway ──────────────────────────────────────────────
+
+/// Start → UserTask → ExclusiveGateway → approved (amount > 1000) / rejected (default)
+fn gateway_bpmn() -> String {
+    r#"<?xml version="1.0"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="def1" targetNamespace="urn:test">
+  <process id="proc" isExecutable="true">
+    <startEvent id="start"/>
+    <userTask id="task1" name="Submit Request"/>
+    <exclusiveGateway id="xgw1" default="sf_rejected"/>
+    <endEvent id="approved"/>
+    <endEvent id="rejected"/>
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="task1"/>
+    <sequenceFlow id="sf2" sourceRef="task1" targetRef="xgw1"/>
+    <sequenceFlow id="sf_approved" sourceRef="xgw1" targetRef="approved">
+      <conditionExpression>amount > 1000</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="sf_rejected" sourceRef="xgw1" targetRef="rejected"/>
+  </process>
+</definitions>"#
+        .to_string()
+}
+
+/// Start → UserTask → ExclusiveGateway → high (amount > 1000) / low (amount <= 1000), no default
+fn gateway_no_default_bpmn() -> String {
+    r#"<?xml version="1.0"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="def1" targetNamespace="urn:test">
+  <process id="proc" isExecutable="true">
+    <startEvent id="start"/>
+    <userTask id="task1" name="Submit Request"/>
+    <exclusiveGateway id="xgw1"/>
+    <endEvent id="high"/>
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="task1"/>
+    <sequenceFlow id="sf2" sourceRef="task1" targetRef="xgw1"/>
+    <sequenceFlow id="sf_high" sourceRef="xgw1" targetRef="high">
+      <conditionExpression>amount > 1000</conditionExpression>
+    </sequenceFlow>
+  </process>
+</definitions>"#
+        .to_string()
+}
+
+#[tokio::test]
+async fn gateway_routes_to_conditioned_flow_when_condition_true() {
+    let (pool, engine) = setup().await;
+    let org_id = create_org(&pool).await;
+
+    let def = db::process_definitions::insert(
+        &pool,
+        org_id,
+        None,
+        &unique_key("eng"),
+        1,
+        None,
+        &gateway_bpmn(),
+        &json!({}),
+    )
+    .await
+    .unwrap();
+    let instance = engine
+        .start_instance(def.id, org_id, &json!({}))
+        .await
+        .unwrap();
+    let task_id = db::tasks::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap()[0]
+        .id;
+
+    // amount > 1000 → should follow sf_approved → end at "approved"
+    engine
+        .complete_user_task(task_id, &[var("amount", "integer", json!(5000))])
+        .await
+        .unwrap();
+
+    let refreshed = db::process_instances::get_by_id(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(refreshed.state, "completed");
+
+    let history = db::execution_history::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap();
+    let visited: Vec<_> = history.iter().map(|h| h.element_id.as_str()).collect();
+    assert!(
+        visited.contains(&"approved"),
+        "expected 'approved' end event in history"
+    );
+    assert!(
+        !visited.contains(&"rejected"),
+        "expected 'rejected' end event NOT in history"
+    );
+}
+
+#[tokio::test]
+async fn gateway_routes_to_default_flow_when_no_condition_matches() {
+    let (pool, engine) = setup().await;
+    let org_id = create_org(&pool).await;
+
+    let def = db::process_definitions::insert(
+        &pool,
+        org_id,
+        None,
+        &unique_key("eng"),
+        1,
+        None,
+        &gateway_bpmn(),
+        &json!({}),
+    )
+    .await
+    .unwrap();
+    let instance = engine
+        .start_instance(def.id, org_id, &json!({}))
+        .await
+        .unwrap();
+    let task_id = db::tasks::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap()[0]
+        .id;
+
+    // amount <= 1000 → condition false → falls through to default (sf_rejected)
+    engine
+        .complete_user_task(task_id, &[var("amount", "integer", json!(500))])
+        .await
+        .unwrap();
+
+    let refreshed = db::process_instances::get_by_id(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(refreshed.state, "completed");
+
+    let history = db::execution_history::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap();
+    let visited: Vec<_> = history.iter().map(|h| h.element_id.as_str()).collect();
+    assert!(
+        visited.contains(&"rejected"),
+        "expected 'rejected' end event in history"
+    );
+    assert!(
+        !visited.contains(&"approved"),
+        "expected 'approved' end event NOT in history"
+    );
+}
+
+#[tokio::test]
+async fn gateway_no_match_no_default_marks_instance_error() {
+    let (pool, engine) = setup().await;
+    let org_id = create_org(&pool).await;
+
+    let def = db::process_definitions::insert(
+        &pool,
+        org_id,
+        None,
+        &unique_key("eng"),
+        1,
+        None,
+        &gateway_no_default_bpmn(),
+        &json!({}),
+    )
+    .await
+    .unwrap();
+    let instance = engine
+        .start_instance(def.id, org_id, &json!({}))
+        .await
+        .unwrap();
+    let task_id = db::tasks::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap()[0]
+        .id;
+
+    // amount <= 1000 → condition false → no default → instance error
+    engine
+        .complete_user_task(task_id, &[var("amount", "integer", json!(500))])
+        .await
+        .unwrap();
+
+    let refreshed = db::process_instances::get_by_id(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(refreshed.state, "error");
+}
+
+#[tokio::test]
+async fn gateway_nested_routes_correctly() {
+    // Two gateways in sequence: first splits on `tier`, second splits on `amount`.
+    let bpmn = r#"<?xml version="1.0"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="def1" targetNamespace="urn:test">
+  <process id="proc" isExecutable="true">
+    <startEvent id="start"/>
+    <userTask id="task1" name="Submit"/>
+    <exclusiveGateway id="xgw1" default="sf_standard"/>
+    <exclusiveGateway id="xgw2" default="sf_low"/>
+    <endEvent id="premium_high"/>
+    <endEvent id="premium_low"/>
+    <endEvent id="standard"/>
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="task1"/>
+    <sequenceFlow id="sf2" sourceRef="task1" targetRef="xgw1"/>
+    <sequenceFlow id="sf_premium" sourceRef="xgw1" targetRef="xgw2">
+      <conditionExpression>tier == "premium"</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="sf_standard" sourceRef="xgw1" targetRef="standard"/>
+    <sequenceFlow id="sf_high" sourceRef="xgw2" targetRef="premium_high">
+      <conditionExpression>amount > 5000</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="sf_low" sourceRef="xgw2" targetRef="premium_low"/>
+  </process>
+</definitions>"#;
+
+    let (pool, engine) = setup().await;
+    let org_id = create_org(&pool).await;
+
+    let def = db::process_definitions::insert(
+        &pool,
+        org_id,
+        None,
+        &unique_key("eng"),
+        1,
+        None,
+        bpmn,
+        &json!({}),
+    )
+    .await
+    .unwrap();
+
+    let instance = engine
+        .start_instance(def.id, org_id, &json!({}))
+        .await
+        .unwrap();
+    let task_id = db::tasks::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap()[0]
+        .id;
+
+    // tier = "premium", amount = 8000 → xgw1 takes sf_premium → xgw2 takes sf_high → premium_high
+    engine
+        .complete_user_task(
+            task_id,
+            &[
+                var("tier", "string", json!("premium")),
+                var("amount", "integer", json!(8000)),
+            ],
+        )
+        .await
+        .unwrap();
+
+    let refreshed = db::process_instances::get_by_id(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(refreshed.state, "completed");
+
+    let history = db::execution_history::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap();
+    let visited: Vec<_> = history.iter().map(|h| h.element_id.as_str()).collect();
+    assert!(visited.contains(&"premium_high"));
+    assert!(!visited.contains(&"premium_low"));
+    assert!(!visited.contains(&"standard"));
 }

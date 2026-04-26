@@ -29,6 +29,9 @@ pub enum EngineError {
 
     #[error("Unsupported BPMN element: {0}")]
     UnsupportedElement(String),
+
+    #[error("Expression error: {0}")]
+    Expression(String),
 }
 
 impl IntoResponse for EngineError {
@@ -54,6 +57,10 @@ impl IntoResponse for EngineError {
                 StatusCode::BAD_REQUEST,
                 format!("Unsupported BPMN element: {el}"),
             ),
+            EngineError::Expression(msg) => {
+                tracing::error!(error = %msg, "Expression evaluation error");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
         };
 
         (status, Json(json!({ "error": message }))).into_response()

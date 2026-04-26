@@ -47,8 +47,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # XML parsing (Phase 3)
 roxmltree = "0.19"
 
-# Expression evaluator (added in Phase 6)
-# rhai = { version = "1", features = ["sync"] }
+# Expression evaluator (Phase 6)
+rhai = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

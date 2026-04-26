@@ -275,21 +275,22 @@ All resources are org-scoped. Labels round-trip through the API. Schema is ready
 **Goal:** Processes can branch based on variable conditions.
 
 ### Tasks
-- [ ] ExclusiveGateway in parser
-- [ ] Rhai expression evaluator integration
-- [ ] Condition evaluation on sequence flows
-- [ ] First-true-wins routing
+- [ ] Variable passing on task completion — `POST /tasks/:id/complete` accepts `{ "variables": [...] }` body; writes to `variables` table before advancing
+- [ ] ExclusiveGateway in parser; read `conditionExpression` from sequence flows; mark default flow
+- [ ] Rhai expression evaluator — sandboxed, variables injected into scope
+- [ ] Condition evaluation on sequence flows — first-true-wins routing
 - [ ] Default flow support
-- [ ] Error on no matching condition (no default)
+- [ ] Error on no matching condition (no default) — instance marked `error`
 
 ### Tests
+- Variable round-trip: complete task with variables → variables in DB
 - Route to correct path based on variable value
 - Default flow taken when no condition matches
 - Error raised when no condition matches and no default
 - Nested exclusive gateways work correctly
 
 ### Deliverable
-Processes with if/else branching work correctly.
+Processes with if/else branching work correctly. Variables can be written at task completion.
 
 ---
 

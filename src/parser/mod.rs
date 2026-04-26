@@ -13,6 +13,7 @@ pub enum FlowNodeKind {
     EndEvent,
     UserTask,
     ServiceTask { topic: Option<String> },
+    ExclusiveGateway { default_flow: Option<String> },
 }
 
 #[derive(Debug, Clone)]
@@ -154,9 +155,22 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                 });
             }
 
+            "exclusiveGateway" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let default_flow = child.attribute("default").map(|s| s.to_string());
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::ExclusiveGateway { default_flow },
+                    },
+                );
+            }
+
             // Future-phase semantic elements — reject explicitly so callers get a clear error
-            "exclusiveGateway"
-            | "parallelGateway"
+            "parallelGateway"
             | "inclusiveGateway"
             | "eventBasedGateway"
             | "complexGateway"
@@ -299,6 +313,20 @@ fn validate(
                 "SequenceFlow '{}' has unknown targetRef '{}'",
                 flow.id, flow.target_ref
             )));
+        }
+    }
+
+    for node in nodes.values() {
+        if let FlowNodeKind::ExclusiveGateway {
+            default_flow: Some(default_id),
+        } = &node.kind
+        {
+            if !flows.iter().any(|f| &f.id == default_id) {
+                return Err(EngineError::Parse(format!(
+                    "ExclusiveGateway '{}' references unknown default flow '{}'",
+                    node.id, default_id
+                )));
+            }
         }
     }
 

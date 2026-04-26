@@ -1,13 +1,24 @@
+mod evaluator;
+
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::db::models::{Execution, ProcessInstance, Task};
+use crate::db::models::{Execution, ProcessInstance, Task, Variable};
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph};
 use crate::state::GraphCache;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariableInput {
+    pub name: String,
+    pub value_type: String,
+    pub value: JsonValue,
+}
 
 pub struct Engine {
     pool: PgPool,
@@ -92,7 +103,13 @@ impl Engine {
     }
 
     /// Complete a pending user task and advance the token to the next element.
-    pub async fn complete_user_task(&self, task_id: Uuid) -> Result<()> {
+    /// Variables written here are scoped to the task's execution and visible to
+    /// gateway condition evaluation within the same transaction.
+    pub async fn complete_user_task(
+        &self,
+        task_id: Uuid,
+        variables: &[VariableInput],
+    ) -> Result<()> {
         let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1")
             .bind(task_id)
             .fetch_optional(&self.pool)
@@ -120,6 +137,22 @@ impl Engine {
             .bind(task_id)
             .execute(&mut *tx)
             .await?;
+
+        for var in variables {
+            sqlx::query(
+                "INSERT INTO variables (instance_id, execution_id, name, value_type, value) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT (execution_id, name) \
+                 DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+            )
+            .bind(task.instance_id)
+            .bind(task.execution_id)
+            .bind(&var.name)
+            .bind(&var.value_type)
+            .bind(&var.value)
+            .execute(&mut *tx)
+            .await?;
+        }
 
         sqlx::query(
             "UPDATE execution_history SET left_at = NOW() \
@@ -250,6 +283,75 @@ impl Engine {
 
                     return Ok(());
                 }
+
+                FlowNodeKind::ExclusiveGateway { default_flow } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
+                         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    // Load all instance variables visible within this transaction.
+                    let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
+                        "SELECT * FROM variables WHERE instance_id = $1",
+                    )
+                    .bind(instance_id)
+                    .fetch_all(&mut **tx)
+                    .await?;
+
+                    let var_map: HashMap<String, JsonValue> =
+                        vars.into_iter().map(|v| (v.name, v.value)).collect();
+
+                    // Collect outgoing flows for this gateway (maintain declaration order).
+                    let outgoing_flows: Vec<_> = graph
+                        .flows
+                        .iter()
+                        .filter(|f| f.source_ref == node.id)
+                        .collect();
+
+                    let mut chosen: Option<String> = None;
+                    let mut default_target: Option<String> = None;
+
+                    for flow in &outgoing_flows {
+                        if default_flow.as_deref() == Some(flow.id.as_str()) {
+                            default_target = Some(flow.target_ref.clone());
+                            continue;
+                        }
+                        if let Some(expr) = &flow.condition {
+                            if evaluator::evaluate_condition(expr, &var_map)? {
+                                chosen = Some(flow.target_ref.clone());
+                                break;
+                            }
+                        }
+                    }
+
+                    match chosen.or(default_target) {
+                        Some(target) => {
+                            current_id = target;
+                        }
+                        None => {
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'error', ended_at = NOW() WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                            return Ok(());
+                        }
+                    }
+                }
             }
         }
     }
@@ -260,6 +362,7 @@ impl Engine {
             FlowNodeKind::EndEvent => "endEvent",
             FlowNodeKind::UserTask => "userTask",
             FlowNodeKind::ServiceTask { .. } => "serviceTask",
+            FlowNodeKind::ExclusiveGateway { .. } => "exclusiveGateway",
         }
     }
 }

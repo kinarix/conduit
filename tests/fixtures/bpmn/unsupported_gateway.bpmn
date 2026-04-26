@@ -1,26 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Contains an exclusiveGateway — unsupported until Phase 6.
-     Parser must reject this with UnsupportedElement("exclusiveGateway"). -->
+<!-- Contains a parallelGateway — unsupported until Phase 9.
+     Parser must reject this with UnsupportedElement("parallelGateway"). -->
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              id="Definitions_5"
              targetNamespace="http://conduit.io/schema/bpmn">
-  <process id="approval_with_gateway" name="Approval With Gateway" isExecutable="true">
+  <process id="parallel_process" name="Parallel Process" isExecutable="true">
     <startEvent id="start_1" name="Start"/>
-    <userTask id="task_approve" name="Approve Request"/>
-    <exclusiveGateway id="gw_decision" name="Approved?"/>
-    <serviceTask id="task_notify_ok" name="Notify Approval"   topic="notifications"/>
-    <serviceTask id="task_notify_ko" name="Notify Rejection"  topic="notifications"/>
-    <endEvent id="end_approved"  name="Approved"/>
-    <endEvent id="end_rejected"  name="Rejected"/>
-    <sequenceFlow id="flow_1" sourceRef="start_1"     targetRef="task_approve"/>
-    <sequenceFlow id="flow_2" sourceRef="task_approve" targetRef="gw_decision"/>
-    <sequenceFlow id="flow_3" sourceRef="gw_decision"  targetRef="task_notify_ok">
-      <conditionExpression>approved == true</conditionExpression>
-    </sequenceFlow>
-    <sequenceFlow id="flow_4" sourceRef="gw_decision"  targetRef="task_notify_ko">
-      <conditionExpression>approved == false</conditionExpression>
-    </sequenceFlow>
-    <sequenceFlow id="flow_5" sourceRef="task_notify_ok" targetRef="end_approved"/>
-    <sequenceFlow id="flow_6" sourceRef="task_notify_ko" targetRef="end_rejected"/>
+    <parallelGateway id="gw_fork" name="Fork"/>
+    <userTask id="task_a" name="Task A"/>
+    <userTask id="task_b" name="Task B"/>
+    <parallelGateway id="gw_join" name="Join"/>
+    <endEvent id="end_1" name="End"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1"  targetRef="gw_fork"/>
+    <sequenceFlow id="flow_2" sourceRef="gw_fork"   targetRef="task_a"/>
+    <sequenceFlow id="flow_3" sourceRef="gw_fork"   targetRef="task_b"/>
+    <sequenceFlow id="flow_4" sourceRef="task_a"    targetRef="gw_join"/>
+    <sequenceFlow id="flow_5" sourceRef="task_b"    targetRef="gw_join"/>
+    <sequenceFlow id="flow_6" sourceRef="gw_join"   targetRef="end_1"/>
   </process>
 </definitions>

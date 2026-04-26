@@ -4,12 +4,13 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::db::models::Task;
 use crate::db::tasks;
+use crate::engine::VariableInput;
 use crate::error::Result;
 use crate::state::AppState;
 
@@ -35,10 +36,17 @@ async fn get_task(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> R
     Ok(Json(task))
 }
 
+#[derive(Debug, Deserialize)]
+struct CompleteTaskRequest {
+    variables: Option<Vec<VariableInput>>,
+}
+
 async fn complete_task(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
+    body: Option<Json<CompleteTaskRequest>>,
 ) -> Result<StatusCode> {
-    state.engine.complete_user_task(id).await?;
+    let vars = body.and_then(|b| b.0.variables).unwrap_or_default();
+    state.engine.complete_user_task(id, &vars).await?;
     Ok(StatusCode::NO_CONTENT)
 }

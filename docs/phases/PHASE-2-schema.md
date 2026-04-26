@@ -12,7 +12,7 @@ See docs/PLAN.md Phase 2 section for detailed task list, tests, and acceptance c
 ## Checklist
 - [x] Failing tests written
 - [x] Implementation complete
-- [x] All tests passing (26 tests: 7 schema + 19 prior)
+- [x] All tests passing (19 schema tests; 77 total after all phases)
 - [x] cargo clippy clean
 - [x] cargo fmt clean
 - [ ] CI green

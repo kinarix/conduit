@@ -1,18 +1,26 @@
+use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::db::models::ProcessInstance;
 use crate::error::{EngineError, Result};
 
-pub async fn insert(pool: &PgPool, definition_id: Uuid) -> Result<ProcessInstance> {
+pub async fn insert(
+    pool: &PgPool,
+    org_id: Uuid,
+    definition_id: Uuid,
+    labels: &JsonValue,
+) -> Result<ProcessInstance> {
     let row = sqlx::query_as::<_, ProcessInstance>(
         r#"
-        INSERT INTO process_instances (definition_id, state)
-        VALUES ($1, 'running')
+        INSERT INTO process_instances (org_id, definition_id, state, labels)
+        VALUES ($1, $2, 'running', $3)
         RETURNING *
         "#,
     )
+    .bind(org_id)
     .bind(definition_id)
+    .bind(labels)
     .fetch_one(pool)
     .await?;
     Ok(row)

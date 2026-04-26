@@ -45,8 +45,8 @@ A modern process engine needs only: **PostgreSQL + an HTTP server**.
 │   ┌──────────────────────────────────────────────────────┐  │
 │   │                    API Layer (Axum)                   │  │
 │   │                                                       │  │
-│   │  /deployments  /instances  /tasks  /external-tasks   │  │
-│   │  /messages     /signals    /health                    │  │
+│   │  /orgs  /users  /deployments  /instances  /tasks       │  │
+│   │  /external-tasks  /messages  /signals  /health        │  │
 │   └────────────────────────┬──────────────────────────────┘  │
 │                            │                                  │
 │   ┌────────────────────────▼──────────────────────────────┐  │
@@ -66,8 +66,10 @@ A modern process engine needs only: **PostgreSQL + an HTTP server**.
 │   ┌────────────────────────▼──────────────────────────────┐  │
 │   │                   PostgreSQL                           │  │
 │   │                                                       │  │
+│   │  orgs  users                                          │  │
 │   │  process_definitions  process_instances  executions   │  │
 │   │  variables  tasks  jobs  event_subscriptions          │  │
+│   │  execution_history                                    │  │
 │   └───────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
          ▲                                   ▲
@@ -85,19 +87,20 @@ A modern process engine needs only: **PostgreSQL + an HTTP server**.
 ### Starting a Process
 ```
 POST /api/v1/process-instances
-  { "processKey": "registration", "variables": { ... } }
+  { "org_id": "...", "definition_id": "...", "labels": { ... } }
         ↓
 API handler validates request
         ↓
-Engine.start_process()
-  → INSERT process_instances
+Engine.start_instance(definition_id, org_id, labels)
+  → INSERT process_instances (org_id, labels)
   → INSERT executions (at StartEvent)
   → advance() → passes through StartEvent immediately
   → enters first real element (UserTask, ServiceTask etc.)
   → INSERT tasks or jobs depending on element type
+  → INSERT execution_history entries
   → COMMIT transaction
         ↓
-Return { "instanceId": "abc-123" }
+Return 201 ProcessInstance { id, org_id, state, labels, ... }
 ```
 
 ### Advancing a Token

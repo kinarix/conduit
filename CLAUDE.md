@@ -43,6 +43,7 @@ conduit/
 │       ├── PHASE-3-parser.md
 │       ├── PHASE-4-token-engine.md
 │       ├── PHASE-5-rest-api.md
+│       ├── PHASE-5.5-ownership-labels.md
 │       ├── PHASE-6-exclusive-gateway.md
 │       ├── PHASE-7-external-tasks.md
 │       ├── PHASE-8-timers.md
@@ -55,7 +56,9 @@ conduit/
 │       └── PHASE-15-clustering.md
 │
 ├── migrations/                  ← SQL migrations (SQLx)
-│   └── 001_initial.sql
+│   ├── 001_initial.sql          ← uuid-ossp, schema_info, orgs
+│   ├── 002_core_schema.sql      ← users, process_definitions, process_instances, executions, variables, tasks, jobs, event_subscriptions
+│   └── 003_execution_history.sql ← execution_history audit table
 │
 ├── src/
 │   ├── main.rs                  ← Entry point
@@ -64,25 +67,55 @@ conduit/
 │   ├── db.rs                    ← DB pool setup
 │   ├── api/                     ← HTTP handlers (Axum)
 │   │   ├── mod.rs
-│   │   └── health.rs
+│   │   ├── health.rs
+│   │   ├── orgs.rs
+│   │   ├── users.rs
+│   │   ├── deployments.rs
+│   │   ├── instances.rs
+│   │   └── tasks.rs
 │   ├── engine/                  ← Core execution engine
 │   │   └── mod.rs
 │   ├── parser/                  ← BPMN XML parser
 │   │   └── mod.rs
 │   └── db/                      ← DB query modules
-│       └── mod.rs
+│       ├── mod.rs
+│       ├── models.rs
+│       ├── orgs.rs
+│       ├── users.rs
+│       ├── process_definitions.rs
+│       ├── process_instances.rs
+│       ├── executions.rs
+│       ├── execution_history.rs
+│       ├── variables.rs
+│       ├── tasks.rs
+│       ├── jobs.rs
+│       └── event_subscriptions.rs
 │
 └── tests/
     ├── common/
-    │   └── mod.rs               ← Shared test helpers, DB containers
-    └── health_test.rs
+    │   └── mod.rs               ← Shared test helpers, spawn_test_app, create_test_org
+    ├── health_test.rs
+    ├── schema_test.rs
+    ├── deployment_test.rs
+    └── engine_test.rs
 ```
 
 ## Current Phase
 
-**Phase 0 — Technology Evaluation** (start here)
+**Phase 6 — Exclusive Gateway** (next up)
 
-See `docs/phases/PHASE-0-evaluation.md` for what needs to be done.
+Phases 0–5.5 are complete (77 tests passing). See `docs/phases/PHASE-6-exclusive-gateway.md` and `docs/PLAN.md` for the next phase spec.
+
+### Completed phases
+| Phase | What was built |
+|---|---|
+| 0 | Technology evaluation — ADRs for runtime, web framework, DB driver, XML parser, expression evaluator, migrations |
+| 1 | Foundation — service entrypoint, config, error types, DB pool, health endpoint, migrations |
+| 2 | Core DB schema — 7 tables: process_definitions, process_instances, executions, variables, tasks, jobs, event_subscriptions |
+| 3 | BPMN parser — ProcessGraph from XML; startEvent, endEvent, userTask, serviceTask; `POST /api/v1/deployments` |
+| 4 | Token engine — start_instance, complete_user_task, execution_history audit log, single-transaction advancement |
+| 5 | REST API — deployments, instances, tasks endpoints; 77 integration tests |
+| 5.5 | Ownership + labels — orgs table, users table, org_id/owner_id/labels on definitions and instances; `POST /api/v1/orgs`, `/users` |
 
 ## How to Work Through the Phases
 

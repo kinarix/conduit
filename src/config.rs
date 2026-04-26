@@ -1,9 +1,18 @@
+#[derive(Debug, Clone, PartialEq)]
+pub enum AuthProvider {
+    Internal,
+    External,
+}
+
 /// Application configuration loaded from environment variables.
 /// See .env.example for all available settings.
 #[derive(Debug, Clone)]
 pub struct Config {
     // Required
     pub database_url: String,
+
+    // Auth
+    pub auth_provider: AuthProvider,
 
     // Server
     pub server_host: String,
@@ -29,8 +38,15 @@ impl Config {
         // Load .env file if present (ignored if missing)
         dotenvy::dotenv().ok();
 
+        let auth_provider = match optional_env("AUTH_PROVIDER", "internal").as_str() {
+            "external" => AuthProvider::External,
+            _ => AuthProvider::Internal,
+        };
+
         Ok(Config {
             database_url: require_env("DATABASE_URL")?,
+
+            auth_provider,
 
             server_host: optional_env("SERVER_HOST", "0.0.0.0"),
             server_port: optional_env("SERVER_PORT", "8080")

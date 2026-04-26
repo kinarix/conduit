@@ -2,29 +2,48 @@ mod common;
 
 use chrono::Utc;
 use conduit::db::{
-    event_subscriptions, executions, jobs, process_definitions, process_instances, tasks, variables,
+    event_subscriptions, executions, jobs, orgs, process_definitions, process_instances, tasks,
+    variables,
 };
+use serde_json::json;
+use uuid::Uuid;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Each test gets a unique process key so concurrent tests don't collide on the
-// UNIQUE(process_key, version) constraint or pick up leftovers from prior runs.
 fn unique_key(prefix: &str) -> String {
-    format!("{}.{}", prefix, uuid::Uuid::new_v4())
+    format!("{}.{}", prefix, Uuid::new_v4())
+}
+
+async fn create_org(pool: &sqlx::PgPool) -> Uuid {
+    let slug = format!("schema-org-{}", Uuid::new_v4());
+    orgs::insert(pool, "Schema Test Org", &slug)
+        .await
+        .unwrap()
+        .id
 }
 
 async fn seed_definition(pool: &sqlx::PgPool) -> conduit::db::models::ProcessDefinition {
+    let org_id = create_org(pool).await;
     let key = unique_key("test");
-    process_definitions::insert(pool, &key, 1, Some("Test Process"), "<definitions/>")
-        .await
-        .unwrap()
+    process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        &key,
+        1,
+        Some("Test Process"),
+        "<definitions/>",
+        &json!({}),
+    )
+    .await
+    .unwrap()
 }
 
 async fn seed_instance(
     pool: &sqlx::PgPool,
-    definition_id: uuid::Uuid,
+    def: &conduit::db::models::ProcessDefinition,
 ) -> conduit::db::models::ProcessInstance {
-    process_instances::insert(pool, definition_id)
+    process_instances::insert(pool, def.org_id, def.id, &json!({}))
         .await
         .unwrap()
 }
@@ -60,13 +79,33 @@ async fn process_definition_unique_key_version() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
+    let org_id = create_org(pool).await;
     let key = unique_key("unique");
-    process_definitions::insert(pool, &key, 1, None, "<definitions/>")
-        .await
-        .unwrap();
+    process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        &key,
+        1,
+        None,
+        "<definitions/>",
+        &json!({}),
+    )
+    .await
+    .unwrap();
 
-    // Inserting same key+version again must fail
-    let result = process_definitions::insert(pool, &key, 1, None, "<definitions/>").await;
+    // Inserting same org+key+version again must fail
+    let result = process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        &key,
+        1,
+        None,
+        "<definitions/>",
+        &json!({}),
+    )
+    .await;
     assert!(result.is_err(), "duplicate key+version should fail");
 }
 
@@ -75,13 +114,27 @@ async fn process_definition_next_version_increments() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
+    let org_id = create_org(pool).await;
     let key = unique_key("versioned");
-    let v1 = process_definitions::next_version(pool, &key).await.unwrap();
-    process_definitions::insert(pool, &key, v1, None, "<definitions/>")
+    let v1 = process_definitions::next_version(pool, org_id, &key)
         .await
         .unwrap();
+    process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        &key,
+        v1,
+        None,
+        "<definitions/>",
+        &json!({}),
+    )
+    .await
+    .unwrap();
 
-    let v2 = process_definitions::next_version(pool, &key).await.unwrap();
+    let v2 = process_definitions::next_version(pool, org_id, &key)
+        .await
+        .unwrap();
     assert_eq!(v2, v1 + 1);
 }
 
@@ -90,13 +143,32 @@ async fn process_definition_get_latest() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
+    let org_id = create_org(pool).await;
     let key = unique_key("latest");
-    process_definitions::insert(pool, &key, 1, Some("v1"), "<definitions/>")
-        .await
-        .unwrap();
-    let def2 = process_definitions::insert(pool, &key, 2, Some("v2"), "<definitions/>")
-        .await
-        .unwrap();
+    process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        &key,
+        1,
+        Some("v1"),
+        "<definitions/>",
+        &json!({}),
+    )
+    .await
+    .unwrap();
+    let def2 = process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        &key,
+        2,
+        Some("v2"),
+        "<definitions/>",
+        &json!({}),
+    )
+    .await
+    .unwrap();
 
     let latest = process_definitions::get_latest_by_key(pool, &key)
         .await
@@ -113,7 +185,7 @@ async fn process_instance_insert_and_read() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     assert_eq!(inst.definition_id, def.id);
     assert_eq!(inst.state, "running");
     assert!(inst.ended_at.is_none());
@@ -127,8 +199,9 @@ async fn process_instance_fk_rejects_unknown_definition() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
+    let org_id = create_org(pool).await;
     let fake_id = uuid::Uuid::new_v4();
-    let result = process_instances::insert(pool, fake_id).await;
+    let result = process_instances::insert(pool, org_id, fake_id, &json!({})).await;
     assert!(result.is_err(), "FK violation should be rejected");
 }
 
@@ -138,7 +211,7 @@ async fn process_instance_state_update() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
 
     let updated = process_instances::update_state(pool, inst.id, "completed")
         .await
@@ -155,7 +228,7 @@ async fn execution_insert_and_read() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     assert_eq!(exec.instance_id, inst.id);
@@ -173,7 +246,7 @@ async fn execution_parent_child_relationship() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let parent = seed_execution(pool, inst.id).await;
 
     let child = executions::insert(pool, inst.id, Some(parent.id), "subprocess_1")
@@ -188,7 +261,7 @@ async fn execution_cascade_delete_with_instance() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     sqlx::query("DELETE FROM process_instances WHERE id = $1")
@@ -212,7 +285,7 @@ async fn variable_upsert_and_read() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     let val = serde_json::json!("hello");
@@ -231,7 +304,7 @@ async fn variable_upsert_overwrites() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     variables::upsert(
@@ -269,7 +342,7 @@ async fn task_insert_and_complete() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     let task = tasks::insert(
@@ -304,7 +377,7 @@ async fn job_insert_and_fetch_and_lock() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     let due = Utc::now() - chrono::Duration::seconds(1); // already due
@@ -339,7 +412,7 @@ async fn job_second_worker_cannot_lock_same_job() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     let due = Utc::now() - chrono::Duration::seconds(1);
@@ -375,7 +448,7 @@ async fn job_failure_increments_retry_count() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     let due = Utc::now() - chrono::Duration::seconds(1);
@@ -407,7 +480,7 @@ async fn event_subscription_insert_and_find_by_message() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst = seed_instance(pool, def.id).await;
+    let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
     // Use a unique event name + correlation key to avoid collisions across runs.
@@ -445,9 +518,9 @@ async fn event_subscription_signal_broadcast() {
     let pool = &app.pool;
 
     let def = seed_definition(pool).await;
-    let inst1 = seed_instance(pool, def.id).await;
+    let inst1 = seed_instance(pool, &def).await;
     let exec1 = seed_execution(pool, inst1.id).await;
-    let inst2 = seed_instance(pool, def.id).await;
+    let inst2 = seed_instance(pool, &def).await;
     let exec2 = seed_execution(pool, inst2.id).await;
 
     event_subscriptions::insert(

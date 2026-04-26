@@ -1,19 +1,15 @@
 use axum::Router;
 use sqlx::PgPool;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use conduit::state::AppState;
 
-/// A running test application with its bound address.
 pub struct TestApp {
     pub address: String,
     pub pool: PgPool,
 }
 
-/// Spawn a test application backed by the shared test database.
-///
-/// Uses TEST_DATABASE_URL or DATABASE_URL from the environment.
-/// Runs all migrations before returning.
 pub async fn spawn_test_app() -> TestApp {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
@@ -32,7 +28,11 @@ pub async fn spawn_test_app() -> TestApp {
 
     let app = Router::new()
         .merge(conduit::api::health::routes())
+        .merge(conduit::api::orgs::routes())
+        .merge(conduit::api::users::routes())
         .merge(conduit::api::deployments::routes())
+        .merge(conduit::api::instances::routes())
+        .merge(conduit::api::tasks::routes())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -47,4 +47,18 @@ pub async fn spawn_test_app() -> TestApp {
     });
 
     TestApp { address, pool }
+}
+
+pub async fn create_test_org(app: &TestApp) -> Uuid {
+    let client = reqwest::Client::new();
+    let slug = format!("test-org-{}", Uuid::new_v4());
+    let resp = client
+        .post(format!("{}/api/v1/orgs", app.address))
+        .json(&serde_json::json!({ "name": "Test Org", "slug": slug }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create_test_org failed");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
 }

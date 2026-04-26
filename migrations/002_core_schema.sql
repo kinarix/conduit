@@ -1,31 +1,58 @@
 -- Phase 2: Core DB Schema
 -- All engine tables. State fields use TEXT + CHECK (not ENUM) to avoid migration pain.
 
+-- auth_provider controls how the user authenticates:
+--   'internal' — email + password_hash stored here
+--   'external' — external_id holds the IdP subject claim; password_hash is NULL
+CREATE TABLE users (
+    id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id        UUID        NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,
+    auth_provider TEXT        NOT NULL CHECK (auth_provider IN ('internal', 'external')),
+    external_id   TEXT,
+    email         TEXT        NOT NULL,
+    password_hash TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_users_org_email UNIQUE (org_id, email)
+);
+
+CREATE INDEX idx_users_org_id ON users (org_id);
+
+-- ----------------------------------------------------------------------------
+
 CREATE TABLE process_definitions (
     id          UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id      UUID        NOT NULL REFERENCES orgs (id) ON DELETE RESTRICT,
+    owner_id    UUID        REFERENCES users (id) ON DELETE SET NULL,
     process_key TEXT        NOT NULL,
     version     INTEGER     NOT NULL,
     name        TEXT,
     bpmn_xml    TEXT        NOT NULL,
+    labels      JSONB       NOT NULL DEFAULT '{}',
     deployed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_process_definitions_key_version UNIQUE (process_key, version)
+    CONSTRAINT uq_process_definitions_org_key_version UNIQUE (org_id, process_key, version)
 );
 
-CREATE INDEX idx_process_definitions_key ON process_definitions (process_key);
+CREATE INDEX idx_process_definitions_key    ON process_definitions (process_key);
+CREATE INDEX idx_process_definitions_org_id ON process_definitions (org_id);
+CREATE INDEX idx_process_definitions_labels ON process_definitions USING GIN (labels);
 
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE process_instances (
     id            UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id        UUID        NOT NULL REFERENCES orgs (id) ON DELETE RESTRICT,
     definition_id UUID        NOT NULL REFERENCES process_definitions (id) ON DELETE RESTRICT,
     state         TEXT        NOT NULL CHECK (state IN ('running', 'completed', 'error', 'cancelled')),
+    labels        JSONB       NOT NULL DEFAULT '{}',
     started_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     ended_at      TIMESTAMPTZ
 );
 
 CREATE INDEX idx_process_instances_definition_id ON process_instances (definition_id);
+CREATE INDEX idx_process_instances_org_id        ON process_instances (org_id);
 CREATE INDEX idx_process_instances_state         ON process_instances (state);
 CREATE INDEX idx_process_instances_running       ON process_instances (started_at) WHERE state IN ('running', 'error');
+CREATE INDEX idx_process_instances_labels        ON process_instances USING GIN (labels);
 
 -- ----------------------------------------------------------------------------
 
@@ -121,4 +148,4 @@ CREATE INDEX idx_event_subscriptions_message     ON event_subscriptions (event_n
 
 -- ----------------------------------------------------------------------------
 
-INSERT INTO schema_info (version, description) VALUES (2, 'Core schema — process_definitions, process_instances, executions, variables, tasks, jobs, event_subscriptions');
+INSERT INTO schema_info (version, description) VALUES (2, 'Core schema — orgs, users, process_definitions, process_instances, executions, variables, tasks, jobs, event_subscriptions');

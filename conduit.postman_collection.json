@@ -1,0 +1,300 @@
+{
+  "info": {
+    "name": "Conduit",
+    "description": "Process orchestration engine API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "definition_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "instance_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "task_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"database\": \"connected\",\n  \"version\": \"0.1.0\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Deployments",
+      "item": [
+        {
+          "name": "Deploy Process",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('definition_id', body.id);",
+                  "  pm.test('definition_id saved', () => pm.expect(body.id).to.be.a('string'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/deployments",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "deployments"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"key\": \"my-process\",\n  \"name\": \"My Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?>\\n<definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\" id=\\\"def1\\\" targetNamespace=\\\"urn:test\\\">\\n  <process id=\\\"proc\\\" isExecutable=\\\"true\\\">\\n    <startEvent id=\\\"start\\\"/>\\n    <userTask id=\\\"task1\\\" name=\\\"Review application\\\"/>\\n    <endEvent id=\\\"end\\\"/>\\n    <sequenceFlow id=\\\"sf1\\\" sourceRef=\\\"start\\\" targetRef=\\\"task1\\\"/>\\n    <sequenceFlow id=\\\"sf2\\\" sourceRef=\\\"task1\\\" targetRef=\\\"end\\\"/>\\n  </process>\\n</definitions>\"\n}"
+            }
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"<uuid>\",\n  \"key\": \"my-process\",\n  \"version\": 1,\n  \"deployed_at\": \"2024-01-01T00:00:00Z\"\n}"
+            },
+            {
+              "name": "400 Invalid BPMN",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"error\": \"Parse error: ...\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Process Instances",
+      "item": [
+        {
+          "name": "Start Instance",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('instance_id', body.id);",
+                  "  pm.test('instance_id saved', () => pm.expect(body.id).to.be.a('string'));",
+                  "  pm.test('state is running or completed', () => {",
+                  "    pm.expect(body.state).to.be.oneOf(['running', 'completed']);",
+                  "  });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/process-instances",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "process-instances"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"definition_id\": \"{{definition_id}}\"\n}"
+            }
+          },
+          "response": [
+            {
+              "name": "201 Created — running",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"<uuid>\",\n  \"definition_id\": \"<uuid>\",\n  \"state\": \"running\",\n  \"started_at\": \"2024-01-01T00:00:00Z\",\n  \"ended_at\": null\n}"
+            },
+            {
+              "name": "201 Created — completed (Start→End process)",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"<uuid>\",\n  \"definition_id\": \"<uuid>\",\n  \"state\": \"completed\",\n  \"started_at\": \"2024-01-01T00:00:00Z\",\n  \"ended_at\": \"2024-01-01T00:00:00Z\"\n}"
+            },
+            {
+              "name": "404 Definition not found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"error\": \"Process definition <uuid> not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Instance",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/process-instances/{{instance_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "process-instances", "{{instance_id}}"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"<uuid>\",\n  \"definition_id\": \"<uuid>\",\n  \"state\": \"running\",\n  \"started_at\": \"2024-01-01T00:00:00Z\",\n  \"ended_at\": null\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"error\": \"Process instance <uuid> not found\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "item": [
+        {
+          "name": "List Pending Tasks",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.items && body.items.length > 0) {",
+                  "    pm.collectionVariables.set('task_id', body.items[0].id);",
+                  "    pm.test('task_id saved from first item', () => pm.expect(body.items[0].id).to.be.a('string'));",
+                  "  }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tasks"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"items\": [\n    {\n      \"id\": \"<uuid>\",\n      \"instance_id\": \"<uuid>\",\n      \"execution_id\": \"<uuid>\",\n      \"element_id\": \"task1\",\n      \"name\": \"Review application\",\n      \"task_type\": \"user_task\",\n      \"assignee\": null,\n      \"state\": \"pending\",\n      \"created_at\": \"2024-01-01T00:00:00Z\",\n      \"due_date\": null,\n      \"completed_at\": null\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Task",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tasks", "{{task_id}}"]
+            }
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"<uuid>\",\n  \"instance_id\": \"<uuid>\",\n  \"execution_id\": \"<uuid>\",\n  \"element_id\": \"task1\",\n  \"name\": \"Review application\",\n  \"task_type\": \"user_task\",\n  \"assignee\": null,\n  \"state\": \"pending\",\n  \"created_at\": \"2024-01-01T00:00:00Z\",\n  \"due_date\": null,\n  \"completed_at\": null\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"error\": \"Task <uuid> not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Complete Task",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tasks/{{task_id}}/complete",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tasks", "{{task_id}}", "complete"]
+            },
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{}"
+            }
+          },
+          "response": [
+            {
+              "name": "204 No Content",
+              "status": "No Content",
+              "code": 204,
+              "body": ""
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"error\": \"Task <uuid> not found\"\n}"
+            },
+            {
+              "name": "409 Conflict — already completed",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"error\": \"Task <uuid> cannot be completed: state is 'completed'\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

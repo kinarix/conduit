@@ -4,20 +4,43 @@ use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Org {
+    pub id: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct User {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub auth_provider: String,
+    pub external_id: Option<String>,
+    pub email: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProcessDefinition {
     pub id: Uuid,
+    pub org_id: Uuid,
+    pub owner_id: Option<Uuid>,
     pub process_key: String,
     pub version: i32,
     pub name: Option<String>,
     pub bpmn_xml: String,
+    pub labels: JsonValue,
     pub deployed_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProcessInstance {
     pub id: Uuid,
+    pub org_id: Uuid,
     pub definition_id: Uuid,
     pub state: String,
+    pub labels: JsonValue,
     pub started_at: DateTime<Utc>,
     pub ended_at: Option<DateTime<Utc>>,
 }
@@ -72,6 +95,18 @@ pub struct Job {
     pub error_message: Option<String>,
     pub state: String,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ExecutionHistory {
+    pub id: Uuid,
+    pub instance_id: Uuid,
+    pub execution_id: Uuid,
+    pub element_id: String,
+    pub element_type: String,
+    pub entered_at: DateTime<Utc>,
+    pub left_at: Option<DateTime<Utc>>,
+    pub worker_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

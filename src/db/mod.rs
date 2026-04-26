@@ -1,10 +1,13 @@
 pub mod event_subscriptions;
+pub mod execution_history;
 pub mod executions;
 pub mod jobs;
 pub mod models;
+pub mod orgs;
 pub mod process_definitions;
 pub mod process_instances;
 pub mod tasks;
+pub mod users;
 pub mod variables;
 
 use sqlx::{postgres::PgPoolOptions, Executor, PgPool};

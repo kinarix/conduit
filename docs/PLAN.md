@@ -14,25 +14,26 @@ Every phase follows this pattern:
 
 ## Phase Summary
 
-| Phase | Name | Duration | Deliverable |
+| Phase | Name | Status | Deliverable |
 |---|---|---|---|
-| 0 | Technology Evaluation | 2-3 weeks | ADRs + spikes |
-| 1 | Foundation | 1 week | Running service + health endpoint |
-| 2 | Core DB Schema | 1 week | All tables, migrations |
-| 3 | BPMN Parser (subset) | 2 weeks | Parse start/end/task/sequence |
-| 4 | Token Engine | 2 weeks | Token creation + basic advancement |
-| 5 | REST API | 1 week | Start instance, complete task |
-| 6 | Exclusive Gateway | 1 week | Conditions + routing |
-| 7 | External Task API | 1 week | Worker fetch-and-lock |
-| 8 | Job Executor + Timers | 2 weeks | Timer events, async jobs |
-| 9 | Parallel Gateway | 1 week | Fork + join |
-| 10 | Message Events | 2 weeks | Correlation + receive task |
-| 11 | Signal Events | 1 week | Broadcast |
-| 12 | Subprocess + Boundary | 3 weeks | Embedded subprocess, boundary events |
-| 13 | Inclusive Gateway | 1 week | OR routing |
-| 14 | DMN Integration | 3 weeks | Decision tables |
-| 15 | Clustering + Observability | 3 weeks | Multi-node, metrics |
-| 16 | Table Partitioning + Archival | 2 weeks | Partitioned schema, retention policy |
+| 0 | Technology Evaluation | ✅ Complete | ADRs + spikes |
+| 1 | Foundation | ✅ Complete | Running service + health endpoint |
+| 2 | Core DB Schema | ✅ Complete | All tables, migrations |
+| 3 | BPMN Parser (subset) | ✅ Complete | Parse start/end/task/sequence |
+| 4 | Token Engine | ✅ Complete | Token creation + basic advancement |
+| 5 | REST API | ✅ Complete | Start instance, complete task |
+| 5.5 | Ownership + Labels | ✅ Complete | Orgs, users, org_id, labels on all resources |
+| 6 | Exclusive Gateway | — | Conditions + routing |
+| 7 | External Task API | — | Worker fetch-and-lock |
+| 8 | Job Executor + Timers | — | Timer events, async jobs |
+| 9 | Parallel Gateway | — | Fork + join |
+| 10 | Message Events | — | Correlation + receive task |
+| 11 | Signal Events | — | Broadcast |
+| 12 | Subprocess + Boundary | — | Embedded subprocess, boundary events |
+| 13 | Inclusive Gateway | — | OR routing |
+| 14 | DMN Integration | — | Decision tables |
+| 15 | Clustering + Observability | — | Multi-node, metrics |
+| 16 | Table Partitioning + Archival | — | Partitioned schema, retention policy |
 
 ---
 
@@ -235,6 +236,37 @@ POST   /api/v1/tasks/:id/complete         complete task + variables
 
 ### Deliverable
 A process can be driven entirely via REST API calls.
+
+---
+
+## Phase 5.5 — Ownership + Labels
+
+**Goal:** Every resource belongs to an org. Definitions and instances carry JSONB labels for filtered queries and future access-scoping. Auth enforcement is out of scope — structural plumbing only.
+
+### Tables added / modified
+- `orgs` — new table in migration 001
+- `users` — new table in migration 002 (`auth_provider IN ('internal', 'external')`, email unique per org)
+- `process_definitions` — gains `org_id`, `owner_id`, `labels JSONB`; UNIQUE constraint becomes `(org_id, process_key, version)`
+- `process_instances` — gains `org_id`, `labels JSONB`
+
+### Tasks
+- [x] Add `orgs` table (migration 001)
+- [x] Add `users` table (migration 002)
+- [x] Add `org_id`, `owner_id`, `labels` to `process_definitions`
+- [x] Add `org_id`, `labels` to `process_instances`
+- [x] GIN indexes on both `labels` columns
+- [x] `Org`, `User` Rust models; update `ProcessDefinition`, `ProcessInstance`
+- [x] `src/db/orgs.rs`, `src/db/users.rs` query modules
+- [x] Update `process_definitions::insert`, `next_version` signatures
+- [x] Update `process_instances::insert` signature
+- [x] Update `engine::start_instance` signature
+- [x] `POST /api/v1/orgs`, `POST /api/v1/users` endpoints
+- [x] `DeployRequest` and `StartInstanceRequest` gain `org_id` + `labels?`
+- [x] `AUTH_PROVIDER` env var config
+- [x] All tests updated; 77 tests passing
+
+### Deliverable
+All resources are org-scoped. Labels round-trip through the API. Schema is ready for auth middleware in a later phase.
 
 ---
 

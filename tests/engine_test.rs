@@ -217,9 +217,19 @@ async fn start_instance_with_service_task() {
     let tasks = db::tasks::list_by_instance(&pool, instance.id)
         .await
         .unwrap();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].task_type, "service_task");
-    assert_eq!(tasks[0].state, "pending");
+    assert_eq!(
+        tasks.len(),
+        0,
+        "service tasks should not create task records"
+    );
+
+    let jobs = db::jobs::list_by_instance(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].job_type, "external_task");
+    assert_eq!(jobs[0].state, "pending");
+    assert_eq!(jobs[0].topic.as_deref(), Some("my-topic"));
 }
 
 // ─── execution_history audit ─────────────────────────────────────────────────

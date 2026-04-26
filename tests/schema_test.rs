@@ -380,13 +380,14 @@ async fn job_insert_and_fetch_and_lock() {
     let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
+    let topic = format!("email-sender-{}", Uuid::new_v4());
     let due = Utc::now() - chrono::Duration::seconds(1); // already due
     let job = jobs::insert(
         pool,
         inst.id,
         exec.id,
         "external_task",
-        Some("email-sender"),
+        Some(topic.as_str()),
         due,
         3,
     )
@@ -395,7 +396,7 @@ async fn job_insert_and_fetch_and_lock() {
 
     assert_eq!(job.state, "pending");
 
-    let locked = jobs::fetch_and_lock(pool, "worker-1", 30, Some("email-sender"))
+    let locked = jobs::fetch_and_lock(pool, "worker-1", 30, Some(topic.as_str()))
         .await
         .unwrap()
         .expect("should lock a due job");
@@ -415,25 +416,26 @@ async fn job_second_worker_cannot_lock_same_job() {
     let inst = seed_instance(pool, &def).await;
     let exec = seed_execution(pool, inst.id).await;
 
+    let topic = format!("payment-{}", Uuid::new_v4());
     let due = Utc::now() - chrono::Duration::seconds(1);
     jobs::insert(
         pool,
         inst.id,
         exec.id,
         "external_task",
-        Some("payment"),
+        Some(topic.as_str()),
         due,
         3,
     )
     .await
     .unwrap();
 
-    jobs::fetch_and_lock(pool, "worker-a", 30, Some("payment"))
+    jobs::fetch_and_lock(pool, "worker-a", 30, Some(topic.as_str()))
         .await
         .unwrap()
         .expect("worker-a should lock the job");
 
-    let second = jobs::fetch_and_lock(pool, "worker-b", 30, Some("payment"))
+    let second = jobs::fetch_and_lock(pool, "worker-b", 30, Some(topic.as_str()))
         .await
         .unwrap();
     assert!(

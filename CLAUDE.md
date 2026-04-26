@@ -72,7 +72,8 @@ conduit/
 │   │   ├── users.rs
 │   │   ├── deployments.rs
 │   │   ├── instances.rs
-│   │   └── tasks.rs
+│   │   ├── tasks.rs
+│   │   └── external_tasks.rs
 │   ├── engine/                  ← Core execution engine
 │   │   └── mod.rs
 │   ├── parser/                  ← BPMN XML parser
@@ -97,14 +98,17 @@ conduit/
     ├── health_test.rs
     ├── schema_test.rs
     ├── deployment_test.rs
-    └── engine_test.rs
+    ├── engine_test.rs
+    ├── parser_test.rs
+    ├── api_test.rs
+    └── external_task_test.rs
 ```
 
 ## Current Phase
 
-**Phase 6 — Exclusive Gateway** (next up)
+**Phase 8 — Timers** (next up)
 
-Phases 0–5.5 are complete (77 tests passing). See `docs/phases/PHASE-6-exclusive-gateway.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–7 are complete (91 tests passing). See `docs/phases/PHASE-8-timers.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -116,6 +120,8 @@ Phases 0–5.5 are complete (77 tests passing). See `docs/phases/PHASE-6-exclusi
 | 4 | Token engine — start_instance, complete_user_task, execution_history audit log, single-transaction advancement |
 | 5 | REST API — deployments, instances, tasks endpoints; 77 integration tests |
 | 5.5 | Ownership + labels — orgs table, users table, org_id/owner_id/labels on definitions and instances; `POST /api/v1/orgs`, `/users` |
+| 6 | Exclusive gateway — condition evaluation via Rhai, default flow fallback, expression error handling |
+| 7 | External task API — fetch-and-lock, complete, failure, extend-lock; Camunda-style worker pattern |
 
 ## How to Work Through the Phases
 

@@ -3,6 +3,7 @@ mod evaluator;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::PgPool;
@@ -12,6 +13,84 @@ use crate::db::models::{Execution, ProcessInstance, Task, Variable};
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph};
 use crate::state::GraphCache;
+
+/// Parse an ISO 8601 duration string into a `chrono::Duration`.
+/// Supported forms: PT<n>S, PT<n>M, PT<n>H, P<n>D, and combinations like PT1H30M.
+pub fn parse_duration(s: &str) -> Result<Duration> {
+    if s.is_empty() {
+        return Err(EngineError::Parse("Empty duration string".to_string()));
+    }
+
+    let s = s.trim();
+    let mut chars = s.chars().peekable();
+
+    if chars.next() != Some('P') {
+        return Err(EngineError::Parse(format!(
+            "Invalid ISO 8601 duration: '{s}'"
+        )));
+    }
+
+    let mut total_secs: i64 = 0;
+    let mut in_time = false;
+    let mut num_buf = String::new();
+    let mut parsed_any = false;
+
+    for ch in chars {
+        match ch {
+            'T' => {
+                in_time = true;
+            }
+            '0'..='9' => {
+                num_buf.push(ch);
+            }
+            'D' if !in_time => {
+                let n: i64 = num_buf.parse().map_err(|_| {
+                    EngineError::Parse(format!("Invalid number in duration: '{s}'"))
+                })?;
+                total_secs += n * 86_400;
+                num_buf.clear();
+                parsed_any = true;
+            }
+            'H' if in_time => {
+                let n: i64 = num_buf.parse().map_err(|_| {
+                    EngineError::Parse(format!("Invalid number in duration: '{s}'"))
+                })?;
+                total_secs += n * 3_600;
+                num_buf.clear();
+                parsed_any = true;
+            }
+            'M' if in_time => {
+                let n: i64 = num_buf.parse().map_err(|_| {
+                    EngineError::Parse(format!("Invalid number in duration: '{s}'"))
+                })?;
+                total_secs += n * 60;
+                num_buf.clear();
+                parsed_any = true;
+            }
+            'S' if in_time => {
+                let n: i64 = num_buf.parse().map_err(|_| {
+                    EngineError::Parse(format!("Invalid number in duration: '{s}'"))
+                })?;
+                total_secs += n;
+                num_buf.clear();
+                parsed_any = true;
+            }
+            _ => {
+                return Err(EngineError::Parse(format!(
+                    "Unexpected character '{ch}' in duration: '{s}'"
+                )));
+            }
+        }
+    }
+
+    if !parsed_any {
+        return Err(EngineError::Parse(format!(
+            "No duration components found in: '{s}'"
+        )));
+    }
+
+    Ok(Duration::seconds(total_secs))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableInput {
@@ -167,6 +246,23 @@ impl Engine {
             .execute(&mut *tx)
             .await?;
 
+        // Cancel any pending boundary timer jobs attached to this task's element.
+        if let Some(boundary_ids) = graph.attached_to.get(&task.element_id) {
+            for boundary_id in boundary_ids {
+                sqlx::query(
+                    "UPDATE jobs SET state = 'cancelled' \
+                     WHERE execution_id = (SELECT id FROM executions \
+                         WHERE instance_id = $1 AND element_id = $2 \
+                         LIMIT 1) \
+                     AND state IN ('pending', 'locked')",
+                )
+                .bind(task.instance_id)
+                .bind(boundary_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+
         let next_ids: Vec<String> = graph
             .outgoing
             .get(&task.element_id)
@@ -175,6 +271,155 @@ impl Engine {
 
         for next_id in next_ids {
             Self::run_to_wait(&mut tx, task.instance_id, &next_id, &graph).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Complete a locked external (service) task and advance the token.
+    pub async fn complete_external_task(
+        &self,
+        job_id: Uuid,
+        worker_id: &str,
+        variables: &[VariableInput],
+    ) -> Result<()> {
+        let job = sqlx::query_as::<_, crate::db::models::Job>("SELECT * FROM jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| EngineError::NotFound(format!("Job {job_id} not found")))?;
+
+        if job.state != "locked" {
+            return Err(EngineError::Conflict(format!(
+                "Job {job_id} cannot be completed: state is '{}'",
+                job.state
+            )));
+        }
+        if job.locked_by.as_deref() != Some(worker_id) {
+            return Err(EngineError::Conflict(format!(
+                "Job {job_id} is not locked by worker '{worker_id}'"
+            )));
+        }
+
+        let def_row: (Uuid,) =
+            sqlx::query_as("SELECT definition_id FROM process_instances WHERE id = $1")
+                .bind(job.instance_id)
+                .fetch_one(&self.pool)
+                .await?;
+
+        let graph = self.load_graph(def_row.0).await?;
+
+        let exec_row: (String,) = sqlx::query_as("SELECT element_id FROM executions WHERE id = $1")
+            .bind(job.execution_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let element_id = exec_row.0;
+
+        let mut tx = self.pool.begin().await?;
+
+        for var in variables {
+            sqlx::query(
+                "INSERT INTO variables (instance_id, execution_id, name, value_type, value) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT (execution_id, name) \
+                 DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+            )
+            .bind(job.instance_id)
+            .bind(job.execution_id)
+            .bind(&var.name)
+            .bind(&var.value_type)
+            .bind(&var.value)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        sqlx::query(
+            "UPDATE execution_history SET left_at = NOW() \
+             WHERE execution_id = $1 AND left_at IS NULL",
+        )
+        .bind(job.execution_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+            .bind(job.execution_id)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query(
+            "UPDATE jobs SET state = 'completed', locked_by = NULL, locked_until = NULL \
+             WHERE id = $1",
+        )
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let next_ids: Vec<String> = graph.outgoing.get(&element_id).cloned().unwrap_or_default();
+
+        for next_id in next_ids {
+            Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph).await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Record a failure for a locked external task. Decrements retries; marks instance
+    /// as error if the job is exhausted.
+    pub async fn fail_external_task(
+        &self,
+        job_id: Uuid,
+        worker_id: &str,
+        error_message: &str,
+    ) -> Result<()> {
+        let job = sqlx::query_as::<_, crate::db::models::Job>("SELECT * FROM jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| EngineError::NotFound(format!("Job {job_id} not found")))?;
+
+        if job.state != "locked" {
+            return Err(EngineError::Conflict(format!(
+                "Job {job_id} cannot be failed: state is '{}'",
+                job.state
+            )));
+        }
+        if job.locked_by.as_deref() != Some(worker_id) {
+            return Err(EngineError::Conflict(format!(
+                "Job {job_id} is not locked by worker '{worker_id}'"
+            )));
+        }
+
+        let new_retry_count = job.retry_count + 1;
+        let new_state = if new_retry_count >= job.retries {
+            "failed"
+        } else {
+            "pending"
+        };
+
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query(
+            "UPDATE jobs SET \
+             retry_count = $1, error_message = $2, \
+             locked_by = NULL, locked_until = NULL, state = $3 \
+             WHERE id = $4",
+        )
+        .bind(new_retry_count)
+        .bind(error_message)
+        .bind(new_state)
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
+
+        if new_state == "failed" {
+            sqlx::query(
+                "UPDATE process_instances SET state = 'error', ended_at = NOW() WHERE id = $1",
+            )
+            .bind(job.instance_id)
+            .execute(&mut *tx)
+            .await?;
         }
 
         tx.commit().await?;
@@ -249,7 +494,7 @@ impl Engine {
                     }
                 }
 
-                FlowNodeKind::UserTask | FlowNodeKind::ServiceTask { .. } => {
+                FlowNodeKind::UserTask => {
                     sqlx::query(
                         "INSERT INTO execution_history \
                          (instance_id, execution_id, element_id, element_type) \
@@ -262,12 +507,6 @@ impl Engine {
                     .execute(&mut **tx)
                     .await?;
 
-                    let task_type = if matches!(node.kind, FlowNodeKind::UserTask) {
-                        "user_task"
-                    } else {
-                        "service_task"
-                    };
-
                     sqlx::query(
                         "INSERT INTO tasks \
                          (instance_id, execution_id, element_id, name, task_type, state) \
@@ -277,10 +516,112 @@ impl Engine {
                     .bind(execution.id)
                     .bind(&node.id)
                     .bind(node.name.as_deref())
-                    .bind(task_type)
+                    .bind("user_task")
                     .execute(&mut **tx)
                     .await?;
 
+                    // Insert boundary timer jobs for any boundary events attached to this task.
+                    if let Some(boundary_ids) = graph.attached_to.get(&node.id) {
+                        for boundary_id in boundary_ids {
+                            let boundary_node =
+                                graph.nodes.get(boundary_id.as_str()).ok_or_else(|| {
+                                    EngineError::Internal(format!(
+                                        "Boundary event '{boundary_id}' not found in graph"
+                                    ))
+                                })?;
+
+                            if let FlowNodeKind::BoundaryTimerEvent { duration, .. } =
+                                &boundary_node.kind
+                            {
+                                let dur = parse_duration(duration)?;
+                                let due_date = chrono::Utc::now() + dur;
+
+                                let boundary_exec = sqlx::query_as::<_, Execution>(
+                                    "INSERT INTO executions (instance_id, element_id, state) \
+                                     VALUES ($1, $2, 'active') RETURNING *",
+                                )
+                                .bind(instance_id)
+                                .bind(boundary_id)
+                                .fetch_one(&mut **tx)
+                                .await?;
+
+                                sqlx::query(
+                                    "INSERT INTO jobs \
+                                     (instance_id, execution_id, job_type, due_date, retries, state) \
+                                     VALUES ($1, $2, 'timer', $3, 1, 'pending')",
+                                )
+                                .bind(instance_id)
+                                .bind(boundary_exec.id)
+                                .bind(due_date)
+                                .execute(&mut **tx)
+                                .await?;
+                            }
+                        }
+                    }
+
+                    return Ok(());
+                }
+
+                FlowNodeKind::ServiceTask { topic } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type) \
+                         VALUES ($1, $2, $3, $4)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query(
+                        "INSERT INTO jobs \
+                         (instance_id, execution_id, job_type, topic, due_date, retries, state) \
+                         VALUES ($1, $2, 'external_task', $3, NOW(), 3, 'pending')",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(topic.as_deref())
+                    .execute(&mut **tx)
+                    .await?;
+
+                    return Ok(());
+                }
+
+                FlowNodeKind::IntermediateTimerCatchEvent { duration } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type) \
+                         VALUES ($1, $2, $3, $4)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    let dur = parse_duration(duration)?;
+                    let due_date = chrono::Utc::now() + dur;
+
+                    sqlx::query(
+                        "INSERT INTO jobs \
+                         (instance_id, execution_id, job_type, due_date, retries, state) \
+                         VALUES ($1, $2, 'timer', $3, 1, 'pending')",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(due_date)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    return Ok(());
+                }
+
+                FlowNodeKind::BoundaryTimerEvent { .. } => {
+                    // Boundary events are never entered via run_to_wait directly;
+                    // they are set up alongside the host UserTask.
                     return Ok(());
                 }
 
@@ -363,6 +704,160 @@ impl Engine {
             FlowNodeKind::UserTask => "userTask",
             FlowNodeKind::ServiceTask { .. } => "serviceTask",
             FlowNodeKind::ExclusiveGateway { .. } => "exclusiveGateway",
+            FlowNodeKind::IntermediateTimerCatchEvent { .. } => "intermediateCatchEvent",
+            FlowNodeKind::BoundaryTimerEvent { .. } => "boundaryEvent",
         }
+    }
+
+    /// Fire a specific timer job by ID, regardless of its due_date.
+    /// Used by the background executor after it has already claimed the job via SKIP LOCKED.
+    pub async fn fire_timer_job(&self, job_id: Uuid) -> Result<()> {
+        let job = sqlx::query_as::<_, crate::db::models::Job>("SELECT * FROM jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| EngineError::NotFound(format!("Job {job_id} not found")))?;
+
+        if job.state == "completed" || job.state == "cancelled" {
+            return Err(EngineError::Conflict(format!(
+                "Job {job_id} cannot be fired: state is '{}'",
+                job.state
+            )));
+        }
+
+        let def_row: (Uuid,) =
+            sqlx::query_as("SELECT definition_id FROM process_instances WHERE id = $1")
+                .bind(job.instance_id)
+                .fetch_one(&self.pool)
+                .await?;
+
+        let graph = self.load_graph(def_row.0).await?;
+
+        let exec_row: (String,) = sqlx::query_as("SELECT element_id FROM executions WHERE id = $1")
+            .bind(job.execution_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let element_id = exec_row.0;
+
+        let node = graph.nodes.get(&element_id).ok_or_else(|| {
+            EngineError::Internal(format!("Element '{element_id}' not found in process graph"))
+        })?;
+
+        let mut tx = self.pool.begin().await?;
+
+        match &node.kind {
+            FlowNodeKind::IntermediateTimerCatchEvent { .. } => {
+                sqlx::query(
+                    "UPDATE execution_history SET left_at = NOW() \
+                     WHERE execution_id = $1 AND left_at IS NULL",
+                )
+                .bind(job.execution_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                    .bind(job.execution_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query(
+                    "UPDATE jobs SET state = 'completed', locked_by = NULL, locked_until = NULL \
+                     WHERE id = $1",
+                )
+                .bind(job_id)
+                .execute(&mut *tx)
+                .await?;
+
+                let next_ids: Vec<String> =
+                    graph.outgoing.get(&element_id).cloned().unwrap_or_default();
+                for next_id in next_ids {
+                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph).await?;
+                }
+            }
+
+            FlowNodeKind::BoundaryTimerEvent {
+                attached_to,
+                cancelling,
+                ..
+            } => {
+                // Cancel the associated user task if this is an interrupting boundary event.
+                if *cancelling {
+                    sqlx::query(
+                        "UPDATE tasks SET state = 'cancelled' \
+                         WHERE execution_id = (SELECT id FROM executions \
+                             WHERE instance_id = $1 AND element_id = $2 AND state = 'active' \
+                             LIMIT 1)",
+                    )
+                    .bind(job.instance_id)
+                    .bind(attached_to)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    // Close out the host execution.
+                    sqlx::query(
+                        "UPDATE execution_history SET left_at = NOW() \
+                         WHERE execution_id = (SELECT id FROM executions \
+                             WHERE instance_id = $1 AND element_id = $2 AND state = 'active' \
+                             LIMIT 1) AND left_at IS NULL",
+                    )
+                    .bind(job.instance_id)
+                    .bind(attached_to)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    sqlx::query(
+                        "UPDATE executions SET state = 'cancelled' \
+                         WHERE instance_id = $1 AND element_id = $2 AND state = 'active'",
+                    )
+                    .bind(job.instance_id)
+                    .bind(attached_to)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+
+                sqlx::query(
+                    "UPDATE jobs SET state = 'completed', locked_by = NULL, locked_until = NULL \
+                     WHERE id = $1",
+                )
+                .bind(job_id)
+                .execute(&mut *tx)
+                .await?;
+
+                let next_ids: Vec<String> =
+                    graph.outgoing.get(&element_id).cloned().unwrap_or_default();
+                for next_id in next_ids {
+                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph).await?;
+                }
+            }
+
+            _ => {
+                return Err(EngineError::Conflict(format!(
+                    "Job {job_id} element '{element_id}' is not a timer event"
+                )));
+            }
+        }
+
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Fetch and fire all due timer jobs. Returns the count of jobs fired.
+    /// Safe to call concurrently from multiple executors — uses SKIP LOCKED.
+    pub async fn fire_due_timer_jobs(&self) -> Result<usize> {
+        let jobs = crate::db::jobs::fetch_and_lock_many(
+            &self.pool,
+            "conduit-timer-executor",
+            30,
+            None,
+            Some("timer"),
+            20,
+        )
+        .await?;
+
+        let count = jobs.len();
+        for job in jobs {
+            self.fire_timer_job(job.id).await?;
+        }
+        Ok(count)
     }
 }

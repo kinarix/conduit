@@ -12,8 +12,20 @@ pub enum FlowNodeKind {
     StartEvent,
     EndEvent,
     UserTask,
-    ServiceTask { topic: Option<String> },
-    ExclusiveGateway { default_flow: Option<String> },
+    ServiceTask {
+        topic: Option<String>,
+    },
+    ExclusiveGateway {
+        default_flow: Option<String>,
+    },
+    IntermediateTimerCatchEvent {
+        duration: String,
+    },
+    BoundaryTimerEvent {
+        duration: String,
+        attached_to: String,
+        cancelling: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +53,8 @@ pub struct ProcessGraph {
     pub outgoing: HashMap<String, Vec<String>>,
     /// incoming[target_id] = [source_id, ...]
     pub incoming: HashMap<String, Vec<String>>,
+    /// attached_to[host_element_id] = [boundary_event_ids, ...]
+    pub attached_to: HashMap<String, Vec<String>>,
 }
 
 /// Parse BPMN XML into a validated `ProcessGraph`.
@@ -169,14 +183,54 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                 );
             }
 
+            "intermediateCatchEvent" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let duration = extract_timer_duration(&child)?;
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::IntermediateTimerCatchEvent { duration },
+                    },
+                );
+            }
+
+            "boundaryEvent" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let attached_to = child
+                    .attribute("attachedToRef")
+                    .ok_or_else(|| {
+                        EngineError::Parse(format!("boundaryEvent '{id}' missing attachedToRef"))
+                    })?
+                    .to_string();
+                let cancelling = child
+                    .attribute("cancelActivity")
+                    .map(|s| s != "false")
+                    .unwrap_or(true);
+                let duration = extract_timer_duration(&child)?;
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::BoundaryTimerEvent {
+                            duration,
+                            attached_to,
+                            cancelling,
+                        },
+                    },
+                );
+            }
+
             // Future-phase semantic elements — reject explicitly so callers get a clear error
             "parallelGateway"
             | "inclusiveGateway"
             | "eventBasedGateway"
             | "complexGateway"
-            | "intermediateCatchEvent"
             | "intermediateThrowEvent"
-            | "boundaryEvent"
             | "subProcess"
             | "transaction"
             | "adHocSubProcess"
@@ -219,6 +273,20 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             .push(flow.source_ref.clone());
     }
 
+    let mut attached_to: HashMap<String, Vec<String>> = HashMap::new();
+    for node in nodes.values() {
+        if let FlowNodeKind::BoundaryTimerEvent {
+            attached_to: host_id,
+            ..
+        } = &node.kind
+        {
+            attached_to
+                .entry(host_id.clone())
+                .or_default()
+                .push(node.id.clone());
+        }
+    }
+
     Ok(ProcessGraph {
         process_id,
         process_name,
@@ -226,6 +294,7 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         flows,
         outgoing,
         incoming,
+        attached_to,
     })
 }
 
@@ -259,6 +328,28 @@ fn extract_topic(node: &roxmltree::Node) -> Option<String> {
         }
     }
     None
+}
+
+fn extract_timer_duration(node: &roxmltree::Node) -> Result<String> {
+    for def in node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition")
+    {
+        for dur_node in def
+            .children()
+            .filter(|n| n.is_element() && n.tag_name().name() == "timeDuration")
+        {
+            if let Some(text) = dur_node.text() {
+                let s = text.trim().to_string();
+                if !s.is_empty() {
+                    return Ok(s);
+                }
+            }
+        }
+    }
+    Err(EngineError::Parse(
+        "Timer event missing timerEventDefinition/timeDuration".to_string(),
+    ))
 }
 
 fn extract_condition(node: &roxmltree::Node) -> Option<String> {
@@ -325,6 +416,14 @@ fn validate(
                 return Err(EngineError::Parse(format!(
                     "ExclusiveGateway '{}' references unknown default flow '{}'",
                     node.id, default_id
+                )));
+            }
+        }
+        if let FlowNodeKind::BoundaryTimerEvent { attached_to, .. } = &node.kind {
+            if !nodes.contains_key(attached_to.as_str()) {
+                return Err(EngineError::Parse(format!(
+                    "BoundaryEvent '{}' attachedToRef '{}' not found in process",
+                    node.id, attached_to
                 )));
             }
         }

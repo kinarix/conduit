@@ -126,12 +126,10 @@ fn reject_unsupported_gateway() {
 }
 
 #[test]
-fn reject_unsupported_timer() {
+fn intermediate_timer_catch_event_is_supported() {
+    // Phase 8: ICE is now a supported element; the fixture must parse cleanly.
     let result = parser::parse(&fixture("unsupported_timer"));
-    assert!(
-        matches!(result, Err(EngineError::UnsupportedElement(ref el)) if el == "intermediateCatchEvent"),
-        "expected UnsupportedElement(intermediateCatchEvent), got: {result:?}"
-    );
+    assert!(result.is_ok(), "expected Ok, got: {result:?}");
 }
 
 #[test]

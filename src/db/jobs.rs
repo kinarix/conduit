@@ -118,3 +118,71 @@ pub async fn list_by_instance(pool: &PgPool, instance_id: Uuid) -> Result<Vec<Jo
             .await?;
     Ok(rows)
 }
+
+/// Fetch and lock up to `max_jobs` pending (or expired-locked) jobs.
+/// Uses a CTE with FOR UPDATE SKIP LOCKED for safe concurrent access.
+pub async fn fetch_and_lock_many(
+    pool: &PgPool,
+    worker_id: &str,
+    lock_duration_secs: i64,
+    topic: Option<&str>,
+    job_type: Option<&str>,
+    max_jobs: i64,
+) -> Result<Vec<Job>> {
+    let rows = sqlx::query_as::<_, Job>(
+        r#"
+        WITH candidates AS (
+            SELECT id FROM jobs
+            WHERE (state = 'pending' OR (state = 'locked' AND locked_until < NOW()))
+              AND due_date <= NOW()
+              AND ($3::text IS NULL OR topic = $3)
+              AND ($4::text IS NULL OR job_type = $4)
+            ORDER BY due_date ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT $5
+        )
+        UPDATE jobs SET
+            state        = 'locked',
+            locked_by    = $1,
+            locked_until = NOW() + ($2 * interval '1 second'),
+            error_message = NULL
+        WHERE id IN (SELECT id FROM candidates)
+        RETURNING *
+        "#,
+    )
+    .bind(worker_id)
+    .bind(lock_duration_secs)
+    .bind(topic)
+    .bind(job_type)
+    .bind(max_jobs)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// Extend the lock on a job. Returns Conflict if the job is not locked by this worker.
+pub async fn extend_lock(
+    pool: &PgPool,
+    id: Uuid,
+    worker_id: &str,
+    lock_duration_secs: i64,
+) -> Result<Job> {
+    sqlx::query_as::<_, Job>(
+        r#"
+        UPDATE jobs
+        SET locked_until = NOW() + ($1 * interval '1 second')
+        WHERE id = $2 AND locked_by = $3 AND state = 'locked'
+        RETURNING *
+        "#,
+    )
+    .bind(lock_duration_secs)
+    .bind(id)
+    .bind(worker_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        EngineError::Conflict(format!(
+            "Job {id} is not locked by this worker or is not in locked state"
+        ))
+    })
+}

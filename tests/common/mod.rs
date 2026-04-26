@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use conduit::state::AppState;
 
+#[allow(dead_code)]
 pub struct TestApp {
     pub address: String,
     pub pool: PgPool,
@@ -33,6 +34,7 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::deployments::routes())
         .merge(conduit::api::instances::routes())
         .merge(conduit::api::tasks::routes())
+        .merge(conduit::api::external_tasks::routes())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -49,6 +51,7 @@ pub async fn spawn_test_app() -> TestApp {
     TestApp { address, pool }
 }
 
+#[allow(dead_code)]
 pub async fn create_test_org(app: &TestApp) -> Uuid {
     let client = reqwest::Client::new();
     let slug = format!("test-org-{}", Uuid::new_v4());

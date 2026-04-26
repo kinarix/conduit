@@ -22,6 +22,19 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState::new(pool));
 
+    // Background timer executor: polls for due timer jobs every second.
+    let executor_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        loop {
+            match executor_state.engine.fire_due_timer_jobs().await {
+                Ok(n) if n > 0 => tracing::debug!(fired = n, "Timer jobs fired"),
+                Err(e) => tracing::error!(error = %e, "Timer executor error"),
+                _ => {}
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
+
     let app = Router::new()
         .merge(api::health::routes())
         .merge(api::orgs::routes())
@@ -29,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::deployments::routes())
         .merge(api::instances::routes())
         .merge(api::tasks::routes())
+        .merge(api::external_tasks::routes())
         .with_state(state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);

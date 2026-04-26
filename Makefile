@@ -1,6 +1,6 @@
 DATABASE_URL ?= postgres://conduit:conduit_secret@localhost/conduit
 
-.PHONY: help db db-stop db-reset migrate test test-watch check fmt lint build run clean
+.PHONY: help db db-stop db-reset migrate clean-db test test-watch check fmt lint build run clean
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-15s %s\n", $$1, $$2}'
@@ -17,6 +17,10 @@ db-stop: ## Stop PostgreSQL container
 db-reset: ## Destroy and recreate the database volume
 	docker compose down -v
 	$(MAKE) db
+
+clean-db: ## Truncate all test data (keeps schema, faster than db-reset)
+	docker exec conduit-postgres psql -U conduit -d conduit -c \
+		"TRUNCATE event_subscriptions, jobs, tasks, variables, execution_history, executions, process_instances, process_definitions, users, orgs RESTART IDENTITY CASCADE;"
 
 migrate: ## Run pending migrations
 	DATABASE_URL=$(DATABASE_URL) cargo sqlx migrate run

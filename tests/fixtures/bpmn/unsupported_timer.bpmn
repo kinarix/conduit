@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Contains an intermediateCatchEvent (timer) — unsupported until Phase 8.
+     Parser must reject this with UnsupportedElement("intermediateCatchEvent"). -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_6"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="timer_wait" name="Timer Wait Process" isExecutable="true">
+    <startEvent id="start_1" name="Start"/>
+    <userTask id="task_work" name="Do Work"/>
+    <intermediateCatchEvent id="timer_24h" name="Wait 24h">
+      <timerEventDefinition>
+        <timeDuration>PT24H</timeDuration>
+      </timerEventDefinition>
+    </intermediateCatchEvent>
+    <endEvent id="end_1" name="End"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1"   targetRef="task_work"/>
+    <sequenceFlow id="flow_2" sourceRef="task_work"  targetRef="timer_24h"/>
+    <sequenceFlow id="flow_3" sourceRef="timer_24h"  targetRef="end_1"/>
+  </process>
+</definitions>

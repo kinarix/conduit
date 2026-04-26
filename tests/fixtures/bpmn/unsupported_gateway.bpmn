@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Contains an exclusiveGateway — unsupported until Phase 6.
+     Parser must reject this with UnsupportedElement("exclusiveGateway"). -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_5"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="approval_with_gateway" name="Approval With Gateway" isExecutable="true">
+    <startEvent id="start_1" name="Start"/>
+    <userTask id="task_approve" name="Approve Request"/>
+    <exclusiveGateway id="gw_decision" name="Approved?"/>
+    <serviceTask id="task_notify_ok" name="Notify Approval"   topic="notifications"/>
+    <serviceTask id="task_notify_ko" name="Notify Rejection"  topic="notifications"/>
+    <endEvent id="end_approved"  name="Approved"/>
+    <endEvent id="end_rejected"  name="Rejected"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1"     targetRef="task_approve"/>
+    <sequenceFlow id="flow_2" sourceRef="task_approve" targetRef="gw_decision"/>
+    <sequenceFlow id="flow_3" sourceRef="gw_decision"  targetRef="task_notify_ok">
+      <conditionExpression>approved == true</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_4" sourceRef="gw_decision"  targetRef="task_notify_ko">
+      <conditionExpression>approved == false</conditionExpression>
+    </sequenceFlow>
+    <sequenceFlow id="flow_5" sourceRef="task_notify_ok" targetRef="end_approved"/>
+    <sequenceFlow id="flow_6" sourceRef="task_notify_ko" targetRef="end_rejected"/>
+  </process>
+</definitions>

@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "make test",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make test",
+      "cwd": "${workspaceFolder}",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "make run",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "make run",
+      "cwd": "${workspaceFolder}",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "debug conduit",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/target/debug/conduit",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DATABASE_URL": "postgres://conduit:conduit_secret@localhost/conduit",
+        "RUST_LOG": "debug"
+      },
+      "preLaunchTask": "cargo build (debug)"
+    }
+  ]
+}

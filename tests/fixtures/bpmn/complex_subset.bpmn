@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Complex flow using only Phase 3 elements: long chain, two end events reachable
+     from separate tasks (not from a gateway — each task directly leads to its end). -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_4"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="order_fulfillment" name="Order Fulfillment" isExecutable="true">
+    <documentation>Full order fulfillment workflow: intake → review → payment → fulfillment → dispatch → confirmation.</documentation>
+
+    <startEvent id="start_1" name="Order Received"/>
+
+    <userTask id="task_review"      name="Review Order Details"/>
+    <serviceTask id="task_payment"  name="Validate Payment"      topic="payment-validator"/>
+    <userTask id="task_authorise"   name="Authorise Shipment"/>
+    <serviceTask id="task_pick"     name="Pick and Pack Items"   topic="warehouse-fulfillment"/>
+    <serviceTask id="task_dispatch" name="Dispatch to Carrier"   topic="logistics"/>
+    <userTask id="task_confirm"     name="Confirm Delivery"/>
+
+    <endEvent id="end_success" name="Order Fulfilled"/>
+
+    <sequenceFlow id="flow_start_review"       sourceRef="start_1"      targetRef="task_review"/>
+    <sequenceFlow id="flow_review_payment"     sourceRef="task_review"   targetRef="task_payment"/>
+    <sequenceFlow id="flow_payment_authorise"  sourceRef="task_payment"  targetRef="task_authorise"/>
+    <sequenceFlow id="flow_authorise_pick"     sourceRef="task_authorise" targetRef="task_pick"/>
+    <sequenceFlow id="flow_pick_dispatch"      sourceRef="task_pick"     targetRef="task_dispatch"/>
+    <sequenceFlow id="flow_dispatch_confirm"   sourceRef="task_dispatch" targetRef="task_confirm"/>
+    <sequenceFlow id="flow_confirm_end"        sourceRef="task_confirm"  targetRef="end_success"/>
+  </process>
+</definitions>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_3"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="service_and_user" name="Service And User" isExecutable="true">
+    <startEvent id="start_1" name="Order Received"/>
+    <userTask id="task_review" name="Review Order"/>
+    <serviceTask id="task_notify" name="Send Notification" topic="email-sender"/>
+    <endEvent id="end_1" name="Done"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1" targetRef="task_review"/>
+    <sequenceFlow id="flow_2" sourceRef="task_review" targetRef="task_notify"/>
+    <sequenceFlow id="flow_3" sourceRef="task_notify" targetRef="end_1"/>
+  </process>
+</definitions>

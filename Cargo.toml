@@ -1,0 +1,64 @@
+[package]
+name = "conduit"
+version = "0.1.0"
+edition = "2021"
+description = "A lightweight, high-performance process orchestration engine in Rust"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Web framework
+axum = { version = "0.8.9", features = ["json", "tracing"] }
+tower = "0.5.3"
+tower-http = { version = "0.6.8", features = ["trace", "cors", "request-id"] }
+
+# Database
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate"
+]}
+
+# Serialisation
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Config
+dotenvy = "0.15"
+
+# Error handling
+thiserror = "2.0.18"
+anyhow = "1"
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# XML parsing (Phase 3)
+roxmltree = "0.19"
+
+# Expression evaluator (added in Phase 6)
+# rhai = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+reqwest = { version = "0.13.2", features = ["json"] }
+testcontainers = "0.27.3"
+testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

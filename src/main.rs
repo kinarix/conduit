@@ -1,0 +1,37 @@
+use axum::Router;
+use conduit::{api, config, db, state::AppState};
+use std::sync::Arc;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let config = config::Config::from_env()?;
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::new(&config.log_level))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "Starting Conduit");
+
+    let pool = db::connect(&config).await?;
+    tracing::info!("Database connected");
+
+    sqlx::migrate!("./migrations").run(&pool).await?;
+    tracing::info!("Migrations applied");
+
+    let state = Arc::new(AppState::new(pool));
+
+    let app = Router::new()
+        .merge(api::health::routes())
+        .merge(api::deployments::routes())
+        .with_state(state);
+
+    let addr = format!("{}:{}", config.server_host, config.server_port);
+    tracing::info!(address = %addr, "Server listening");
+
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}

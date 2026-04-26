@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_1"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="minimal_process" isExecutable="true">
+    <startEvent id="start_1"/>
+    <endEvent id="end_1"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1" targetRef="end_1"/>
+  </process>
+</definitions>

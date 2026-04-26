@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Missing endEvent — validation must reject with "no end event" error. -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_8"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="no_end" isExecutable="true">
+    <startEvent id="start_1" name="Start"/>
+    <userTask id="task_1" name="Work"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1" targetRef="task_1"/>
+  </process>
+</definitions>

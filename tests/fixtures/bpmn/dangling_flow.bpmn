@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Dangling sequence flow: targetRef references a non-existent element.
+     Validation must reject with a "unknown target" error. -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_9"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="dangling" isExecutable="true">
+    <startEvent id="start_1" name="Start"/>
+    <endEvent id="end_1" name="End"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1" targetRef="end_1"/>
+    <sequenceFlow id="flow_bad" sourceRef="end_1" targetRef="nonexistent_node"/>
+  </process>
+</definitions>

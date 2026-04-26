@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Real-world Camunda BPE dialect:
+     - All BPMN elements use the bpmn: namespace prefix
+     - bpmndi: diagram section with shapes and waypoints
+     - camunda: extension attributes (assignee, external task topic)
+     - bpmn:incoming / bpmn:outgoing redundant refs inside tasks
+     The parser must parse this correctly and extract the ProcessGraph. -->
+<bpmn:definitions
+    xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+    xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+    xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+    xmlns:camunda="http://activiti.org/bpmn"
+    id="Definitions_1"
+    targetNamespace="http://bpmn.io/schema/bpmn"
+    exporter="Camunda Modeler"
+    exporterVersion="5.18.0">
+
+  <bpmn:process id="order_process" name="Order Process" isExecutable="true">
+
+    <bpmn:startEvent id="start_1" name="Order Received">
+      <bpmn:outgoing>flow_1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:userTask id="task_review" name="Review Order" camunda:assignee="manager">
+      <bpmn:extensionElements>
+        <camunda:properties>
+          <camunda:property name="priority" value="high"/>
+        </camunda:properties>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_1</bpmn:incoming>
+      <bpmn:outgoing>flow_2</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="task_payment" name="Process Payment"
+                      camunda:type="external"
+                      camunda:topic="payment-processor">
+      <bpmn:extensionElements>
+        <camunda:connector>
+          <camunda:connectorId>payment-gw</camunda:connectorId>
+        </camunda:connector>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_2</bpmn:incoming>
+      <bpmn:outgoing>flow_3</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="task_ship" name="Arrange Shipment" camunda:assignee="warehouse">
+      <bpmn:incoming>flow_3</bpmn:incoming>
+      <bpmn:outgoing>flow_4</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="task_notify" name="Send Confirmation Email"
+                      camunda:type="external"
+                      camunda:topic="email-sender">
+      <bpmn:incoming>flow_4</bpmn:incoming>
+      <bpmn:outgoing>flow_5</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="end_1" name="Order Fulfilled">
+      <bpmn:incoming>flow_5</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="flow_1" sourceRef="start_1"    targetRef="task_review"/>
+    <bpmn:sequenceFlow id="flow_2" sourceRef="task_review" targetRef="task_payment"/>
+    <bpmn:sequenceFlow id="flow_3" sourceRef="task_payment" targetRef="task_ship"/>
+    <bpmn:sequenceFlow id="flow_4" sourceRef="task_ship"   targetRef="task_notify"/>
+    <bpmn:sequenceFlow id="flow_5" sourceRef="task_notify" targetRef="end_1"/>
+
+  </bpmn:process>
+
+  <!-- Diagram section — ignored by the engine, present for completeness -->
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="order_process">
+
+      <bpmndi:BPMNShape id="_BPMNShape_start_1" bpmnElement="start_1">
+        <dc:Bounds x="152" y="112" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="125" y="155" width="90" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="task_review_di" bpmnElement="task_review">
+        <dc:Bounds x="240" y="90" width="100" height="80"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="task_payment_di" bpmnElement="task_payment">
+        <dc:Bounds x="390" y="90" width="100" height="80"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="task_ship_di" bpmnElement="task_ship">
+        <dc:Bounds x="540" y="90" width="100" height="80"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="task_notify_di" bpmnElement="task_notify">
+        <dc:Bounds x="690" y="90" width="100" height="80"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNShape id="_BPMNShape_end_1" bpmnElement="end_1">
+        <dc:Bounds x="842" y="112" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="815" y="155" width="90" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="flow_1_di" bpmnElement="flow_1">
+        <di:waypoint x="188" y="130"/>
+        <di:waypoint x="240" y="130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow_2_di" bpmnElement="flow_2">
+        <di:waypoint x="340" y="130"/>
+        <di:waypoint x="390" y="130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow_3_di" bpmnElement="flow_3">
+        <di:waypoint x="490" y="130"/>
+        <di:waypoint x="540" y="130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow_4_di" bpmnElement="flow_4">
+        <di:waypoint x="640" y="130"/>
+        <di:waypoint x="690" y="130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="flow_5_di" bpmnElement="flow_5">
+        <di:waypoint x="790" y="130"/>
+        <di:waypoint x="842" y="130"/>
+      </bpmndi:BPMNEdge>
+
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+
+</bpmn:definitions>

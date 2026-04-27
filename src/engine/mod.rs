@@ -1581,9 +1581,15 @@ impl Engine {
         )
         .await?;
 
-        let count = jobs.len();
+        let mut count = 0;
         for job in jobs {
-            self.fire_timer_job(job.id).await?;
+            match self.fire_timer_job(job.id).await {
+                Ok(_) => count += 1,
+                // Another caller (e.g. a direct test call) fired the job in the window between
+                // fetch_and_lock_many returning and fire_timer_job reading state. Treat as done.
+                Err(crate::error::EngineError::Conflict(_)) => {}
+                Err(e) => return Err(e),
+            }
         }
         Ok(count)
     }

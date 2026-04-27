@@ -6,6 +6,15 @@ A lightweight, high-performance process orchestration engine built in Rust.
 Designed to be a modern alternative to JVM-based engines (Camunda, Flowable, Activiti)
 without the middleware baggage of the enterprise era.
 
+## Knowledge Graph
+
+A navigable knowledge graph of this codebase lives in `graphify-out/`:
+- `graphify-out/graph.html` — interactive visualization (open in browser)
+- `graphify-out/graph.json` — raw graph data (457 nodes, 715 edges, 51 communities)
+- `graphify-out/GRAPH_REPORT.md` — audit report with god nodes and surprising connections
+
+Query it with `/graphify query "<question>"`. Rebuild after major changes with `/graphify .`.
+
 ## Core Design Principles
 
 1. **No middleware** — PostgreSQL + Tokio is the entire infrastructure
@@ -106,9 +115,9 @@ conduit/
 
 ## Current Phase
 
-**Phase 8 — Timers** (next up)
+**Phase 10 — Messages** (next up)
 
-Phases 0–7 are complete (91 tests passing). See `docs/phases/PHASE-8-timers.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–9 are complete. See `docs/phases/PHASE-10-messages.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -122,6 +131,8 @@ Phases 0–7 are complete (91 tests passing). See `docs/phases/PHASE-8-timers.md
 | 5.5 | Ownership + labels — orgs table, users table, org_id/owner_id/labels on definitions and instances; `POST /api/v1/orgs`, `/users` |
 | 6 | Exclusive gateway — condition evaluation via Rhai, default flow fallback, expression error handling |
 | 7 | External task API — fetch-and-lock, complete, failure, extend-lock; Camunda-style worker pattern |
+| 8 | Job executor + timers — ISO 8601 duration parsing, IntermediateCatchEvent (timer), boundary timer events (interrupting), FOR UPDATE SKIP LOCKED concurrent safety |
+| 9 | Parallel gateway — fork/join with atomic join counting, parallel_join_state table, work-stack execution, variable merging |
 
 ## How to Work Through the Phases
 

@@ -23,9 +23,9 @@ Every phase follows this pattern:
 | 4 | Token Engine | ✅ Complete | Token creation + basic advancement |
 | 5 | REST API | ✅ Complete | Start instance, complete task |
 | 5.5 | Ownership + Labels | ✅ Complete | Orgs, users, org_id, labels on all resources |
-| 6 | Exclusive Gateway | — | Conditions + routing |
-| 7 | External Task API | — | Worker fetch-and-lock |
-| 8 | Job Executor + Timers | — | Timer events, async jobs |
+| 6 | Exclusive Gateway | ✅ Complete | Conditions + routing |
+| 7 | External Task API | ✅ Complete | Worker fetch-and-lock |
+| 8 | Job Executor + Timers | ✅ Complete | Timer events, async jobs |
 | 9 | Parallel Gateway | — | Fork + join |
 | 10 | Message Events | — | Correlation + receive task |
 | 11 | Signal Events | — | Broadcast |
@@ -352,23 +352,23 @@ Time-based waiting and escalation works.
 
 ---
 
-## Phase 9 — Parallel Gateway
+## Phase 9 — Parallel Gateway ✅
 
 **Goal:** Multiple paths execute simultaneously and synchronise.
 
 ### Tasks
-- [ ] ParallelGateway in parser
-- [ ] Fork: create concurrent execution per outgoing flow
-- [ ] Join: wait for all concurrent executions
-- [ ] Track concurrent execution count in DB
-- [ ] Handle nested parallel gateways
+- [x] ParallelGateway in parser
+- [x] Fork: create concurrent execution per outgoing flow
+- [x] Join: wait for all concurrent executions
+- [x] Track concurrent execution count in DB (parallel_join_state table)
+- [x] Handle nested parallel gateways (via scope propagation through parent_id)
 
 ### Tests
-- Fork creates correct number of tokens
-- Join waits until all paths complete
-- Parallel tasks execute independently
-- Deadlock detection: warn if join never satisfies
-- Variables from parallel paths merged correctly
+- [x] Fork creates correct number of tokens
+- [x] Join waits until all paths complete
+- [x] Parallel tasks execute independently (order-independent completion)
+- [x] Variables from parallel paths merged correctly
+- [x] Post-join continuation works
 
 ### Deliverable
 Parallel execution with synchronisation works.

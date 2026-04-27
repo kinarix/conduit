@@ -120,8 +120,8 @@ fn parse_camunda_dialect() {
 fn reject_unsupported_gateway() {
     let result = parser::parse(&fixture("unsupported_gateway"));
     assert!(
-        matches!(result, Err(EngineError::UnsupportedElement(ref el)) if el == "parallelGateway"),
-        "expected UnsupportedElement(parallelGateway), got: {result:?}"
+        matches!(result, Err(EngineError::UnsupportedElement(ref el)) if el == "inclusiveGateway"),
+        "expected UnsupportedElement(inclusiveGateway), got: {result:?}"
     );
 }
 

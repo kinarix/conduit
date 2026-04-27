@@ -168,7 +168,7 @@ impl Engine {
         .fetch_one(&mut *tx)
         .await?;
 
-        Self::run_to_wait(&mut tx, instance.id, &start_node.id, &graph).await?;
+        Self::run_to_wait(&mut tx, instance.id, &start_node.id, &graph, None).await?;
 
         // Re-fetch within the transaction to capture any state update (e.g. Start→End).
         let final_instance =
@@ -209,6 +209,12 @@ impl Engine {
                 .await?;
 
         let graph = self.load_graph(def_row.0).await?;
+
+        let task_exec: Execution = sqlx::query_as("SELECT * FROM executions WHERE id = $1")
+            .bind(task.execution_id)
+            .fetch_one(&self.pool)
+            .await?;
+        let parallel_scope = task_exec.parent_id;
 
         let mut tx = self.pool.begin().await?;
 
@@ -270,7 +276,7 @@ impl Engine {
             .unwrap_or_default();
 
         for next_id in next_ids {
-            Self::run_to_wait(&mut tx, task.instance_id, &next_id, &graph).await?;
+            Self::run_to_wait(&mut tx, task.instance_id, &next_id, &graph, parallel_scope).await?;
         }
 
         tx.commit().await?;
@@ -310,11 +316,12 @@ impl Engine {
 
         let graph = self.load_graph(def_row.0).await?;
 
-        let exec_row: (String,) = sqlx::query_as("SELECT element_id FROM executions WHERE id = $1")
+        let ext_exec: Execution = sqlx::query_as("SELECT * FROM executions WHERE id = $1")
             .bind(job.execution_id)
             .fetch_one(&self.pool)
             .await?;
-        let element_id = exec_row.0;
+        let element_id = ext_exec.element_id.clone();
+        let parallel_scope = ext_exec.parent_id;
 
         let mut tx = self.pool.begin().await?;
 
@@ -358,7 +365,7 @@ impl Engine {
         let next_ids: Vec<String> = graph.outgoing.get(&element_id).cloned().unwrap_or_default();
 
         for next_id in next_ids {
-            Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph).await?;
+            Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope).await?;
         }
 
         tx.commit().await?;
@@ -426,27 +433,34 @@ impl Engine {
         Ok(())
     }
 
-    /// Advance the token starting from `element_id` until it reaches a wait state
-    /// (UserTask, ServiceTask) or a terminal state (EndEvent).
+    /// Advance tokens starting from `start_element_id` until all active paths reach
+    /// a wait state (UserTask, ServiceTask) or a terminal state (EndEvent).
+    /// `parallel_scope` carries the fork execution ID for tracking join synchronisation.
     async fn run_to_wait(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         instance_id: Uuid,
-        element_id: &str,
+        start_element_id: &str,
         graph: &ProcessGraph,
+        parallel_scope: Option<Uuid>,
     ) -> Result<()> {
-        let mut current_id = element_id.to_string();
+        // Work-stack: (element_id, scope). Avoids recursive async functions.
+        let mut stack: Vec<(String, Option<Uuid>)> =
+            vec![(start_element_id.to_string(), parallel_scope)];
 
-        loop {
+        while let Some((current_id, scope)) = stack.pop() {
             let node = graph.nodes.get(&current_id).ok_or_else(|| {
-                EngineError::Internal(format!("Element '{current_id}' not found in process graph"))
+                EngineError::Internal(format!(
+                    "Element '{current_id}' not found in process graph"
+                ))
             })?;
 
             let execution = sqlx::query_as::<_, Execution>(
-                "INSERT INTO executions (instance_id, element_id, state) \
-                 VALUES ($1, $2, 'active') RETURNING *",
+                "INSERT INTO executions (instance_id, element_id, state, parent_id) \
+                 VALUES ($1, $2, 'active', $3) RETURNING *",
             )
             .bind(instance_id)
             .bind(&node.id)
+            .bind(scope)
             .fetch_one(&mut **tx)
             .await?;
 
@@ -454,7 +468,6 @@ impl Engine {
 
             match &node.kind {
                 FlowNodeKind::StartEvent | FlowNodeKind::EndEvent => {
-                    // Instantaneous: enter and leave in the same instant.
                     sqlx::query(
                         "INSERT INTO execution_history \
                          (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
@@ -481,16 +494,11 @@ impl Engine {
                         .bind(instance_id)
                         .execute(&mut **tx)
                         .await?;
-                        return Ok(());
-                    }
-
-                    // StartEvent: continue to the next element.
-                    let next_ids = graph.outgoing.get(&node.id).cloned().unwrap_or_default();
-                    match next_ids.into_iter().next() {
-                        Some(next_id) => {
-                            current_id = next_id;
+                        // Don't push anything — instance is done.
+                    } else {
+                        for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
+                            stack.push((next_id, scope));
                         }
-                        None => return Ok(()),
                     }
                 }
 
@@ -520,7 +528,6 @@ impl Engine {
                     .execute(&mut **tx)
                     .await?;
 
-                    // Insert boundary timer jobs for any boundary events attached to this task.
                     if let Some(boundary_ids) = graph.attached_to.get(&node.id) {
                         for boundary_id in boundary_ids {
                             let boundary_node =
@@ -558,8 +565,7 @@ impl Engine {
                             }
                         }
                     }
-
-                    return Ok(());
+                    // Stop — task is waiting for human input.
                 }
 
                 FlowNodeKind::ServiceTask { topic } => {
@@ -585,8 +591,7 @@ impl Engine {
                     .bind(topic.as_deref())
                     .execute(&mut **tx)
                     .await?;
-
-                    return Ok(());
+                    // Stop — waiting for external worker.
                 }
 
                 FlowNodeKind::IntermediateTimerCatchEvent { duration } => {
@@ -615,14 +620,11 @@ impl Engine {
                     .bind(due_date)
                     .execute(&mut **tx)
                     .await?;
-
-                    return Ok(());
+                    // Stop — waiting for timer.
                 }
 
                 FlowNodeKind::BoundaryTimerEvent { .. } => {
-                    // Boundary events are never entered via run_to_wait directly;
-                    // they are set up alongside the host UserTask.
-                    return Ok(());
+                    // Never entered via run_to_wait directly; set up alongside the host UserTask.
                 }
 
                 FlowNodeKind::ExclusiveGateway { default_flow } => {
@@ -643,7 +645,6 @@ impl Engine {
                         .execute(&mut **tx)
                         .await?;
 
-                    // Load all instance variables visible within this transaction.
                     let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
                         "SELECT * FROM variables WHERE instance_id = $1",
                     )
@@ -654,7 +655,6 @@ impl Engine {
                     let var_map: HashMap<String, JsonValue> =
                         vars.into_iter().map(|v| (v.name, v.value)).collect();
 
-                    // Collect outgoing flows for this gateway (maintain declaration order).
                     let outgoing_flows: Vec<_> = graph
                         .flows
                         .iter()
@@ -678,9 +678,7 @@ impl Engine {
                     }
 
                     match chosen.or(default_target) {
-                        Some(target) => {
-                            current_id = target;
-                        }
+                        Some(target) => stack.push((target, scope)),
                         None => {
                             sqlx::query(
                                 "UPDATE process_instances \
@@ -689,12 +687,89 @@ impl Engine {
                             .bind(instance_id)
                             .execute(&mut **tx)
                             .await?;
-                            return Ok(());
                         }
+                    }
+                }
+
+                FlowNodeKind::ParallelGateway => {
+                    let incoming_count =
+                        graph.incoming.get(&node.id).map(|v| v.len()).unwrap_or(0);
+                    let outgoing_ids: Vec<String> =
+                        graph.outgoing.get(&node.id).cloned().unwrap_or_default();
+
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
+                         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    if incoming_count <= 1 {
+                        // Fork: create join state and push all branch starts.
+                        let expected = outgoing_ids.len() as i32;
+                        sqlx::query(
+                            "INSERT INTO parallel_join_state \
+                             (instance_id, fork_execution_id, expected_count) \
+                             VALUES ($1, $2, $3)",
+                        )
+                        .bind(instance_id)
+                        .bind(execution.id)
+                        .bind(expected)
+                        .execute(&mut **tx)
+                        .await?;
+
+                        for target_id in outgoing_ids {
+                            stack.push((target_id, Some(execution.id)));
+                        }
+                    } else {
+                        // Join: atomically increment arrived count.
+                        let fork_exec_id = scope.ok_or_else(|| {
+                            EngineError::Internal(
+                                "Parallel join reached with no scope — fork execution ID unknown"
+                                    .to_string(),
+                            )
+                        })?;
+
+                        let (arrived, expected): (i32, i32) = sqlx::query_as(
+                            "UPDATE parallel_join_state \
+                             SET arrived_count = arrived_count + 1 \
+                             WHERE fork_execution_id = $1 \
+                             RETURNING arrived_count, expected_count",
+                        )
+                        .bind(fork_exec_id)
+                        .fetch_one(&mut **tx)
+                        .await?;
+
+                        if arrived >= expected {
+                            // All branches arrived — query the fork's parent scope for continuation.
+                            let outer_scope: Option<Uuid> = sqlx::query_scalar(
+                                "SELECT parent_id FROM executions WHERE id = $1",
+                            )
+                            .bind(fork_exec_id)
+                            .fetch_one(&mut **tx)
+                            .await?;
+
+                            for target_id in outgoing_ids {
+                                stack.push((target_id, outer_scope));
+                            }
+                        }
+                        // else: not all branches arrived — this branch stops here.
                     }
                 }
             }
         }
+
+        Ok(())
     }
 
     fn element_type_str(kind: &FlowNodeKind) -> &'static str {
@@ -704,6 +779,7 @@ impl Engine {
             FlowNodeKind::UserTask => "userTask",
             FlowNodeKind::ServiceTask { .. } => "serviceTask",
             FlowNodeKind::ExclusiveGateway { .. } => "exclusiveGateway",
+            FlowNodeKind::ParallelGateway => "parallelGateway",
             FlowNodeKind::IntermediateTimerCatchEvent { .. } => "intermediateCatchEvent",
             FlowNodeKind::BoundaryTimerEvent { .. } => "boundaryEvent",
         }
@@ -733,11 +809,12 @@ impl Engine {
 
         let graph = self.load_graph(def_row.0).await?;
 
-        let exec_row: (String,) = sqlx::query_as("SELECT element_id FROM executions WHERE id = $1")
+        let timer_exec: Execution = sqlx::query_as("SELECT * FROM executions WHERE id = $1")
             .bind(job.execution_id)
             .fetch_one(&self.pool)
             .await?;
-        let element_id = exec_row.0;
+        let element_id = timer_exec.element_id.clone();
+        let parallel_scope = timer_exec.parent_id;
 
         let node = graph.nodes.get(&element_id).ok_or_else(|| {
             EngineError::Internal(format!("Element '{element_id}' not found in process graph"))
@@ -771,7 +848,7 @@ impl Engine {
                 let next_ids: Vec<String> =
                     graph.outgoing.get(&element_id).cloned().unwrap_or_default();
                 for next_id in next_ids {
-                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph).await?;
+                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope).await?;
                 }
             }
 
@@ -826,7 +903,7 @@ impl Engine {
                 let next_ids: Vec<String> =
                     graph.outgoing.get(&element_id).cloned().unwrap_or_default();
                 for next_id in next_ids {
-                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph).await?;
+                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope).await?;
                 }
             }
 

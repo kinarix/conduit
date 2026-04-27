@@ -110,6 +110,16 @@ pub struct ExecutionHistory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ParallelJoinState {
+    pub id: Uuid,
+    pub instance_id: Uuid,
+    pub fork_execution_id: Uuid,
+    pub expected_count: i32,
+    pub arrived_count: i32,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EventSubscription {
     pub id: Uuid,
     pub instance_id: Uuid,

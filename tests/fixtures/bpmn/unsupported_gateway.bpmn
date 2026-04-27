@@ -1,21 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Contains a parallelGateway — unsupported until Phase 9.
-     Parser must reject this with UnsupportedElement("parallelGateway"). -->
+<!-- Contains an inclusiveGateway — unsupported.
+     Parser must reject this with UnsupportedElement("inclusiveGateway"). -->
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              id="Definitions_5"
              targetNamespace="http://conduit.io/schema/bpmn">
-  <process id="parallel_process" name="Parallel Process" isExecutable="true">
+  <process id="inclusive_process" name="Inclusive Process" isExecutable="true">
     <startEvent id="start_1" name="Start"/>
-    <parallelGateway id="gw_fork" name="Fork"/>
-    <userTask id="task_a" name="Task A"/>
-    <userTask id="task_b" name="Task B"/>
-    <parallelGateway id="gw_join" name="Join"/>
+    <inclusiveGateway id="gw_1" name="Inclusive GW"/>
     <endEvent id="end_1" name="End"/>
-    <sequenceFlow id="flow_1" sourceRef="start_1"  targetRef="gw_fork"/>
-    <sequenceFlow id="flow_2" sourceRef="gw_fork"   targetRef="task_a"/>
-    <sequenceFlow id="flow_3" sourceRef="gw_fork"   targetRef="task_b"/>
-    <sequenceFlow id="flow_4" sourceRef="task_a"    targetRef="gw_join"/>
-    <sequenceFlow id="flow_5" sourceRef="task_b"    targetRef="gw_join"/>
-    <sequenceFlow id="flow_6" sourceRef="gw_join"   targetRef="end_1"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1" targetRef="gw_1"/>
+    <sequenceFlow id="flow_2" sourceRef="gw_1"    targetRef="end_1"/>
   </process>
 </definitions>

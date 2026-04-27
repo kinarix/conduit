@@ -9,7 +9,7 @@ use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::db::models::{Execution, ProcessInstance, Task, Variable};
+use crate::db::models::{EventSubscription, Execution, ProcessInstance, Task, Variable};
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph};
 use crate::state::GraphCache;
@@ -623,6 +623,74 @@ impl Engine {
                     // Stop — waiting for timer.
                 }
 
+                FlowNodeKind::MessageStartEvent { .. } => {
+                    // Entered when a MessageStartEvent triggers a new instance.
+                    // Treat like a plain StartEvent — pass through immediately.
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
+                         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
+                        stack.push((next_id, scope));
+                    }
+                }
+
+                FlowNodeKind::IntermediateMessageCatchEvent {
+                    message_name,
+                    correlation_key_expr,
+                }
+                | FlowNodeKind::ReceiveTask {
+                    message_name,
+                    correlation_key_expr,
+                } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type) \
+                         VALUES ($1, $2, $3, $4)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    // Resolve correlation key: evaluate simple ${varName} expressions
+                    // against current instance variables; fall back to literal value.
+                    let resolved_key = if let Some(expr) = correlation_key_expr {
+                        Self::resolve_correlation_key(expr, instance_id, tx).await?
+                    } else {
+                        None
+                    };
+
+                    sqlx::query(
+                        "INSERT INTO event_subscriptions \
+                         (instance_id, execution_id, event_type, event_name, correlation_key, element_id) \
+                         VALUES ($1, $2, 'message', $3, $4, $5)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(message_name)
+                    .bind(resolved_key.as_deref())
+                    .bind(&node.id)
+                    .execute(&mut **tx)
+                    .await?;
+                    // Stop — waiting for message correlation.
+                }
+
                 FlowNodeKind::BoundaryTimerEvent { .. } => {
                     // Never entered via run_to_wait directly; set up alongside the host UserTask.
                 }
@@ -775,14 +843,214 @@ impl Engine {
     fn element_type_str(kind: &FlowNodeKind) -> &'static str {
         match kind {
             FlowNodeKind::StartEvent => "startEvent",
+            FlowNodeKind::MessageStartEvent { .. } => "startEvent",
             FlowNodeKind::EndEvent => "endEvent",
             FlowNodeKind::UserTask => "userTask",
             FlowNodeKind::ServiceTask { .. } => "serviceTask",
             FlowNodeKind::ExclusiveGateway { .. } => "exclusiveGateway",
             FlowNodeKind::ParallelGateway => "parallelGateway",
             FlowNodeKind::IntermediateTimerCatchEvent { .. } => "intermediateCatchEvent",
+            FlowNodeKind::IntermediateMessageCatchEvent { .. } => "intermediateCatchEvent",
+            FlowNodeKind::ReceiveTask { .. } => "receiveTask",
             FlowNodeKind::BoundaryTimerEvent { .. } => "boundaryEvent",
         }
+    }
+
+    /// Resolve a correlation key expression against current instance variables.
+    /// Supports `${varName}` variable references; any other value is used as a literal.
+    async fn resolve_correlation_key(
+        expr: &str,
+        instance_id: Uuid,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> Result<Option<String>> {
+        let trimmed = expr.trim();
+        if trimmed.starts_with("${") && trimmed.ends_with('}') {
+            let var_name = &trimmed[2..trimmed.len() - 1];
+            let row: Option<(JsonValue,)> = sqlx::query_as(
+                "SELECT value FROM variables WHERE instance_id = $1 AND name = $2 LIMIT 1",
+            )
+            .bind(instance_id)
+            .bind(var_name)
+            .fetch_optional(&mut **tx)
+            .await?;
+            return Ok(row.map(|(val,)| match val {
+                JsonValue::String(s) => s,
+                other => other.to_string(),
+            }));
+        }
+        Ok(Some(trimmed.to_string()))
+    }
+
+    /// Correlate an inbound message to a waiting instance and advance its token.
+    ///
+    /// Lookup order:
+    /// 1. Find an `event_subscriptions` row matching `message_name` + `correlation_key` and
+    ///    atomically claim it (DELETE … RETURNING inside a transaction).
+    /// 2. If no subscription found, scan deployed process definitions for one whose start event is
+    ///    a `MessageStartEvent` with a matching name, then create a new instance.
+    /// 3. If neither matches, return `NotFound`.
+    pub async fn correlate_message(
+        &self,
+        message_name: &str,
+        correlation_key: Option<&str>,
+        variables: &[VariableInput],
+        org_id: Uuid,
+    ) -> Result<()> {
+        // Attempt 1: find a waiting subscription and claim it atomically.
+        let mut tx = self.pool.begin().await?;
+
+        let sub: Option<EventSubscription> = sqlx::query_as(
+            "DELETE FROM event_subscriptions \
+             WHERE id = ( \
+                 SELECT es.id FROM event_subscriptions es \
+                 JOIN process_instances pi ON pi.id = es.instance_id \
+                 WHERE es.event_type = 'message' \
+                   AND es.event_name = $1 \
+                   AND ($2::text IS NULL OR es.correlation_key = $2) \
+                   AND pi.org_id = $3 \
+                 ORDER BY es.created_at ASC \
+                 LIMIT 1 \
+                 FOR UPDATE OF es SKIP LOCKED \
+             ) RETURNING *",
+        )
+        .bind(message_name)
+        .bind(correlation_key)
+        .bind(org_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(sub) = sub {
+            let def_row: (Uuid,) =
+                sqlx::query_as("SELECT definition_id FROM process_instances WHERE id = $1")
+                    .bind(sub.instance_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+
+            let graph = self.load_graph(def_row.0).await?;
+
+            let wait_exec: Execution =
+                sqlx::query_as("SELECT * FROM executions WHERE id = $1")
+                    .bind(sub.execution_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let parallel_scope = wait_exec.parent_id;
+
+            for var in variables {
+                sqlx::query(
+                    "INSERT INTO variables \
+                     (instance_id, execution_id, name, value_type, value) \
+                     VALUES ($1, $2, $3, $4, $5) \
+                     ON CONFLICT (execution_id, name) \
+                     DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+                )
+                .bind(sub.instance_id)
+                .bind(sub.execution_id)
+                .bind(&var.name)
+                .bind(&var.value_type)
+                .bind(&var.value)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            sqlx::query(
+                "UPDATE execution_history SET left_at = NOW() \
+                 WHERE execution_id = $1 AND left_at IS NULL",
+            )
+            .bind(sub.execution_id)
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                .bind(sub.execution_id)
+                .execute(&mut *tx)
+                .await?;
+
+            let next_ids: Vec<String> = graph
+                .outgoing
+                .get(&sub.element_id)
+                .cloned()
+                .unwrap_or_default();
+
+            for next_id in next_ids {
+                Self::run_to_wait(&mut tx, sub.instance_id, &next_id, &graph, parallel_scope)
+                    .await?;
+            }
+
+            tx.commit().await?;
+            return Ok(());
+        }
+
+        tx.rollback().await.ok();
+
+        // Attempt 2: MessageStartEvent — scan deployed definitions for the org.
+        let defs: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, bpmn_xml FROM process_definitions WHERE org_id = $1",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        for (def_id, bpmn_xml) in &defs {
+            let graph = match crate::parser::parse(bpmn_xml) {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+
+            let start_node = graph.nodes.values().find(|n| {
+                matches!(
+                    &n.kind,
+                    FlowNodeKind::MessageStartEvent { message_name: mn }
+                        if mn == message_name
+                )
+            });
+
+            if let Some(start_node) = start_node {
+                let start_id = start_node.id.clone();
+                let labels = serde_json::json!({});
+                let instance = sqlx::query_as::<_, ProcessInstance>(
+                    "INSERT INTO process_instances \
+                     (org_id, definition_id, state, labels) \
+                     VALUES ($1, $2, 'running', $3) RETURNING *",
+                )
+                .bind(org_id)
+                .bind(def_id)
+                .bind(&labels)
+                .fetch_one(&self.pool)
+                .await?;
+
+                let mut tx2 = self.pool.begin().await?;
+
+                // Write the message variables into the start execution context.
+                // We need the start execution id — it gets created in run_to_wait, so write
+                // variables after the run using the instance id scope.
+                Self::run_to_wait(&mut tx2, instance.id, &start_id, &graph, None).await?;
+
+                // Write message variables at instance scope (execution_id = first execution).
+                for var in variables {
+                    sqlx::query(
+                        "INSERT INTO variables \
+                         (instance_id, execution_id, name, value_type, value) \
+                         SELECT $1, id, $2, $3, $4 \
+                         FROM executions WHERE instance_id = $1 ORDER BY created_at ASC LIMIT 1 \
+                         ON CONFLICT (execution_id, name) \
+                         DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+                    )
+                    .bind(instance.id)
+                    .bind(&var.name)
+                    .bind(&var.value_type)
+                    .bind(&var.value)
+                    .execute(&mut *tx2)
+                    .await?;
+                }
+
+                tx2.commit().await?;
+                return Ok(());
+            }
+        }
+
+        Err(EngineError::NotFound(format!(
+            "No waiting subscription or MessageStartEvent found for message '{message_name}'"
+        )))
     }
 
     /// Fire a specific timer job by ID, regardless of its due_date.

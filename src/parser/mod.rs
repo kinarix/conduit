@@ -10,6 +10,9 @@ const CAMUNDA_NS: &str = "http://activiti.org/bpmn";
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlowNodeKind {
     StartEvent,
+    MessageStartEvent {
+        message_name: String,
+    },
     EndEvent,
     UserTask,
     ServiceTask {
@@ -21,6 +24,14 @@ pub enum FlowNodeKind {
     ParallelGateway,
     IntermediateTimerCatchEvent {
         duration: String,
+    },
+    IntermediateMessageCatchEvent {
+        message_name: String,
+        correlation_key_expr: Option<String>,
+    },
+    ReceiveTask {
+        message_name: String,
+        correlation_key_expr: Option<String>,
     },
     BoundaryTimerEvent {
         duration: String,
@@ -66,6 +77,18 @@ pub struct ProcessGraph {
 pub fn parse(xml: &str) -> Result<ProcessGraph> {
     let doc = Document::parse(xml).map_err(|e| EngineError::Parse(format!("Invalid XML: {e}")))?;
 
+    // Collect <message> definitions from the <definitions> root level (id → name)
+    let message_defs: HashMap<String, String> = doc
+        .root_element()
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "message")
+        .filter_map(|n| {
+            let id = n.attribute("id")?;
+            let name = n.attribute("name")?;
+            Some((id.to_string(), name.to_string()))
+        })
+        .collect();
+
     // Find the <process> element — works for both bare `<process>` and `<bpmn:process>`
     let process_node = doc
         .root_element()
@@ -101,14 +124,16 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             "startEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                nodes.insert(
-                    id.clone(),
-                    FlowNode {
-                        id,
-                        name,
-                        kind: FlowNodeKind::StartEvent,
-                    },
-                );
+                let kind = if let Some(msg_name) =
+                    extract_message_name(&child, &message_defs, &id)?
+                {
+                    FlowNodeKind::MessageStartEvent {
+                        message_name: msg_name,
+                    }
+                } else {
+                    FlowNodeKind::StartEvent
+                };
+                nodes.insert(id.clone(), FlowNode { id, name, kind });
             }
             "endEvent" => {
                 let id = require_id(&child, local)?;
@@ -187,15 +212,27 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             "intermediateCatchEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let duration = extract_timer_duration(&child)?;
-                nodes.insert(
-                    id.clone(),
-                    FlowNode {
-                        id,
-                        name,
-                        kind: FlowNodeKind::IntermediateTimerCatchEvent { duration },
-                    },
-                );
+                let has_timer = child
+                    .children()
+                    .any(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition");
+                let kind = if has_timer {
+                    FlowNodeKind::IntermediateTimerCatchEvent {
+                        duration: extract_timer_duration(&child)?,
+                    }
+                } else if let Some(msg_name) =
+                    extract_message_name(&child, &message_defs, &id)?
+                {
+                    let correlation_key_expr = extract_correlation_key(&child);
+                    FlowNodeKind::IntermediateMessageCatchEvent {
+                        message_name: msg_name,
+                        correlation_key_expr,
+                    }
+                } else {
+                    return Err(EngineError::Parse(format!(
+                        "intermediateCatchEvent '{id}' has no supported event definition"
+                    )));
+                };
+                nodes.insert(id.clone(), FlowNode { id, name, kind });
             }
 
             "boundaryEvent" => {
@@ -239,6 +276,30 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                 );
             }
 
+            "receiveTask" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let message_name = extract_message_name(&child, &message_defs, &id)?.ok_or_else(
+                    || {
+                        EngineError::Parse(format!(
+                            "receiveTask '{id}' missing messageRef or message definition"
+                        ))
+                    },
+                )?;
+                let correlation_key_expr = extract_correlation_key(&child);
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::ReceiveTask {
+                            message_name,
+                            correlation_key_expr,
+                        },
+                    },
+                );
+            }
+
             // Future-phase semantic elements — reject explicitly so callers get a clear error
             "inclusiveGateway"
             | "eventBasedGateway"
@@ -247,7 +308,6 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             | "subProcess"
             | "transaction"
             | "adHocSubProcess"
-            | "receiveTask"
             | "sendTask"
             | "businessRuleTask"
             | "manualTask"
@@ -373,24 +433,86 @@ fn extract_condition(node: &roxmltree::Node) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Resolve the message name for an event node that contains a `<messageEventDefinition>`.
+/// Returns `None` if the node has no `messageEventDefinition` child.
+/// Returns `Err` if the `messageRef` attribute is present but references an unknown message.
+fn extract_message_name(
+    node: &roxmltree::Node,
+    message_defs: &HashMap<String, String>,
+    element_id: &str,
+) -> Result<Option<String>> {
+    let def = node
+        .children()
+        .find(|n| n.is_element() && n.tag_name().name() == "messageEventDefinition");
+    let def = match def {
+        Some(d) => d,
+        None => return Ok(None),
+    };
+
+    // messageRef may be a bare id or a prefixed QName like "bpmn:msg1" — strip prefix
+    if let Some(msg_ref) = def.attribute("messageRef") {
+        let bare_id = msg_ref.split(':').last().unwrap_or(msg_ref);
+        if let Some(name) = message_defs.get(bare_id) {
+            return Ok(Some(name.clone()));
+        }
+        // Inline message name fallback: some tools embed the name directly as messageRef
+        return Ok(Some(bare_id.to_string()));
+    }
+
+    Err(EngineError::Parse(format!(
+        "messageEventDefinition on '{element_id}' is missing messageRef attribute"
+    )))
+}
+
+/// Extract the correlation key expression from a message event node.
+/// Looks for a plain `correlationKey` attribute or a Camunda-namespace `camunda:correlationKey`.
+fn extract_correlation_key(node: &roxmltree::Node) -> Option<String> {
+    if let Some(v) = node.attribute("correlationKey") {
+        return Some(v.to_string());
+    }
+    if let Some(v) = node.attribute((CAMUNDA_NS, "correlationKey")) {
+        return Some(v.to_string());
+    }
+    // Also check inside <extensionElements>
+    for ext in node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
+    {
+        for inner in ext.children().filter(|n| n.is_element()) {
+            if inner.tag_name().name() == "correlationKey" {
+                return inner
+                    .text()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty());
+            }
+        }
+    }
+    None
+}
+
 fn validate(
     process_id: &str,
     nodes: &HashMap<String, FlowNode>,
     flows: &[SequenceFlow],
 ) -> Result<()> {
-    let start_count = nodes
+    let plain_start_count = nodes
         .values()
         .filter(|n| matches!(n.kind, FlowNodeKind::StartEvent))
         .count();
+    let message_start_count = nodes
+        .values()
+        .filter(|n| matches!(n.kind, FlowNodeKind::MessageStartEvent { .. }))
+        .count();
+    let total_start_count = plain_start_count + message_start_count;
 
-    if start_count == 0 {
+    if total_start_count == 0 {
         return Err(EngineError::Parse(format!(
             "Process '{process_id}' has no start event"
         )));
     }
-    if start_count > 1 {
+    if plain_start_count > 1 {
         return Err(EngineError::Parse(format!(
-            "Process '{process_id}' has {start_count} start events; only one supported in Phase 3"
+            "Process '{process_id}' has {plain_start_count} plain start events; only one supported"
         )));
     }
 

@@ -43,6 +43,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::instances::routes())
         .merge(api::tasks::routes())
         .merge(api::external_tasks::routes())
+        .merge(api::messages::routes())
         .with_state(state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);

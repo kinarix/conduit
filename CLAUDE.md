@@ -115,9 +115,9 @@ conduit/
 
 ## Current Phase
 
-**Phase 13 — Inclusive Gateway** (next up)
+**Phase 14 — DMN Integration** (next up)
 
-Phases 0–12a are complete. See `docs/phases/PHASE-13-inclusive-gateway.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–13 are complete. See `docs/phases/PHASE-14-dmn.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -136,6 +136,7 @@ Phases 0–12a are complete. See `docs/phases/PHASE-13-inclusive-gateway.md` and
 | 10 | Message events — IntermediateCatchEvent (message), ReceiveTask, correlation key matching, MessageStartEvent, `POST /api/v1/messages` |
 | 11 | Signal events — IntermediateSignalCatchEvent, BoundarySignalEvent (interrupting + non-interrupting), SignalStartEvent, `POST /api/v1/signals/broadcast` |
 | 12 | Embedded subprocess — SubProcess variant, `find_element_graph` recursive lookup, subprocess scoping, nested subprocess support |
+| 13 | Inclusive gateway — OR routing with selective join, condition evaluation on all outgoing flows, `parallel_join_state` reuse with `expected_count = matched.len()` |
 
 ## How to Work Through the Phases
 

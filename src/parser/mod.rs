@@ -21,6 +21,9 @@ pub enum FlowNodeKind {
     ExclusiveGateway {
         default_flow: Option<String>,
     },
+    InclusiveGateway {
+        default_flow: Option<String>,
+    },
     ParallelGateway,
     IntermediateTimerCatchEvent {
         duration: String,
@@ -247,6 +250,20 @@ fn parse_children(
                 );
             }
 
+            "inclusiveGateway" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let default_flow = child.attribute("default").map(|s| s.to_string());
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::InclusiveGateway { default_flow },
+                    },
+                );
+            }
+
             "intermediateCatchEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -366,8 +383,7 @@ fn parse_children(
             }
 
             // Future-phase semantic elements — reject explicitly so callers get a clear error
-            "inclusiveGateway"
-            | "eventBasedGateway"
+            "eventBasedGateway"
             | "complexGateway"
             | "intermediateThrowEvent"
             | "transaction"

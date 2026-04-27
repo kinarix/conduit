@@ -1063,6 +1063,137 @@ impl Engine {
                         // else: not all branches arrived — this branch stops here.
                     }
                 }
+
+                FlowNodeKind::InclusiveGateway { default_flow } => {
+                    let incoming_count = current_graph
+                        .incoming
+                        .get(&node.id)
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
+                         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    if incoming_count <= 1 {
+                        // Fork: evaluate all conditions, activate every matching path.
+                        let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
+                            "SELECT * FROM variables WHERE instance_id = $1",
+                        )
+                        .bind(instance_id)
+                        .fetch_all(&mut **tx)
+                        .await?;
+
+                        let var_map: HashMap<String, JsonValue> =
+                            vars.into_iter().map(|v| (v.name, v.value)).collect();
+
+                        let outgoing_flows: Vec<_> = current_graph
+                            .flows
+                            .iter()
+                            .filter(|f| f.source_ref == node.id)
+                            .collect();
+
+                        let mut matched: Vec<String> = Vec::new();
+                        let mut default_target: Option<String> = None;
+
+                        for flow in &outgoing_flows {
+                            if default_flow.as_deref() == Some(flow.id.as_str()) {
+                                default_target = Some(flow.target_ref.clone());
+                                continue;
+                            }
+                            if let Some(expr) = &flow.condition {
+                                if evaluator::evaluate_condition(expr, &var_map).unwrap_or(false) {
+                                    matched.push(flow.target_ref.clone());
+                                }
+                            } else {
+                                // Unconditional outgoing (no condition expression) — always taken.
+                                matched.push(flow.target_ref.clone());
+                            }
+                        }
+
+                        if matched.is_empty() {
+                            if let Some(target) = default_target {
+                                matched.push(target);
+                            } else {
+                                sqlx::query(
+                                    "UPDATE process_instances \
+                                     SET state = 'error', ended_at = NOW() WHERE id = $1",
+                                )
+                                .bind(instance_id)
+                                .execute(&mut **tx)
+                                .await?;
+                                continue;
+                            }
+                        }
+
+                        let expected = matched.len() as i32;
+                        sqlx::query(
+                            "INSERT INTO parallel_join_state \
+                             (instance_id, fork_execution_id, expected_count) \
+                             VALUES ($1, $2, $3)",
+                        )
+                        .bind(instance_id)
+                        .bind(execution.id)
+                        .bind(expected)
+                        .execute(&mut **tx)
+                        .await?;
+
+                        for target_id in matched {
+                            stack.push((target_id, Some(execution.id)));
+                        }
+                    } else {
+                        // Join: identical to ParallelGateway join.
+                        let fork_exec_id = scope.ok_or_else(|| {
+                            EngineError::Internal(
+                                "Inclusive join reached with no scope — fork execution ID unknown"
+                                    .to_string(),
+                            )
+                        })?;
+
+                        let (arrived, expected): (i32, i32) = sqlx::query_as(
+                            "UPDATE parallel_join_state \
+                             SET arrived_count = arrived_count + 1 \
+                             WHERE fork_execution_id = $1 \
+                             RETURNING arrived_count, expected_count",
+                        )
+                        .bind(fork_exec_id)
+                        .fetch_one(&mut **tx)
+                        .await?;
+
+                        if arrived >= expected {
+                            let outer_scope: Option<Uuid> = sqlx::query_scalar(
+                                "SELECT parent_id FROM executions WHERE id = $1",
+                            )
+                            .bind(fork_exec_id)
+                            .fetch_one(&mut **tx)
+                            .await?;
+
+                            let outgoing_ids: Vec<String> = current_graph
+                                .outgoing
+                                .get(&node.id)
+                                .cloned()
+                                .unwrap_or_default();
+
+                            for target_id in outgoing_ids {
+                                stack.push((target_id, outer_scope));
+                            }
+                        }
+                        // else: not all activated branches arrived — this branch stops here.
+                    }
+                }
             }
         }
 
@@ -1077,6 +1208,7 @@ impl Engine {
             FlowNodeKind::UserTask => "userTask",
             FlowNodeKind::ServiceTask { .. } => "serviceTask",
             FlowNodeKind::ExclusiveGateway { .. } => "exclusiveGateway",
+            FlowNodeKind::InclusiveGateway { .. } => "inclusiveGateway",
             FlowNodeKind::ParallelGateway => "parallelGateway",
             FlowNodeKind::IntermediateTimerCatchEvent { .. } => "intermediateCatchEvent",
             FlowNodeKind::IntermediateMessageCatchEvent { .. } => "intermediateCatchEvent",

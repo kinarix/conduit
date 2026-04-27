@@ -188,7 +188,7 @@ async fn deploy_unsupported_gateway_returns_400() {
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL">
   <process id="gw_process">
     <startEvent id="start"/>
-    <inclusiveGateway id="gw"/>
+    <eventBasedGateway id="gw"/>
     <endEvent id="end"/>
     <sequenceFlow id="f1" sourceRef="start" targetRef="gw"/>
     <sequenceFlow id="f2" sourceRef="gw" targetRef="end"/>
@@ -209,8 +209,8 @@ async fn deploy_unsupported_gateway_returns_400() {
         body["error"]
             .as_str()
             .unwrap_or("")
-            .contains("inclusiveGateway"),
-        "error message should mention inclusiveGateway, got: {}",
+            .contains("eventBasedGateway"),
+        "error message should mention eventBasedGateway, got: {}",
         body["error"]
     );
 }

@@ -30,7 +30,7 @@ Every phase follows this pattern:
 | 10 | Message Events | ✅ Complete | Correlation + receive task |
 | 11 | Signal Events | ✅ Complete | Broadcast |
 | 12 | Subprocess + Boundary | ✅ Complete | Embedded subprocess (12a), boundary events deferred |
-| 13 | Inclusive Gateway | — | OR routing |
+| 13 | Inclusive Gateway | ✅ Complete | OR routing with selective join |
 | 14 | DMN Integration | — | Decision tables |
 | 15 | Clustering + Observability | — | Multi-node, metrics |
 | 16 | Table Partitioning + Archival | — | Partitioned schema, retention policy |
@@ -463,11 +463,11 @@ Processes with embedded subprocesses and boundary message events work.
 **Goal:** Multiple paths can be active simultaneously based on conditions.
 
 ### Tasks
-- [ ] InclusiveGateway in parser
-- [ ] Evaluate all conditions (not first-true)
-- [ ] Create token per true condition
-- [ ] Track which paths were activated at split
-- [ ] Join waits for exactly activated paths
+- [x] InclusiveGateway in parser
+- [x] Evaluate all conditions (not first-true)
+- [x] Create token per true condition
+- [x] Track which paths were activated at split
+- [x] Join waits for exactly activated paths
 
 ### Tests
 - All conditions true → all paths run

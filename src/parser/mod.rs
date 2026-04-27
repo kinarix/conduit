@@ -38,6 +38,17 @@ pub enum FlowNodeKind {
         attached_to: String,
         cancelling: bool,
     },
+    SignalStartEvent {
+        signal_name: String,
+    },
+    IntermediateSignalCatchEvent {
+        signal_name: String,
+    },
+    BoundarySignalEvent {
+        signal_name: String,
+        attached_to: String,
+        cancelling: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +100,18 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         })
         .collect();
 
+    // Collect <signal> definitions from the <definitions> root level (id → name)
+    let signal_defs: HashMap<String, String> = doc
+        .root_element()
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "signal")
+        .filter_map(|n| {
+            let id = n.attribute("id")?;
+            let name = n.attribute("name")?;
+            Some((id.to_string(), name.to_string()))
+        })
+        .collect();
+
     // Find the <process> element — works for both bare `<process>` and `<bpmn:process>`
     let process_node = doc
         .root_element()
@@ -124,11 +147,14 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             "startEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let kind = if let Some(msg_name) =
-                    extract_message_name(&child, &message_defs, &id)?
+                let kind = if let Some(msg_name) = extract_message_name(&child, &message_defs, &id)?
                 {
                     FlowNodeKind::MessageStartEvent {
                         message_name: msg_name,
+                    }
+                } else if let Some(sig_name) = extract_signal_name(&child, &signal_defs, &id)? {
+                    FlowNodeKind::SignalStartEvent {
+                        signal_name: sig_name,
                     }
                 } else {
                     FlowNodeKind::StartEvent
@@ -219,13 +245,15 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                     FlowNodeKind::IntermediateTimerCatchEvent {
                         duration: extract_timer_duration(&child)?,
                     }
-                } else if let Some(msg_name) =
-                    extract_message_name(&child, &message_defs, &id)?
-                {
+                } else if let Some(msg_name) = extract_message_name(&child, &message_defs, &id)? {
                     let correlation_key_expr = extract_correlation_key(&child);
                     FlowNodeKind::IntermediateMessageCatchEvent {
                         message_name: msg_name,
                         correlation_key_expr,
+                    }
+                } else if let Some(sig_name) = extract_signal_name(&child, &signal_defs, &id)? {
+                    FlowNodeKind::IntermediateSignalCatchEvent {
+                        signal_name: sig_name,
                     }
                 } else {
                     return Err(EngineError::Parse(format!(
@@ -248,19 +276,27 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                     .attribute("cancelActivity")
                     .map(|s| s != "false")
                     .unwrap_or(true);
-                let duration = extract_timer_duration(&child)?;
-                nodes.insert(
-                    id.clone(),
-                    FlowNode {
-                        id,
-                        name,
-                        kind: FlowNodeKind::BoundaryTimerEvent {
-                            duration,
-                            attached_to,
-                            cancelling,
-                        },
-                    },
-                );
+                let has_timer = child
+                    .children()
+                    .any(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition");
+                let kind = if has_timer {
+                    FlowNodeKind::BoundaryTimerEvent {
+                        duration: extract_timer_duration(&child)?,
+                        attached_to,
+                        cancelling,
+                    }
+                } else if let Some(sig_name) = extract_signal_name(&child, &signal_defs, &id)? {
+                    FlowNodeKind::BoundarySignalEvent {
+                        signal_name: sig_name,
+                        attached_to,
+                        cancelling,
+                    }
+                } else {
+                    return Err(EngineError::Parse(format!(
+                        "boundaryEvent '{id}' has no supported event definition (timer or signal)"
+                    )));
+                };
+                nodes.insert(id.clone(), FlowNode { id, name, kind });
             }
 
             "parallelGateway" => {
@@ -279,13 +315,12 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             "receiveTask" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let message_name = extract_message_name(&child, &message_defs, &id)?.ok_or_else(
-                    || {
+                let message_name =
+                    extract_message_name(&child, &message_defs, &id)?.ok_or_else(|| {
                         EngineError::Parse(format!(
                             "receiveTask '{id}' missing messageRef or message definition"
                         ))
-                    },
-                )?;
+                    })?;
                 let correlation_key_expr = extract_correlation_key(&child);
                 nodes.insert(
                     id.clone(),
@@ -348,15 +383,13 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
 
     let mut attached_to: HashMap<String, Vec<String>> = HashMap::new();
     for node in nodes.values() {
-        if let FlowNodeKind::BoundaryTimerEvent {
-            attached_to: host_id,
-            ..
-        } = &node.kind
-        {
-            attached_to
-                .entry(host_id.clone())
-                .or_default()
-                .push(node.id.clone());
+        let host_id = match &node.kind {
+            FlowNodeKind::BoundaryTimerEvent { attached_to: h, .. } => Some(h.clone()),
+            FlowNodeKind::BoundarySignalEvent { attached_to: h, .. } => Some(h.clone()),
+            _ => None,
+        };
+        if let Some(h) = host_id {
+            attached_to.entry(h).or_default().push(node.id.clone());
         }
     }
 
@@ -451,7 +484,7 @@ fn extract_message_name(
 
     // messageRef may be a bare id or a prefixed QName like "bpmn:msg1" — strip prefix
     if let Some(msg_ref) = def.attribute("messageRef") {
-        let bare_id = msg_ref.split(':').last().unwrap_or(msg_ref);
+        let bare_id = msg_ref.split(':').next_back().unwrap_or(msg_ref);
         if let Some(name) = message_defs.get(bare_id) {
             return Ok(Some(name.clone()));
         }
@@ -490,6 +523,35 @@ fn extract_correlation_key(node: &roxmltree::Node) -> Option<String> {
     None
 }
 
+/// Resolve the signal name for an event node that contains a `<signalEventDefinition>`.
+/// Returns `None` if the node has no `signalEventDefinition` child.
+/// Returns `Err` if the `signalRef` attribute is present but unresolvable.
+fn extract_signal_name(
+    node: &roxmltree::Node,
+    signal_defs: &HashMap<String, String>,
+    element_id: &str,
+) -> Result<Option<String>> {
+    let def = node
+        .children()
+        .find(|n| n.is_element() && n.tag_name().name() == "signalEventDefinition");
+    let def = match def {
+        Some(d) => d,
+        None => return Ok(None),
+    };
+
+    if let Some(sig_ref) = def.attribute("signalRef") {
+        let bare_id = sig_ref.split(':').next_back().unwrap_or(sig_ref);
+        if let Some(name) = signal_defs.get(bare_id) {
+            return Ok(Some(name.clone()));
+        }
+        return Ok(Some(bare_id.to_string()));
+    }
+
+    Err(EngineError::Parse(format!(
+        "signalEventDefinition on '{element_id}' is missing signalRef attribute"
+    )))
+}
+
 fn validate(
     process_id: &str,
     nodes: &HashMap<String, FlowNode>,
@@ -503,7 +565,11 @@ fn validate(
         .values()
         .filter(|n| matches!(n.kind, FlowNodeKind::MessageStartEvent { .. }))
         .count();
-    let total_start_count = plain_start_count + message_start_count;
+    let signal_start_count = nodes
+        .values()
+        .filter(|n| matches!(n.kind, FlowNodeKind::SignalStartEvent { .. }))
+        .count();
+    let total_start_count = plain_start_count + message_start_count + signal_start_count;
 
     if total_start_count == 0 {
         return Err(EngineError::Parse(format!(
@@ -554,11 +620,16 @@ fn validate(
                 )));
             }
         }
-        if let FlowNodeKind::BoundaryTimerEvent { attached_to, .. } = &node.kind {
-            if !nodes.contains_key(attached_to.as_str()) {
+        let boundary_host = match &node.kind {
+            FlowNodeKind::BoundaryTimerEvent { attached_to, .. } => Some(attached_to.as_str()),
+            FlowNodeKind::BoundarySignalEvent { attached_to, .. } => Some(attached_to.as_str()),
+            _ => None,
+        };
+        if let Some(host_id) = boundary_host {
+            if !nodes.contains_key(host_id) {
                 return Err(EngineError::Parse(format!(
                     "BoundaryEvent '{}' attachedToRef '{}' not found in process",
-                    node.id, attached_to
+                    node.id, host_id
                 )));
             }
         }

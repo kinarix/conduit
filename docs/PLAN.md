@@ -26,9 +26,9 @@ Every phase follows this pattern:
 | 6 | Exclusive Gateway | ✅ Complete | Conditions + routing |
 | 7 | External Task API | ✅ Complete | Worker fetch-and-lock |
 | 8 | Job Executor + Timers | ✅ Complete | Timer events, async jobs |
-| 9 | Parallel Gateway | — | Fork + join |
-| 10 | Message Events | — | Correlation + receive task |
-| 11 | Signal Events | — | Broadcast |
+| 9 | Parallel Gateway | ✅ Complete | Fork + join |
+| 10 | Message Events | ✅ Complete | Correlation + receive task |
+| 11 | Signal Events | ✅ Complete | Broadcast |
 | 12 | Subprocess + Boundary | — | Embedded subprocess, boundary events |
 | 13 | Inclusive Gateway | — | OR routing |
 | 14 | DMN Integration | — | Decision tables |
@@ -398,22 +398,23 @@ Message-based coordination between processes works.
 
 ---
 
-## Phase 11 — Signal Events
+## Phase 11 — Signal Events ✅
 
 **Goal:** Broadcast signals can activate multiple waiting instances simultaneously.
 
 ### Tasks
-- [ ] Signal definitions in parser
-- [ ] IntermediateCatchEvent (Signal) → subscription
-- [ ] POST /api/v1/signals → broadcast to all waiting
-- [ ] Signal Start Event
-- [ ] Boundary signal events
+- [x] Signal definitions in parser (`SignalStartEvent`, `IntermediateSignalCatchEvent`, `BoundarySignalEvent`)
+- [x] IntermediateCatchEvent (Signal) → subscription in `event_subscriptions`
+- [x] POST /api/v1/signals/broadcast → broadcast to all waiting (no-error if no listeners)
+- [x] Signal Start Event → creates new instance per matching definition
+- [x] Boundary signal events (interrupting + non-interrupting)
 
 ### Tests
-- Signal wakes all waiting instances for that signal name
-- Signal with no waiting instances → no error
-- Interrupting boundary signal cancels task
-- Non-interrupting boundary signal spawns parallel path
+- [x] Signal wakes all waiting instances for that signal name
+- [x] Signal with no waiting instances → no error
+- [x] Interrupting boundary signal cancels task
+- [x] Non-interrupting boundary signal spawns parallel path
+- [x] Normal task completion cleans up signal subscriptions
 
 ### Deliverable
 Broadcast coordination between processes works.

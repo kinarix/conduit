@@ -462,9 +462,15 @@ async fn fire_due_timer_jobs_fires_overdue_job() {
         .await
         .unwrap();
 
-    // fire_due_timer_jobs picks ALL due timer jobs globally; parallel tests may claim
-    // other instances' jobs too. What matters is this instance eventually completes.
-    engine.fire_due_timer_jobs().await.unwrap();
+    // Fetch the specific job ID and fire it directly to avoid a race where concurrent
+    // timer tests using FOR UPDATE SKIP LOCKED steal each other's jobs.
+    let job_id: (Uuid,) =
+        sqlx::query_as("SELECT id FROM jobs WHERE instance_id = $1 AND job_type = 'timer'")
+            .bind(instance.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    engine.fire_timer_job(job_id.0).await.unwrap();
 
     let refreshed = db::process_instances::get_by_id(&pool, instance.id)
         .await

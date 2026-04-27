@@ -4,8 +4,6 @@ pub mod health;
 pub mod instances;
 pub mod messages;
 pub mod orgs;
+pub mod signals;
 pub mod tasks;
 pub mod users;
-
-// Future API modules added here as phases progress:
-// pub mod signals;        // Phase 11

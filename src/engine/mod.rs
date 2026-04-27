@@ -252,7 +252,7 @@ impl Engine {
             .execute(&mut *tx)
             .await?;
 
-        // Cancel any pending boundary timer jobs attached to this task's element.
+        // Cancel any pending boundary events (timers and signal subscriptions) attached to this task.
         if let Some(boundary_ids) = graph.attached_to.get(&task.element_id) {
             for boundary_id in boundary_ids {
                 sqlx::query(
@@ -261,6 +261,24 @@ impl Engine {
                          WHERE instance_id = $1 AND element_id = $2 \
                          LIMIT 1) \
                      AND state IN ('pending', 'locked')",
+                )
+                .bind(task.instance_id)
+                .bind(boundary_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query(
+                    "DELETE FROM event_subscriptions \
+                     WHERE instance_id = $1 AND element_id = $2",
+                )
+                .bind(task.instance_id)
+                .bind(boundary_id)
+                .execute(&mut *tx)
+                .await?;
+
+                sqlx::query(
+                    "UPDATE executions SET state = 'cancelled' \
+                     WHERE instance_id = $1 AND element_id = $2 AND state = 'active'",
                 )
                 .bind(task.instance_id)
                 .bind(boundary_id)
@@ -449,9 +467,7 @@ impl Engine {
 
         while let Some((current_id, scope)) = stack.pop() {
             let node = graph.nodes.get(&current_id).ok_or_else(|| {
-                EngineError::Internal(format!(
-                    "Element '{current_id}' not found in process graph"
-                ))
+                EngineError::Internal(format!("Element '{current_id}' not found in process graph"))
             })?;
 
             let execution = sqlx::query_as::<_, Execution>(
@@ -486,15 +502,28 @@ impl Engine {
                         .await?;
 
                     if matches!(node.kind, FlowNodeKind::EndEvent) {
-                        sqlx::query(
-                            "UPDATE process_instances \
-                             SET state = 'completed', ended_at = NOW() \
-                             WHERE id = $1",
+                        // Only complete the instance when no other active executions remain.
+                        // This preserves non-interrupting boundary event paths: the boundary
+                        // path can reach an EndEvent while the host task is still active.
+                        let (active_count,): (i64,) = sqlx::query_as(
+                            "SELECT COUNT(*) FROM executions \
+                             WHERE instance_id = $1 AND state = 'active'",
                         )
                         .bind(instance_id)
-                        .execute(&mut **tx)
+                        .fetch_one(&mut **tx)
                         .await?;
-                        // Don't push anything — instance is done.
+
+                        if active_count == 0 {
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'completed', ended_at = NOW() \
+                                 WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                        }
+                        // Don't push anything — this token is done.
                     } else {
                         for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
                             stack.push((next_id, scope));
@@ -560,6 +589,30 @@ impl Engine {
                                 .bind(instance_id)
                                 .bind(boundary_exec.id)
                                 .bind(due_date)
+                                .execute(&mut **tx)
+                                .await?;
+                            } else if let FlowNodeKind::BoundarySignalEvent {
+                                signal_name, ..
+                            } = &boundary_node.kind
+                            {
+                                let boundary_exec = sqlx::query_as::<_, Execution>(
+                                    "INSERT INTO executions (instance_id, element_id, state) \
+                                     VALUES ($1, $2, 'active') RETURNING *",
+                                )
+                                .bind(instance_id)
+                                .bind(boundary_id)
+                                .fetch_one(&mut **tx)
+                                .await?;
+
+                                sqlx::query(
+                                    "INSERT INTO event_subscriptions \
+                                     (instance_id, execution_id, event_type, event_name, element_id) \
+                                     VALUES ($1, $2, 'signal', $3, $4)",
+                                )
+                                .bind(instance_id)
+                                .bind(boundary_exec.id)
+                                .bind(signal_name)
+                                .bind(boundary_id)
                                 .execute(&mut **tx)
                                 .await?;
                             }
@@ -691,8 +744,61 @@ impl Engine {
                     // Stop — waiting for message correlation.
                 }
 
-                FlowNodeKind::BoundaryTimerEvent { .. } => {
+                FlowNodeKind::BoundaryTimerEvent { .. }
+                | FlowNodeKind::BoundarySignalEvent { .. } => {
                     // Never entered via run_to_wait directly; set up alongside the host UserTask.
+                }
+
+                FlowNodeKind::SignalStartEvent { .. } => {
+                    // Entered when a SignalStartEvent triggers a new instance.
+                    // Treat like a plain StartEvent — pass through immediately.
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
+                         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
+                        stack.push((next_id, scope));
+                    }
+                }
+
+                FlowNodeKind::IntermediateSignalCatchEvent { signal_name } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type) \
+                         VALUES ($1, $2, $3, $4)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    sqlx::query(
+                        "INSERT INTO event_subscriptions \
+                         (instance_id, execution_id, event_type, event_name, element_id) \
+                         VALUES ($1, $2, 'signal', $3, $4)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(signal_name)
+                    .bind(&node.id)
+                    .execute(&mut **tx)
+                    .await?;
+                    // Stop — waiting for signal broadcast.
                 }
 
                 FlowNodeKind::ExclusiveGateway { default_flow } => {
@@ -760,8 +866,7 @@ impl Engine {
                 }
 
                 FlowNodeKind::ParallelGateway => {
-                    let incoming_count =
-                        graph.incoming.get(&node.id).map(|v| v.len()).unwrap_or(0);
+                    let incoming_count = graph.incoming.get(&node.id).map(|v| v.len()).unwrap_or(0);
                     let outgoing_ids: Vec<String> =
                         graph.outgoing.get(&node.id).cloned().unwrap_or_default();
 
@@ -853,6 +958,9 @@ impl Engine {
             FlowNodeKind::IntermediateMessageCatchEvent { .. } => "intermediateCatchEvent",
             FlowNodeKind::ReceiveTask { .. } => "receiveTask",
             FlowNodeKind::BoundaryTimerEvent { .. } => "boundaryEvent",
+            FlowNodeKind::SignalStartEvent { .. } => "startEvent",
+            FlowNodeKind::IntermediateSignalCatchEvent { .. } => "intermediateCatchEvent",
+            FlowNodeKind::BoundarySignalEvent { .. } => "boundaryEvent",
         }
     }
 
@@ -928,11 +1036,10 @@ impl Engine {
 
             let graph = self.load_graph(def_row.0).await?;
 
-            let wait_exec: Execution =
-                sqlx::query_as("SELECT * FROM executions WHERE id = $1")
-                    .bind(sub.execution_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let wait_exec: Execution = sqlx::query_as("SELECT * FROM executions WHERE id = $1")
+                .bind(sub.execution_id)
+                .fetch_one(&mut *tx)
+                .await?;
             let parallel_scope = wait_exec.parent_id;
 
             for var in variables {
@@ -983,12 +1090,11 @@ impl Engine {
         tx.rollback().await.ok();
 
         // Attempt 2: MessageStartEvent — scan deployed definitions for the org.
-        let defs: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT id, bpmn_xml FROM process_definitions WHERE org_id = $1",
-        )
-        .bind(org_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let defs: Vec<(Uuid, String)> =
+            sqlx::query_as("SELECT id, bpmn_xml FROM process_definitions WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_all(&self.pool)
+                .await?;
 
         for (def_id, bpmn_xml) in &defs {
             let graph = match crate::parser::parse(bpmn_xml) {
@@ -1116,7 +1222,8 @@ impl Engine {
                 let next_ids: Vec<String> =
                     graph.outgoing.get(&element_id).cloned().unwrap_or_default();
                 for next_id in next_ids {
-                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope).await?;
+                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope)
+                        .await?;
                 }
             }
 
@@ -1168,10 +1275,19 @@ impl Engine {
                 .execute(&mut *tx)
                 .await?;
 
+                // Close out the boundary event execution itself (it fired).
+                sqlx::query(
+                    "UPDATE executions SET state = 'completed' WHERE id = $1 AND state = 'active'",
+                )
+                .bind(job.execution_id)
+                .execute(&mut *tx)
+                .await?;
+
                 let next_ids: Vec<String> =
                     graph.outgoing.get(&element_id).cloned().unwrap_or_default();
                 for next_id in next_ids {
-                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope).await?;
+                    Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope)
+                        .await?;
                 }
             }
 
@@ -1183,6 +1299,272 @@ impl Engine {
         }
 
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// Broadcast a signal to all waiting instances within the org.
+    ///
+    /// Unlike messages (exclusive), signals go to EVERY matching subscription AND start every
+    /// matching `SignalStartEvent` process. Always returns `Ok` — no error if nobody is listening.
+    pub async fn broadcast_signal(
+        &self,
+        signal_name: &str,
+        variables: &[VariableInput],
+        org_id: Uuid,
+    ) -> Result<()> {
+        // Phase 1: drain all waiting subscriptions one at a time, each in its own transaction.
+        loop {
+            let mut tx = self.pool.begin().await?;
+
+            let sub: Option<EventSubscription> = sqlx::query_as(
+                "DELETE FROM event_subscriptions \
+                 WHERE id = ( \
+                     SELECT es.id FROM event_subscriptions es \
+                     JOIN process_instances pi ON pi.id = es.instance_id \
+                     WHERE es.event_type = 'signal' \
+                       AND es.event_name = $1 \
+                       AND pi.org_id = $2 \
+                     ORDER BY es.created_at ASC \
+                     LIMIT 1 \
+                     FOR UPDATE OF es SKIP LOCKED \
+                 ) RETURNING *",
+            )
+            .bind(signal_name)
+            .bind(org_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            let sub = match sub {
+                Some(s) => s,
+                None => {
+                    tx.rollback().await.ok();
+                    break;
+                }
+            };
+
+            let def_row: (Uuid,) =
+                sqlx::query_as("SELECT definition_id FROM process_instances WHERE id = $1")
+                    .bind(sub.instance_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+
+            let graph = self.load_graph(def_row.0).await?;
+
+            let node = graph.nodes.get(sub.element_id.as_str()).ok_or_else(|| {
+                EngineError::Internal(format!("Element '{}' not found in graph", sub.element_id))
+            })?;
+
+            for var in variables {
+                sqlx::query(
+                    "INSERT INTO variables \
+                     (instance_id, execution_id, name, value_type, value) \
+                     VALUES ($1, $2, $3, $4, $5) \
+                     ON CONFLICT (execution_id, name) \
+                     DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+                )
+                .bind(sub.instance_id)
+                .bind(sub.execution_id)
+                .bind(&var.name)
+                .bind(&var.value_type)
+                .bind(&var.value)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            match &node.kind {
+                FlowNodeKind::BoundarySignalEvent {
+                    attached_to,
+                    cancelling,
+                    ..
+                } => {
+                    let attached_to = attached_to.clone();
+                    if *cancelling {
+                        sqlx::query(
+                            "UPDATE tasks SET state = 'cancelled' \
+                             WHERE execution_id = (SELECT id FROM executions \
+                                 WHERE instance_id = $1 AND element_id = $2 AND state = 'active' \
+                                 LIMIT 1)",
+                        )
+                        .bind(sub.instance_id)
+                        .bind(&attached_to)
+                        .execute(&mut *tx)
+                        .await?;
+
+                        sqlx::query(
+                            "UPDATE execution_history SET left_at = NOW() \
+                             WHERE execution_id = (SELECT id FROM executions \
+                                 WHERE instance_id = $1 AND element_id = $2 AND state = 'active' \
+                                 LIMIT 1) AND left_at IS NULL",
+                        )
+                        .bind(sub.instance_id)
+                        .bind(&attached_to)
+                        .execute(&mut *tx)
+                        .await?;
+
+                        sqlx::query(
+                            "UPDATE executions SET state = 'cancelled' \
+                             WHERE instance_id = $1 AND element_id = $2 AND state = 'active'",
+                        )
+                        .bind(sub.instance_id)
+                        .bind(&attached_to)
+                        .execute(&mut *tx)
+                        .await?;
+
+                        // Cancel sibling boundary events on the same host task.
+                        if let Some(all_boundaries) =
+                            graph.attached_to.get(attached_to.as_str()).cloned()
+                        {
+                            for bid in &all_boundaries {
+                                if bid != &sub.element_id {
+                                    sqlx::query(
+                                        "UPDATE jobs SET state = 'cancelled' \
+                                         WHERE execution_id = (SELECT id FROM executions \
+                                             WHERE instance_id = $1 AND element_id = $2 LIMIT 1) \
+                                         AND state IN ('pending', 'locked')",
+                                    )
+                                    .bind(sub.instance_id)
+                                    .bind(bid)
+                                    .execute(&mut *tx)
+                                    .await?;
+
+                                    sqlx::query(
+                                        "DELETE FROM event_subscriptions \
+                                         WHERE instance_id = $1 AND element_id = $2",
+                                    )
+                                    .bind(sub.instance_id)
+                                    .bind(bid)
+                                    .execute(&mut *tx)
+                                    .await?;
+                                }
+                            }
+                        }
+                    }
+
+                    sqlx::query(
+                        "UPDATE execution_history SET left_at = NOW() \
+                         WHERE execution_id = $1 AND left_at IS NULL",
+                    )
+                    .bind(sub.execution_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(sub.execution_id)
+                        .execute(&mut *tx)
+                        .await?;
+
+                    let next_ids: Vec<String> = graph
+                        .outgoing
+                        .get(sub.element_id.as_str())
+                        .cloned()
+                        .unwrap_or_default();
+                    for next_id in next_ids {
+                        Self::run_to_wait(&mut tx, sub.instance_id, &next_id, &graph, None).await?;
+                    }
+                }
+
+                _ => {
+                    // IntermediateSignalCatchEvent: close history, complete execution, advance.
+                    let wait_exec: Execution =
+                        sqlx::query_as("SELECT * FROM executions WHERE id = $1")
+                            .bind(sub.execution_id)
+                            .fetch_one(&mut *tx)
+                            .await?;
+                    let parallel_scope = wait_exec.parent_id;
+
+                    sqlx::query(
+                        "UPDATE execution_history SET left_at = NOW() \
+                         WHERE execution_id = $1 AND left_at IS NULL",
+                    )
+                    .bind(sub.execution_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(sub.execution_id)
+                        .execute(&mut *tx)
+                        .await?;
+
+                    let next_ids: Vec<String> = graph
+                        .outgoing
+                        .get(sub.element_id.as_str())
+                        .cloned()
+                        .unwrap_or_default();
+                    for next_id in next_ids {
+                        Self::run_to_wait(
+                            &mut tx,
+                            sub.instance_id,
+                            &next_id,
+                            &graph,
+                            parallel_scope,
+                        )
+                        .await?;
+                    }
+                }
+            }
+
+            tx.commit().await?;
+        }
+
+        // Phase 2: start new instances from matching SignalStartEvent definitions.
+        let defs: Vec<(Uuid, String)> =
+            sqlx::query_as("SELECT id, bpmn_xml FROM process_definitions WHERE org_id = $1")
+                .bind(org_id)
+                .fetch_all(&self.pool)
+                .await?;
+
+        for (def_id, bpmn_xml) in &defs {
+            let graph = match crate::parser::parse(bpmn_xml) {
+                Ok(g) => g,
+                Err(_) => continue,
+            };
+
+            let start_node = graph.nodes.values().find(|n| {
+                matches!(
+                    &n.kind,
+                    FlowNodeKind::SignalStartEvent { signal_name: sn } if sn == signal_name
+                )
+            });
+
+            if let Some(start_node) = start_node {
+                let start_id = start_node.id.clone();
+                let labels = serde_json::json!({});
+                let instance = sqlx::query_as::<_, ProcessInstance>(
+                    "INSERT INTO process_instances \
+                     (org_id, definition_id, state, labels) \
+                     VALUES ($1, $2, 'running', $3) RETURNING *",
+                )
+                .bind(org_id)
+                .bind(def_id)
+                .bind(&labels)
+                .fetch_one(&self.pool)
+                .await?;
+
+                let mut tx2 = self.pool.begin().await?;
+
+                Self::run_to_wait(&mut tx2, instance.id, &start_id, &graph, None).await?;
+
+                for var in variables {
+                    sqlx::query(
+                        "INSERT INTO variables \
+                         (instance_id, execution_id, name, value_type, value) \
+                         SELECT $1, id, $2, $3, $4 \
+                         FROM executions WHERE instance_id = $1 ORDER BY created_at ASC LIMIT 1 \
+                         ON CONFLICT (execution_id, name) \
+                         DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+                    )
+                    .bind(instance.id)
+                    .bind(&var.name)
+                    .bind(&var.value_type)
+                    .bind(&var.value)
+                    .execute(&mut *tx2)
+                    .await?;
+                }
+
+                tx2.commit().await?;
+            }
+        }
+
         Ok(())
     }
 

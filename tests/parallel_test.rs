@@ -99,7 +99,11 @@ fn fork_join_then_task_bpmn() -> String {
 #[test]
 fn parser_parallel_gateway_parses() {
     let result = conduit::parser::parse(&fork_join_bpmn());
-    assert!(result.is_ok(), "expected parse to succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "expected parse to succeed: {:?}",
+        result.err()
+    );
 
     let graph = result.unwrap();
     let fork = graph.nodes.get("fork").expect("fork node missing");
@@ -146,7 +150,12 @@ async fn fork_creates_two_pending_tasks() {
     let tasks = db::tasks::list_by_instance(&pool, instance.id)
         .await
         .unwrap();
-    assert_eq!(tasks.len(), 2, "expected 2 tasks after fork, got {}", tasks.len());
+    assert_eq!(
+        tasks.len(),
+        2,
+        "expected 2 tasks after fork, got {}",
+        tasks.len()
+    );
 
     let element_ids: Vec<&str> = tasks.iter().map(|t| t.element_id.as_str()).collect();
     assert!(element_ids.contains(&"taskA"), "taskA missing");
@@ -320,8 +329,14 @@ async fn parallel_branch_variables_are_merged_after_join() {
         .await
         .unwrap();
     let names: Vec<&str> = vars.iter().map(|v| v.name.as_str()).collect();
-    assert!(names.contains(&"result_a"), "result_a should be visible after join");
-    assert!(names.contains(&"result_b"), "result_b should be visible after join");
+    assert!(
+        names.contains(&"result_a"),
+        "result_a should be visible after join"
+    );
+    assert!(
+        names.contains(&"result_b"),
+        "result_b should be visible after join"
+    );
 }
 
 // ─── Engine: post-join continuation ──────────────────────────────────────────

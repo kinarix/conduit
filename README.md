@@ -42,23 +42,38 @@ The engine is being built incrementally. Each phase is working and deployable be
 | 1 | Foundation (config, DB pool, health endpoint) | ✅ |
 | 2 | Database schema | ✅ |
 | 3 | BPMN parser + deploy endpoint | ✅ |
-| 4 | Token execution engine | 🔜 |
-| 5 | REST API (instances, tasks) | 🔜 |
-| 6 | Exclusive gateway | 🔜 |
-| 7 | External tasks | 🔜 |
-| 8 | Timers | 🔜 |
-| 9 | Parallel gateway | 🔜 |
-| 10 | Messages | 🔜 |
-| 11 | Signals | 🔜 |
+| 4 | Token execution engine | ✅ |
+| 5 | REST API (instances, tasks) | ✅ |
+| 5.5 | Ownership + labels (orgs, users) | ✅ |
+| 6 | Exclusive gateway | ✅ |
+| 7 | External tasks (fetch-and-lock workers) | ✅ |
+| 8 | Job executor + timers | ✅ |
+| 9 | Parallel gateway | ✅ |
+| 10 | Messages | ✅ |
+| 11 | Signals | ✅ |
 | 12 | Sub-processes | 🔜 |
+| 13 | Inclusive gateway | 🔜 |
+| 14 | DMN decision tables | 🔜 |
+| 15 | Clustering + observability | 🔜 |
 
-## Supported BPMN Elements (Phase 3)
+## Supported BPMN Elements
 
-- `startEvent`
-- `endEvent`
-- `userTask`
-- `serviceTask` (with optional `topic` / `camunda:topic` for external workers)
-- `sequenceFlow`
+| Element | Since |
+|---|---|
+| `startEvent` | Phase 3 |
+| `endEvent` | Phase 3 |
+| `userTask` | Phase 3 |
+| `serviceTask` (with `topic` / `camunda:topic` for external workers) | Phase 3 |
+| `sequenceFlow` | Phase 3 |
+| `exclusiveGateway` (with Rhai condition expressions, default flow) | Phase 6 |
+| `intermediateCatchEvent` — timer (`timeDuration` ISO 8601) | Phase 8 |
+| `boundaryEvent` — interrupting timer on tasks | Phase 8 |
+| `parallelGateway` (fork + join) | Phase 9 |
+| `intermediateCatchEvent` — message (correlation key) | Phase 10 |
+| `receiveTask` | Phase 10 |
+| `intermediateCatchEvent` — signal (broadcast) | Phase 11 |
+| `boundaryEvent` — interrupting / non-interrupting signal | Phase 11 |
+| `startEvent` — signal start | Phase 11 |
 
 Both standard BPMN 2.0 and Camunda dialect (`bpmn:` namespace prefix, `camunda:` extension attributes) are supported.
 

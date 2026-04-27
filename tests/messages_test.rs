@@ -128,7 +128,10 @@ fn parse_intermediate_message_catch_event() {
             assert_eq!(message_name, "OrderShipped");
             assert!(correlation_key_expr.is_none());
         }
-        _ => panic!("expected IntermediateMessageCatchEvent, got {:?}", node.kind),
+        _ => panic!(
+            "expected IntermediateMessageCatchEvent, got {:?}",
+            node.kind
+        ),
     }
 }
 
@@ -144,7 +147,10 @@ fn parse_intermediate_message_catch_event_with_correlation_key() {
             assert_eq!(message_name, "OrderShipped");
             assert_eq!(correlation_key_expr.as_deref(), Some("${orderId}"));
         }
-        _ => panic!("expected IntermediateMessageCatchEvent, got {:?}", node.kind),
+        _ => panic!(
+            "expected IntermediateMessageCatchEvent, got {:?}",
+            node.kind
+        ),
     }
 }
 
@@ -342,13 +348,11 @@ async fn correlate_message_wrong_correlation_key_returns_not_found() {
     // starting. The subscription will have been skipped or stored as NULL. Let's force it:
     // Inject orderId variable and restart a fresh instance with it pre-seeded.
     // Simpler: directly set correlation_key in the subscription row.
-    sqlx::query(
-        "UPDATE event_subscriptions SET correlation_key = 'ORD-1' WHERE instance_id = $1",
-    )
-    .bind(instance.id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    sqlx::query("UPDATE event_subscriptions SET correlation_key = 'ORD-1' WHERE instance_id = $1")
+        .bind(instance.id)
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Correlate with the wrong key — should not match
     let result = engine
@@ -392,13 +396,12 @@ async fn message_start_event_creates_new_instance() {
     .unwrap();
 
     // No instances running yet
-    let initial: Vec<conduit::db::models::ProcessInstance> = sqlx::query_as(
-        "SELECT * FROM process_instances WHERE definition_id = $1",
-    )
-    .bind(def.id)
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let initial: Vec<conduit::db::models::ProcessInstance> =
+        sqlx::query_as("SELECT * FROM process_instances WHERE definition_id = $1")
+            .bind(def.id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert!(initial.is_empty());
 
     // Correlate — should create a new instance
@@ -407,13 +410,12 @@ async fn message_start_event_creates_new_instance() {
         .await
         .unwrap();
 
-    let instances: Vec<conduit::db::models::ProcessInstance> = sqlx::query_as(
-        "SELECT * FROM process_instances WHERE definition_id = $1",
-    )
-    .bind(def.id)
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let instances: Vec<conduit::db::models::ProcessInstance> =
+        sqlx::query_as("SELECT * FROM process_instances WHERE definition_id = $1")
+            .bind(def.id)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(instances.len(), 1);
     // Should be running at the UserTask (waiting for human completion)
     assert_eq!(instances[0].state, "running");

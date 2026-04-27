@@ -115,9 +115,9 @@ conduit/
 
 ## Current Phase
 
-**Phase 10 — Messages** (next up)
+**Phase 12 — Subprocess + Boundary Events** (next up)
 
-Phases 0–9 are complete. See `docs/phases/PHASE-10-messages.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–11 are complete. See `docs/phases/PHASE-12-subprocess.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -133,6 +133,8 @@ Phases 0–9 are complete. See `docs/phases/PHASE-10-messages.md` and `docs/PLAN
 | 7 | External task API — fetch-and-lock, complete, failure, extend-lock; Camunda-style worker pattern |
 | 8 | Job executor + timers — ISO 8601 duration parsing, IntermediateCatchEvent (timer), boundary timer events (interrupting), FOR UPDATE SKIP LOCKED concurrent safety |
 | 9 | Parallel gateway — fork/join with atomic join counting, parallel_join_state table, work-stack execution, variable merging |
+| 10 | Message events — IntermediateCatchEvent (message), ReceiveTask, correlation key matching, MessageStartEvent, `POST /api/v1/messages` |
+| 11 | Signal events — IntermediateSignalCatchEvent, BoundarySignalEvent (interrupting + non-interrupting), SignalStartEvent, `POST /api/v1/signals/broadcast` |
 
 ## How to Work Through the Phases
 

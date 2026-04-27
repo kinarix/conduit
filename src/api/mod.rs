@@ -1,3 +1,4 @@
+pub mod decisions;
 pub mod deployments;
 pub mod external_tasks;
 pub mod health;

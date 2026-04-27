@@ -164,7 +164,7 @@ async fn subprocess_executes_inner_flow_before_parent_continues() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -215,7 +215,7 @@ async fn subprocess_completes_instance_after_exit() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -244,7 +244,7 @@ async fn subprocess_with_user_task_pauses_and_resumes() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -311,7 +311,7 @@ async fn subprocess_variables_visible_to_parent() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -369,7 +369,7 @@ async fn parent_variables_visible_inside_subprocess() {
 
     // Write variable x=10 before starting — use instance variables via start
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -470,7 +470,7 @@ async fn subprocess_with_exclusive_gateway() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     assert_eq!(instance.state, "running");
@@ -539,7 +539,7 @@ async fn nested_subprocess() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 

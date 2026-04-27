@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Process with a BusinessRuleTask referencing the risk-check decision. -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:camunda="http://activiti.org/bpmn"
+             id="Definitions_brt"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="business_rule_process" name="Business Rule Process" isExecutable="true">
+    <startEvent id="start_1" name="Start"/>
+    <businessRuleTask id="task_risk"
+                      name="Assess Risk"
+                      camunda:decisionRef="risk-check"/>
+    <endEvent id="end_1" name="End"/>
+    <sequenceFlow id="flow_1" sourceRef="start_1" targetRef="task_risk"/>
+    <sequenceFlow id="flow_2" sourceRef="task_risk"  targetRef="end_1"/>
+  </process>
+</definitions>

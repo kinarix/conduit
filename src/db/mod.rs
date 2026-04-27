@@ -1,3 +1,4 @@
+pub mod decision_definitions;
 pub mod event_subscriptions;
 pub mod execution_history;
 pub mod executions;

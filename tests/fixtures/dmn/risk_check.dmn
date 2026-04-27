@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="risk_check_defs"
+             name="Risk Check">
+  <decision id="risk-check" name="Risk Check">
+    <decisionTable hitPolicy="UNIQUE">
+      <input id="i_age" label="Age">
+        <inputExpression><text>age</text></inputExpression>
+      </input>
+      <input id="i_score" label="Credit Score">
+        <inputExpression><text>credit_score</text></inputExpression>
+      </input>
+      <output id="o_risk" name="risk_level" label="Risk Level"/>
+      <rule id="r1">
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>&gt;= 700</text></inputEntry>
+        <outputEntry><text>"low"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>[500..699]</text></inputEntry>
+        <outputEntry><text>"medium"</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <inputEntry><text>&gt;= 18</text></inputEntry>
+        <inputEntry><text>&lt; 500</text></inputEntry>
+        <outputEntry><text>"high"</text></outputEntry>
+      </rule>
+      <rule id="r4">
+        <inputEntry><text>&lt; 18</text></inputEntry>
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"rejected"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

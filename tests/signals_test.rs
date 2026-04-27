@@ -220,7 +220,7 @@ async fn signal_catch_pauses_instance_and_creates_subscription() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -253,7 +253,7 @@ async fn broadcast_signal_advances_waiting_instance_to_end() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -292,7 +292,7 @@ async fn broadcast_signal_passes_variables() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -350,11 +350,11 @@ async fn broadcast_signal_reaches_all_waiting_instances() {
     .unwrap();
 
     let inst_a = engine
-        .start_instance(def_a.id, org_id, &json!({}))
+        .start_instance(def_a.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let inst_b = engine
-        .start_instance(def_b.id, org_id, &json!({}))
+        .start_instance(def_b.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -452,7 +452,7 @@ async fn boundary_signal_interrupting_cancels_task() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -513,7 +513,7 @@ async fn boundary_signal_non_interrupting_keeps_task() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -554,7 +554,7 @@ async fn normal_task_completion_cleans_up_signal_subscription() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 

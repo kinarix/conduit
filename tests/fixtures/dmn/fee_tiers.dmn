@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- FIRST hit policy: first matching rule wins. Final rule is a wildcard fallback. -->
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="fee_tiers_defs"
+             name="Fee Tiers">
+  <decision id="fee-tiers" name="Fee Tiers">
+    <decisionTable hitPolicy="FIRST">
+      <input id="i_amount" label="Amount">
+        <inputExpression><text>amount</text></inputExpression>
+      </input>
+      <output id="o_fee" name="fee_percent" label="Fee %"/>
+      <rule id="r1">
+        <inputEntry><text>&gt;= 10000</text></inputEntry>
+        <outputEntry><text>1.0</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry><text>&gt;= 1000</text></inputEntry>
+        <outputEntry><text>1.5</text></outputEntry>
+      </rule>
+      <rule id="r3">
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>2.0</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

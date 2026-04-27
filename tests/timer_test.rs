@@ -195,7 +195,7 @@ async fn timer_event_pauses_process_and_inserts_timer_job() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -241,7 +241,7 @@ async fn timer_event_execution_history_entered_not_left() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -277,7 +277,7 @@ async fn fire_timer_job_advances_token_to_end_event() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -315,7 +315,7 @@ async fn fire_timer_job_closes_history_and_marks_job_completed() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -373,7 +373,7 @@ async fn fire_timer_job_already_completed_returns_conflict() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let job_id = db::jobs::list_by_instance(&pool, instance.id)
@@ -410,7 +410,7 @@ async fn fire_timer_job_cold_cache() {
     let warm_cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
     let warm_engine = Engine::new(pool.clone(), warm_cache);
     let instance = warm_engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let job_id = db::jobs::list_by_instance(&pool, instance.id)
@@ -451,7 +451,7 @@ async fn fire_due_timer_jobs_fires_overdue_job() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -497,7 +497,7 @@ async fn fire_due_timer_jobs_skips_future_job() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -530,7 +530,7 @@ async fn fire_due_timer_jobs_concurrent_executors_dont_double_fire() {
     .unwrap();
 
     let instance = engine1
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -589,7 +589,7 @@ async fn boundary_timer_inserts_timer_job_alongside_task() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -638,7 +638,7 @@ async fn boundary_timer_fires_cancels_task_and_advances_to_escalated_end() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -696,7 +696,7 @@ async fn completing_user_task_cancels_boundary_timer_job() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 

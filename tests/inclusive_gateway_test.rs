@@ -206,7 +206,7 @@ async fn all_conditions_true_activates_all_paths() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     assert_eq!(instance.state, "running");
@@ -293,7 +293,7 @@ async fn single_condition_true_activates_one_path() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -364,7 +364,7 @@ async fn two_of_three_conditions_join_waits_for_both() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -456,7 +456,7 @@ async fn no_matching_condition_no_default_errors_instance() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 

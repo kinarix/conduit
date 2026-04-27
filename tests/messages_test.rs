@@ -203,7 +203,7 @@ async fn message_catch_event_pauses_instance_and_creates_subscription() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -238,7 +238,7 @@ async fn correlate_message_advances_waiting_instance_to_end() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -278,7 +278,7 @@ async fn correlate_message_passes_variables_to_instance() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -340,7 +340,7 @@ async fn correlate_message_wrong_correlation_key_returns_not_found() {
 
     // Set orderId variable so the subscription is created with key "ORD-1"
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -447,7 +447,7 @@ async fn receive_task_pauses_and_advances_via_message() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -489,7 +489,7 @@ async fn correlate_message_closes_execution_history() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 

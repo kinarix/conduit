@@ -9,7 +9,7 @@ use serde_json::Value as JsonValue;
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::db::models::{EventSubscription, Execution, ProcessInstance, Task, Variable};
+use crate::db::models::{DecisionDefinition, EventSubscription, Execution, ProcessInstance, Task, Variable};
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph};
 use crate::state::GraphCache;
@@ -147,6 +147,7 @@ impl Engine {
         definition_id: Uuid,
         org_id: Uuid,
         labels: &JsonValue,
+        initial_variables: &[VariableInput],
     ) -> Result<ProcessInstance> {
         let graph = self.load_graph(definition_id).await?;
 
@@ -167,6 +168,33 @@ impl Engine {
         .bind(labels)
         .fetch_one(&mut *tx)
         .await?;
+
+        // Write initial variables scoped to a synthetic "start" execution.
+        if !initial_variables.is_empty() {
+            let start_exec = sqlx::query_as::<_, Execution>(
+                "INSERT INTO executions (instance_id, element_id, state) \
+                 VALUES ($1, '__start__', 'completed') RETURNING *",
+            )
+            .bind(instance.id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            for var in initial_variables {
+                sqlx::query(
+                    "INSERT INTO variables (instance_id, execution_id, name, value_type, value) \
+                     VALUES ($1, $2, $3, $4, $5) \
+                     ON CONFLICT (execution_id, name) \
+                     DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+                )
+                .bind(instance.id)
+                .bind(start_exec.id)
+                .bind(&var.name)
+                .bind(&var.value_type)
+                .bind(&var.value)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
 
         Self::run_to_wait(&mut tx, instance.id, &start_node.id, &graph, None).await?;
 
@@ -861,6 +889,140 @@ impl Engine {
                     stack.push((inner_start.id.clone(), Some(execution.id)));
                 }
 
+                FlowNodeKind::BusinessRuleTask { decision_ref } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type, entered_at, left_at) \
+                         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    let org_id: Uuid = sqlx::query_scalar(
+                        "SELECT org_id FROM process_instances WHERE id = $1",
+                    )
+                    .bind(instance_id)
+                    .fetch_one(&mut **tx)
+                    .await?;
+
+                    let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
+                        "SELECT * FROM variables WHERE instance_id = $1",
+                    )
+                    .bind(instance_id)
+                    .fetch_all(&mut **tx)
+                    .await?;
+                    let var_map: HashMap<String, JsonValue> =
+                        vars.into_iter().map(|v| (v.name, v.value)).collect();
+
+                    let def_opt = sqlx::query_as::<_, DecisionDefinition>(
+                        "SELECT * FROM decision_definitions \
+                         WHERE org_id = $1 AND decision_key = $2 \
+                         ORDER BY version DESC LIMIT 1",
+                    )
+                    .bind(org_id)
+                    .bind(decision_ref)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+
+                    let dmn_def = match def_opt {
+                        Some(d) => d,
+                        None => {
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'error', ended_at = NOW() WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                            continue;
+                        }
+                    };
+
+                    let tables = match crate::dmn::parse(&dmn_def.dmn_xml) {
+                        Ok(t) => t,
+                        Err(_) => {
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'error', ended_at = NOW() WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                            continue;
+                        }
+                    };
+
+                    let table = match tables.iter().find(|t| t.decision_key == *decision_ref) {
+                        Some(t) => t,
+                        None => {
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'error', ended_at = NOW() WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                            continue;
+                        }
+                    };
+
+                    let outputs = match crate::dmn::evaluate(table, &var_map) {
+                        Ok(o) => o,
+                        Err(_) => {
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'error', ended_at = NOW() WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                            continue;
+                        }
+                    };
+
+                    for (name, value) in &outputs {
+                        let value_type = match value {
+                            JsonValue::String(_) => "string",
+                            JsonValue::Number(_) => "number",
+                            JsonValue::Bool(_) => "boolean",
+                            _ => "json",
+                        };
+                        sqlx::query(
+                            "INSERT INTO variables \
+                             (instance_id, execution_id, name, value_type, value) \
+                             VALUES ($1, $2, $3, $4, $5) \
+                             ON CONFLICT (execution_id, name) \
+                             DO UPDATE SET value_type = EXCLUDED.value_type, \
+                                           value = EXCLUDED.value",
+                        )
+                        .bind(instance_id)
+                        .bind(execution.id)
+                        .bind(name)
+                        .bind(value_type)
+                        .bind(value)
+                        .execute(&mut **tx)
+                        .await?;
+                    }
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    for next_id in current_graph
+                        .outgoing
+                        .get(&node.id)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        stack.push((next_id, scope));
+                    }
+                }
+
                 FlowNodeKind::SignalStartEvent { .. } => {
                     // Entered when a SignalStartEvent triggers a new instance.
                     // Treat like a plain StartEvent — pass through immediately.
@@ -1218,6 +1380,7 @@ impl Engine {
             FlowNodeKind::IntermediateSignalCatchEvent { .. } => "intermediateCatchEvent",
             FlowNodeKind::BoundarySignalEvent { .. } => "boundaryEvent",
             FlowNodeKind::SubProcess { .. } => "subProcess",
+            FlowNodeKind::BusinessRuleTask { .. } => "businessRuleTask",
         }
     }
 

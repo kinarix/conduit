@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::db::models::ProcessInstance;
 use crate::db::process_instances;
+use crate::engine::VariableInput;
 use crate::error::Result;
 use crate::state::AppState;
 
@@ -19,6 +20,7 @@ pub struct StartInstanceRequest {
     pub org_id: Uuid,
     pub definition_id: Uuid,
     pub labels: Option<JsonValue>,
+    pub variables: Option<Vec<VariableInput>>,
 }
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -32,9 +34,10 @@ async fn start_instance(
     Json(req): Json<StartInstanceRequest>,
 ) -> Result<(StatusCode, Json<ProcessInstance>)> {
     let labels = req.labels.unwrap_or_else(|| serde_json::json!({}));
+    let variables = req.variables.unwrap_or_default();
     let instance = state
         .engine
-        .start_instance(req.definition_id, req.org_id, &labels)
+        .start_instance(req.definition_id, req.org_id, &labels, &variables)
         .await?;
     Ok((StatusCode::CREATED, Json(instance)))
 }

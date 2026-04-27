@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Two decisions in one file to test multi-decision deployment. -->
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="multi_decision_defs"
+             name="Multi Decision">
+  <decision id="decision-a" name="Decision A">
+    <decisionTable hitPolicy="UNIQUE">
+      <input id="i_x" label="X">
+        <inputExpression><text>x</text></inputExpression>
+      </input>
+      <output id="o_a" name="result_a" label="Result A"/>
+      <rule id="r1">
+        <inputEntry><text>"yes"</text></inputEntry>
+        <outputEntry><text>"approved"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry><text>"no"</text></inputEntry>
+        <outputEntry><text>"denied"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+  <decision id="decision-b" name="Decision B">
+    <decisionTable hitPolicy="FIRST">
+      <input id="i_y" label="Y">
+        <inputExpression><text>y</text></inputExpression>
+      </input>
+      <output id="o_b" name="result_b" label="Result B"/>
+      <rule id="r1">
+        <inputEntry><text>&gt; 0</text></inputEntry>
+        <outputEntry><text>"positive"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"non-positive"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>

@@ -32,6 +32,21 @@ pub enum EngineError {
 
     #[error("Expression error: {0}")]
     Expression(String),
+
+    #[error("DMN parse error: {0}")]
+    DmnParse(String),
+
+    #[error("FEEL evaluation error: {0}")]
+    DmnFeel(String),
+
+    #[error("Decision not found: {0}")]
+    DmnNotFound(String),
+
+    #[error("No DMN rule matched")]
+    DmnNoMatch,
+
+    #[error("Multiple DMN rules matched (UNIQUE hit policy)")]
+    DmnMultipleMatches,
 }
 
 impl IntoResponse for EngineError {
@@ -61,6 +76,17 @@ impl IntoResponse for EngineError {
                 tracing::error!(error = %msg, "Expression evaluation error");
                 (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
             }
+            EngineError::DmnParse(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            EngineError::DmnFeel(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            EngineError::DmnNotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            EngineError::DmnNoMatch => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "No DMN rule matched the input".to_string(),
+            ),
+            EngineError::DmnMultipleMatches => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Multiple DMN rules matched (UNIQUE hit policy violated)".to_string(),
+            ),
         };
 
         (status, Json(json!({ "error": message }))).into_response()

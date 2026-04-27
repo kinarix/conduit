@@ -102,7 +102,7 @@ async fn start_instance_creates_running_instance() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -130,7 +130,7 @@ async fn start_instance_creates_pending_user_task() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -163,7 +163,7 @@ async fn start_to_end_completes_instance_immediately() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -181,7 +181,7 @@ async fn start_instance_unknown_definition_returns_not_found() {
     let (pool, engine) = setup().await;
     let org_id = create_org(&pool).await;
     let result = engine
-        .start_instance(Uuid::new_v4(), org_id, &json!({}))
+        .start_instance(Uuid::new_v4(), org_id, &json!({}), &[])
         .await;
     assert!(matches!(
         result,
@@ -208,7 +208,7 @@ async fn start_instance_with_service_task() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -253,7 +253,7 @@ async fn start_instance_writes_history_for_each_element_visited() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -292,7 +292,7 @@ async fn start_to_end_all_history_entries_closed() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -330,7 +330,7 @@ async fn complete_user_task_advances_token_to_end() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -372,7 +372,7 @@ async fn complete_user_task_closes_history_entry() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)
@@ -425,7 +425,7 @@ async fn complete_already_completed_task_returns_conflict() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)
@@ -468,7 +468,7 @@ async fn engine_cold_cache_can_start_instance() {
     let cold_engine = Engine::new(pool.clone(), cold_cache);
 
     let instance = cold_engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
 
@@ -503,7 +503,7 @@ async fn complete_task_with_variables_writes_to_db() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)
@@ -596,7 +596,7 @@ async fn gateway_routes_to_conditioned_flow_when_condition_true() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)
@@ -647,7 +647,7 @@ async fn gateway_routes_to_default_flow_when_no_condition_matches() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)
@@ -698,7 +698,7 @@ async fn gateway_no_match_no_default_marks_instance_error() {
     .await
     .unwrap();
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)
@@ -761,7 +761,7 @@ async fn gateway_nested_routes_correctly() {
     .unwrap();
 
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}))
+        .start_instance(def.id, org_id, &json!({}), &[])
         .await
         .unwrap();
     let task_id = db::tasks::list_by_instance(&pool, instance.id)

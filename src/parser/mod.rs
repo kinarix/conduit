@@ -55,6 +55,9 @@ pub enum FlowNodeKind {
     SubProcess {
         sub_graph: Box<ProcessGraph>,
     },
+    BusinessRuleTask {
+        decision_ref: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -382,6 +385,27 @@ fn parse_children(
                 );
             }
 
+            "businessRuleTask" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let decision_ref = child
+                    .attribute((CAMUNDA_NS, "decisionRef"))
+                    .ok_or_else(|| {
+                        EngineError::Parse(format!(
+                            "businessRuleTask '{id}' missing camunda:decisionRef"
+                        ))
+                    })?
+                    .to_string();
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::BusinessRuleTask { decision_ref },
+                    },
+                );
+            }
+
             // Future-phase semantic elements — reject explicitly so callers get a clear error
             "eventBasedGateway"
             | "complexGateway"
@@ -389,7 +413,6 @@ fn parse_children(
             | "transaction"
             | "adHocSubProcess"
             | "sendTask"
-            | "businessRuleTask"
             | "manualTask"
             | "scriptTask"
             | "callActivity" => return Err(EngineError::UnsupportedElement(local.to_string())),

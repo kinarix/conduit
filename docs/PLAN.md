@@ -482,24 +482,38 @@ Conditional parallel paths work correctly.
 
 ## Phase 14 — DMN Integration
 
-**Goal:** Decision tables can be evaluated from Business Rule Tasks.
+**Goal:** Decision tables can be deployed separately from BPMN and evaluated synchronously
+from `BusinessRuleTask` elements. Output columns become process variables.
 
 ### Tasks
-- [ ] DMN XML parser (decision tables only)
-- [ ] Hit policy implementation (UNIQUE, FIRST, COLLECT)
-- [ ] FEEL expression evaluator for cell conditions
-- [ ] BusinessRuleTask → evaluate DMN → variables out
-- [ ] DMN deployment (separate from BPMN)
-- [ ] DMN versioning
+- [ ] `migrations/006_decision_definitions.sql` — new table with versioning index
+- [ ] `src/dmn/mod.rs` — DMN XML parser → `Vec<DecisionTable>`
+- [ ] `src/dmn/feel.rs` — mini FEEL evaluator for input-entry cells (`-`, literals, unary comparisons, ranges, OR lists)
+- [ ] Hit policies: UNIQUE (default), FIRST, COLLECT, RULE_ORDER
+- [ ] `src/db/decision_definitions.rs` — deploy, get_latest, list
+- [ ] `src/db/models.rs` — `DecisionDefinition` struct
+- [ ] `src/api/decisions.rs` — `POST /api/v1/decisions`, `GET /api/v1/decisions`
+- [ ] `src/parser/mod.rs` — add `BusinessRuleTask { decision_ref }`, remove from unsupported list
+- [ ] `src/engine/mod.rs` — new arm: load decision → evaluate → write variables → advance
+- [ ] `src/api/instances.rs` — add `variables: Option<Vec<VariableInput>>` to `StartInstanceRequest`
+- [ ] New `EngineError` variants: `DmnParse`, `DmnFeel`, `DmnNotFound`, `DmnNoMatch`, `DmnMultipleMatches`
+- [ ] DMN fixtures: `risk_check.dmn`, `fee_tiers.dmn`, `collect_flags.dmn`, `multi_decision.dmn`
+- [ ] BPMN fixture: `business_rule_task.bpmn`
+- [ ] `tests/dmn_test.rs` — parser + FEEL unit tests (no DB)
+- [ ] `tests/decision_test.rs` — deployment + engine integration tests
 
 ### Tests
-- Decision table evaluates correctly for all hit policies
-- FEEL expressions in cells work
+- Decision table parses correctly (inputs, outputs, rules, hit policy)
+- Mini FEEL evaluator handles: `-`, string/number/bool literals, `>=`, `>`, `<=`, `<`, `=`, `!=`, inclusive/exclusive ranges, OR lists
+- UNIQUE hit policy: errors on zero or multiple matches
+- FIRST/COLLECT/RULE_ORDER hit policies work correctly
 - Variables from DMN output become process variables
-- DMN errors propagate as process errors
+- Multiple `<decision>` elements in one DMN file → multiple versioned rows
+- DMN errors propagate (no-match, multiple-match, not-found) → instance error state
+- `BusinessRuleTask` BPMN element parsed with `decision_ref`
 
 ### Deliverable
-Business rules modelled in DMN drive process routing.
+Business rules modelled in DMN deployed via REST and evaluated transparently during process execution.
 
 ---
 

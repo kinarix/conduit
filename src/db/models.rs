@@ -120,6 +120,17 @@ pub struct ParallelJoinState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct DecisionDefinition {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub decision_key: String,
+    pub version: i32,
+    pub name: Option<String>,
+    pub dmn_xml: String,
+    pub deployed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct EventSubscription {
     pub id: Uuid,
     pub instance_id: Uuid,

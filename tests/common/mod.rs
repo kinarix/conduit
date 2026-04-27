@@ -35,6 +35,7 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::instances::routes())
         .merge(conduit::api::tasks::routes())
         .merge(conduit::api::external_tasks::routes())
+        .merge(conduit::api::decisions::routes())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

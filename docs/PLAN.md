@@ -29,7 +29,7 @@ Every phase follows this pattern:
 | 9 | Parallel Gateway | ✅ Complete | Fork + join |
 | 10 | Message Events | ✅ Complete | Correlation + receive task |
 | 11 | Signal Events | ✅ Complete | Broadcast |
-| 12 | Subprocess + Boundary | — | Embedded subprocess, boundary events |
+| 12 | Subprocess + Boundary | ✅ Complete | Embedded subprocess (12a), boundary events deferred |
 | 13 | Inclusive Gateway | — | OR routing |
 | 14 | DMN Integration | — | Decision tables |
 | 15 | Clustering + Observability | — | Multi-node, metrics |
@@ -421,33 +421,40 @@ Broadcast coordination between processes works.
 
 ---
 
-## Phase 12 — Subprocess + Boundary Events
+## Phase 12 — Embedded Subprocess
 
-**Goal:** Processes can encapsulate sub-flows and react to events during task execution.
+**Goal:** Processes can encapsulate sub-flows. Token enters, inner flow executes fully, token exits.
 
-### Sub-phases
+### Tasks
 
-#### 12a — Embedded Subprocess
-- Token enters subprocess → child execution created
-- Child completes → parent resumes
+#### 12a — Embedded Subprocess (core) ✅
+- [x] Parser: `SubProcess { sub_graph: ProcessGraph }` variant; recursively parse `subProcess` children
+- [x] Engine: `find_element_graph` helper searches nested sub_graphs for element lookup
+- [x] Engine: `SubProcess` arm — create subprocess execution, push inner start with subprocess scope
+- [x] Engine: `EndEvent` arm — check outer_chain; if non-empty, count active siblings; if 0, complete subprocess + push outgoing in outer graph
+- [x] Engine: resumption paths (`complete_user_task`, `complete_external_task`, `fire_timer_job`, `correlate_message`, `broadcast_signal`) use `find_element_graph` for correct graph resolution
 
-#### 12b — Boundary Events (Timer + Message)
-- Interrupting: cancel task, follow boundary flow
-- Non-interrupting: parallel path, task continues
+#### 12b — Boundary Message Event
+- [ ] Parser: `BoundaryMessageEvent { message_name, correlation_key_expr, attached_to, cancelling }` variant
+- [ ] Engine: UserTask setup creates message subscription for each BoundaryMessageEvent attached to the task
+- [ ] Engine: `deliver_message` handles BoundaryMessageEvent subscriptions (interrupting cancels task; non-interrupting spawns parallel path)
+- [ ] Engine: normal task completion cleans up boundary message subscriptions
 
-#### 12c — Event Subprocess
-- Triggered by event within parent scope
-- Interrupting or non-interrupting
+#### 12c — Event Subprocess (deferred)
+- See spec in `docs/phases/PHASE-12-subprocess.md`
 
 ### Tests
-- Subprocess executes fully before parent continues
-- Variables shared between parent and subprocess
-- Boundary timer interrupts task correctly
-- Non-interrupting boundary creates parallel path
-- Nested subprocesses work
+- [x] Subprocess executes all inner steps before parent continues
+- [x] Subprocess with UserTask pauses; inner task completion advances inner flow then exits subprocess
+- [x] Variable written inside subprocess is visible to parent after exit
+- [x] Variable written before subprocess is readable by inner ExclusiveGateway condition
+- [x] Instance reaches `completed` state after subprocess exits
+- [x] Nested subprocess works
+- [ ] Boundary message event (interrupting) cancels task and follows boundary path (12b — deferred)
+- [ ] Boundary message event (non-interrupting) spawns parallel path, task stays active (12b — deferred)
 
 ### Deliverable
-Complex process structures with subprocesses work.
+Processes with embedded subprocesses and boundary message events work.
 
 ---
 

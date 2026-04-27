@@ -49,16 +49,19 @@ pub enum FlowNodeKind {
         attached_to: String,
         cancelling: bool,
     },
+    SubProcess {
+        sub_graph: Box<ProcessGraph>,
+    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FlowNode {
     pub id: String,
     pub name: Option<String>,
     pub kind: FlowNodeKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SequenceFlow {
     pub id: String,
     pub source_ref: String,
@@ -66,7 +69,7 @@ pub struct SequenceFlow {
     pub condition: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProcessGraph {
     pub process_id: String,
     pub process_name: Option<String>,
@@ -81,10 +84,6 @@ pub struct ProcessGraph {
 }
 
 /// Parse BPMN XML into a validated `ProcessGraph`.
-///
-/// Rejects any element that belongs to a future phase to prevent silent
-/// mis-execution. The supported set for Phase 3:
-///   startEvent, endEvent, userTask, serviceTask, sequenceFlow
 pub fn parse(xml: &str) -> Result<ProcessGraph> {
     let doc = Document::parse(xml).map_err(|e| EngineError::Parse(format!("Invalid XML: {e}")))?;
 
@@ -129,10 +128,23 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         .to_string();
     let process_name = process_node.attribute("name").map(|s| s.to_string());
 
+    let (nodes, flows) = parse_children(&process_node, &message_defs, &signal_defs)?;
+
+    validate(&process_id, &nodes, &flows)?;
+
+    Ok(build_graph(process_id, process_name, nodes, flows))
+}
+
+/// Parse the child elements of a process or subProcess node into nodes + flows.
+fn parse_children(
+    container: &roxmltree::Node,
+    message_defs: &HashMap<String, String>,
+    signal_defs: &HashMap<String, String>,
+) -> Result<(HashMap<String, FlowNode>, Vec<SequenceFlow>)> {
     let mut nodes: HashMap<String, FlowNode> = HashMap::new();
     let mut flows: Vec<SequenceFlow> = Vec::new();
 
-    for child in process_node.children().filter(|n| n.is_element()) {
+    for child in container.children().filter(|n| n.is_element()) {
         let local = child.tag_name().name();
         let ns = child.tag_name().namespace();
 
@@ -147,12 +159,12 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
             "startEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let kind = if let Some(msg_name) = extract_message_name(&child, &message_defs, &id)?
+                let kind = if let Some(msg_name) = extract_message_name(&child, message_defs, &id)?
                 {
                     FlowNodeKind::MessageStartEvent {
                         message_name: msg_name,
                     }
-                } else if let Some(sig_name) = extract_signal_name(&child, &signal_defs, &id)? {
+                } else if let Some(sig_name) = extract_signal_name(&child, signal_defs, &id)? {
                     FlowNodeKind::SignalStartEvent {
                         signal_name: sig_name,
                     }
@@ -245,13 +257,13 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                     FlowNodeKind::IntermediateTimerCatchEvent {
                         duration: extract_timer_duration(&child)?,
                     }
-                } else if let Some(msg_name) = extract_message_name(&child, &message_defs, &id)? {
+                } else if let Some(msg_name) = extract_message_name(&child, message_defs, &id)? {
                     let correlation_key_expr = extract_correlation_key(&child);
                     FlowNodeKind::IntermediateMessageCatchEvent {
                         message_name: msg_name,
                         correlation_key_expr,
                     }
-                } else if let Some(sig_name) = extract_signal_name(&child, &signal_defs, &id)? {
+                } else if let Some(sig_name) = extract_signal_name(&child, signal_defs, &id)? {
                     FlowNodeKind::IntermediateSignalCatchEvent {
                         signal_name: sig_name,
                     }
@@ -285,7 +297,7 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                         attached_to,
                         cancelling,
                     }
-                } else if let Some(sig_name) = extract_signal_name(&child, &signal_defs, &id)? {
+                } else if let Some(sig_name) = extract_signal_name(&child, signal_defs, &id)? {
                     FlowNodeKind::BoundarySignalEvent {
                         signal_name: sig_name,
                         attached_to,
@@ -316,7 +328,7 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
                 let message_name =
-                    extract_message_name(&child, &message_defs, &id)?.ok_or_else(|| {
+                    extract_message_name(&child, message_defs, &id)?.ok_or_else(|| {
                         EngineError::Parse(format!(
                             "receiveTask '{id}' missing messageRef or message definition"
                         ))
@@ -335,12 +347,29 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
                 );
             }
 
+            "subProcess" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let (inner_nodes, inner_flows) = parse_children(&child, message_defs, signal_defs)?;
+                validate(&id, &inner_nodes, &inner_flows)?;
+                let sub_graph = build_graph(id.clone(), name.clone(), inner_nodes, inner_flows);
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::SubProcess {
+                            sub_graph: Box::new(sub_graph),
+                        },
+                    },
+                );
+            }
+
             // Future-phase semantic elements — reject explicitly so callers get a clear error
             "inclusiveGateway"
             | "eventBasedGateway"
             | "complexGateway"
             | "intermediateThrowEvent"
-            | "subProcess"
             | "transaction"
             | "adHocSubProcess"
             | "sendTask"
@@ -366,8 +395,16 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         }
     }
 
-    validate(&process_id, &nodes, &flows)?;
+    Ok((nodes, flows))
+}
 
+/// Build outgoing/incoming/attached_to indices from parsed nodes+flows.
+fn build_graph(
+    process_id: String,
+    process_name: Option<String>,
+    nodes: HashMap<String, FlowNode>,
+    flows: Vec<SequenceFlow>,
+) -> ProcessGraph {
     let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
     for flow in &flows {
@@ -393,7 +430,7 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         }
     }
 
-    Ok(ProcessGraph {
+    ProcessGraph {
         process_id,
         process_name,
         nodes,
@@ -401,7 +438,7 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         outgoing,
         incoming,
         attached_to,
-    })
+    }
 }
 
 fn require_id<'a>(node: &roxmltree::Node<'a, '_>, element: &str) -> Result<String> {

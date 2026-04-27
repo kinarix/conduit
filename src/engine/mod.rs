@@ -252,8 +252,16 @@ impl Engine {
             .execute(&mut *tx)
             .await?;
 
+        let (current_graph, _) =
+            Self::find_element_graph(&task.element_id, &graph).ok_or_else(|| {
+                EngineError::Internal(format!(
+                    "Element '{}' not found in process graph",
+                    task.element_id
+                ))
+            })?;
+
         // Cancel any pending boundary events (timers and signal subscriptions) attached to this task.
-        if let Some(boundary_ids) = graph.attached_to.get(&task.element_id) {
+        if let Some(boundary_ids) = current_graph.attached_to.get(&task.element_id) {
             for boundary_id in boundary_ids {
                 sqlx::query(
                     "UPDATE jobs SET state = 'cancelled' \
@@ -287,7 +295,7 @@ impl Engine {
             }
         }
 
-        let next_ids: Vec<String> = graph
+        let next_ids: Vec<String> = current_graph
             .outgoing
             .get(&task.element_id)
             .cloned()
@@ -380,7 +388,15 @@ impl Engine {
         .execute(&mut *tx)
         .await?;
 
-        let next_ids: Vec<String> = graph.outgoing.get(&element_id).cloned().unwrap_or_default();
+        let (current_graph, _) =
+            Self::find_element_graph(&element_id, &graph).ok_or_else(|| {
+                EngineError::Internal(format!("Element '{element_id}' not found in process graph"))
+            })?;
+        let next_ids: Vec<String> = current_graph
+            .outgoing
+            .get(&element_id)
+            .cloned()
+            .unwrap_or_default();
 
         for next_id in next_ids {
             Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope).await?;
@@ -466,9 +482,13 @@ impl Engine {
             vec![(start_element_id.to_string(), parallel_scope)];
 
         while let Some((current_id, scope)) = stack.pop() {
-            let node = graph.nodes.get(&current_id).ok_or_else(|| {
-                EngineError::Internal(format!("Element '{current_id}' not found in process graph"))
-            })?;
+            let (current_graph, outer_chain) = Self::find_element_graph(&current_id, graph)
+                .ok_or_else(|| {
+                    EngineError::Internal(format!(
+                        "Element '{current_id}' not found in process graph"
+                    ))
+                })?;
+            let node = current_graph.nodes.get(&current_id).unwrap();
 
             let execution = sqlx::query_as::<_, Execution>(
                 "INSERT INTO executions (instance_id, element_id, state, parent_id) \
@@ -502,30 +522,89 @@ impl Engine {
                         .await?;
 
                     if matches!(node.kind, FlowNodeKind::EndEvent) {
-                        // Only complete the instance when no other active executions remain.
-                        // This preserves non-interrupting boundary event paths: the boundary
-                        // path can reach an EndEvent while the host task is still active.
-                        let (active_count,): (i64,) = sqlx::query_as(
-                            "SELECT COUNT(*) FROM executions \
-                             WHERE instance_id = $1 AND state = 'active'",
-                        )
-                        .bind(instance_id)
-                        .fetch_one(&mut **tx)
-                        .await?;
+                        if !outer_chain.is_empty() {
+                            // Inner EndEvent of a subprocess: check if all inner paths finished.
+                            let outer_graph = outer_chain.last().unwrap();
+                            let sp_exec_id = scope.ok_or_else(|| {
+                                EngineError::Internal(format!(
+                                    "Subprocess EndEvent '{}' reached with no scope",
+                                    node.id
+                                ))
+                            })?;
 
-                        if active_count == 0 {
-                            sqlx::query(
-                                "UPDATE process_instances \
-                                 SET state = 'completed', ended_at = NOW() \
-                                 WHERE id = $1",
+                            let (active_inner,): (i64,) = sqlx::query_as(
+                                "SELECT COUNT(*) FROM executions \
+                                 WHERE parent_id = $1 AND state = 'active'",
+                            )
+                            .bind(sp_exec_id)
+                            .fetch_one(&mut **tx)
+                            .await?;
+
+                            if active_inner == 0 {
+                                sqlx::query(
+                                    "UPDATE execution_history SET left_at = NOW() \
+                                     WHERE execution_id = $1 AND left_at IS NULL",
+                                )
+                                .bind(sp_exec_id)
+                                .execute(&mut **tx)
+                                .await?;
+
+                                sqlx::query(
+                                    "UPDATE executions SET state = 'completed' WHERE id = $1",
+                                )
+                                .bind(sp_exec_id)
+                                .execute(&mut **tx)
+                                .await?;
+
+                                let (sp_element_id, outer_scope): (String, Option<Uuid>) =
+                                    sqlx::query_as(
+                                        "SELECT element_id, parent_id FROM executions WHERE id = $1",
+                                    )
+                                    .bind(sp_exec_id)
+                                    .fetch_one(&mut **tx)
+                                    .await?;
+
+                                for next_id in outer_graph
+                                    .outgoing
+                                    .get(&sp_element_id)
+                                    .cloned()
+                                    .unwrap_or_default()
+                                {
+                                    stack.push((next_id, outer_scope));
+                                }
+                            }
+                            // else: other inner paths still active — don't advance yet.
+                        } else {
+                            // Top-level EndEvent: complete instance when nothing else is running.
+                            // This preserves non-interrupting boundary event paths: the boundary
+                            // path can reach an EndEvent while the host task is still active.
+                            let (active_count,): (i64,) = sqlx::query_as(
+                                "SELECT COUNT(*) FROM executions \
+                                 WHERE instance_id = $1 AND state = 'active'",
                             )
                             .bind(instance_id)
-                            .execute(&mut **tx)
+                            .fetch_one(&mut **tx)
                             .await?;
+
+                            if active_count == 0 {
+                                sqlx::query(
+                                    "UPDATE process_instances \
+                                     SET state = 'completed', ended_at = NOW() \
+                                     WHERE id = $1",
+                                )
+                                .bind(instance_id)
+                                .execute(&mut **tx)
+                                .await?;
+                            }
                         }
                         // Don't push anything — this token is done.
                     } else {
-                        for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
+                        for next_id in current_graph
+                            .outgoing
+                            .get(&node.id)
+                            .cloned()
+                            .unwrap_or_default()
+                        {
                             stack.push((next_id, scope));
                         }
                     }
@@ -557,10 +636,12 @@ impl Engine {
                     .execute(&mut **tx)
                     .await?;
 
-                    if let Some(boundary_ids) = graph.attached_to.get(&node.id) {
+                    if let Some(boundary_ids) = current_graph.attached_to.get(&node.id) {
                         for boundary_id in boundary_ids {
-                            let boundary_node =
-                                graph.nodes.get(boundary_id.as_str()).ok_or_else(|| {
+                            let boundary_node = current_graph
+                                .nodes
+                                .get(boundary_id.as_str())
+                                .ok_or_else(|| {
                                     EngineError::Internal(format!(
                                         "Boundary event '{boundary_id}' not found in graph"
                                     ))
@@ -696,7 +777,12 @@ impl Engine {
                         .execute(&mut **tx)
                         .await?;
 
-                    for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
+                    for next_id in current_graph
+                        .outgoing
+                        .get(&node.id)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
                         stack.push((next_id, scope));
                     }
                 }
@@ -749,6 +835,32 @@ impl Engine {
                     // Never entered via run_to_wait directly; set up alongside the host UserTask.
                 }
 
+                FlowNodeKind::SubProcess { sub_graph } => {
+                    sqlx::query(
+                        "INSERT INTO execution_history \
+                         (instance_id, execution_id, element_id, element_type) \
+                         VALUES ($1, $2, $3, $4)",
+                    )
+                    .bind(instance_id)
+                    .bind(execution.id)
+                    .bind(&node.id)
+                    .bind(element_type)
+                    .execute(&mut **tx)
+                    .await?;
+
+                    let inner_start = sub_graph
+                        .nodes
+                        .values()
+                        .find(|n| matches!(n.kind, FlowNodeKind::StartEvent))
+                        .ok_or_else(|| {
+                            EngineError::Internal(format!(
+                                "SubProcess '{}' has no StartEvent",
+                                node.id
+                            ))
+                        })?;
+                    stack.push((inner_start.id.clone(), Some(execution.id)));
+                }
+
                 FlowNodeKind::SignalStartEvent { .. } => {
                     // Entered when a SignalStartEvent triggers a new instance.
                     // Treat like a plain StartEvent — pass through immediately.
@@ -769,7 +881,12 @@ impl Engine {
                         .execute(&mut **tx)
                         .await?;
 
-                    for next_id in graph.outgoing.get(&node.id).cloned().unwrap_or_default() {
+                    for next_id in current_graph
+                        .outgoing
+                        .get(&node.id)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
                         stack.push((next_id, scope));
                     }
                 }
@@ -829,7 +946,7 @@ impl Engine {
                     let var_map: HashMap<String, JsonValue> =
                         vars.into_iter().map(|v| (v.name, v.value)).collect();
 
-                    let outgoing_flows: Vec<_> = graph
+                    let outgoing_flows: Vec<_> = current_graph
                         .flows
                         .iter()
                         .filter(|f| f.source_ref == node.id)
@@ -844,7 +961,7 @@ impl Engine {
                             continue;
                         }
                         if let Some(expr) = &flow.condition {
-                            if evaluator::evaluate_condition(expr, &var_map)? {
+                            if evaluator::evaluate_condition(expr, &var_map).unwrap_or(false) {
                                 chosen = Some(flow.target_ref.clone());
                                 break;
                             }
@@ -866,9 +983,16 @@ impl Engine {
                 }
 
                 FlowNodeKind::ParallelGateway => {
-                    let incoming_count = graph.incoming.get(&node.id).map(|v| v.len()).unwrap_or(0);
-                    let outgoing_ids: Vec<String> =
-                        graph.outgoing.get(&node.id).cloned().unwrap_or_default();
+                    let incoming_count = current_graph
+                        .incoming
+                        .get(&node.id)
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    let outgoing_ids: Vec<String> = current_graph
+                        .outgoing
+                        .get(&node.id)
+                        .cloned()
+                        .unwrap_or_default();
 
                     sqlx::query(
                         "INSERT INTO execution_history \
@@ -961,7 +1085,38 @@ impl Engine {
             FlowNodeKind::SignalStartEvent { .. } => "startEvent",
             FlowNodeKind::IntermediateSignalCatchEvent { .. } => "intermediateCatchEvent",
             FlowNodeKind::BoundarySignalEvent { .. } => "boundaryEvent",
+            FlowNodeKind::SubProcess { .. } => "subProcess",
         }
+    }
+
+    /// Recursively search the graph hierarchy for the sub-graph containing `element_id`.
+    /// Returns `(containing_graph, outer_chain)` where `outer_chain` is the list of
+    /// ancestor graphs from outermost to innermost (empty if the element is in `graph` itself).
+    fn find_element_graph<'g>(
+        element_id: &str,
+        graph: &'g ProcessGraph,
+    ) -> Option<(&'g ProcessGraph, Vec<&'g ProcessGraph>)> {
+        Self::find_element_graph_inner(element_id, graph, &mut vec![])
+    }
+
+    fn find_element_graph_inner<'g>(
+        element_id: &str,
+        graph: &'g ProcessGraph,
+        outer: &mut Vec<&'g ProcessGraph>,
+    ) -> Option<(&'g ProcessGraph, Vec<&'g ProcessGraph>)> {
+        if graph.nodes.contains_key(element_id) {
+            return Some((graph, outer.clone()));
+        }
+        for node in graph.nodes.values() {
+            if let FlowNodeKind::SubProcess { sub_graph } = &node.kind {
+                outer.push(graph);
+                if let Some(result) = Self::find_element_graph_inner(element_id, sub_graph, outer) {
+                    return Some(result);
+                }
+                outer.pop();
+            }
+        }
+        None
     }
 
     /// Resolve a correlation key expression against current instance variables.
@@ -1072,7 +1227,14 @@ impl Engine {
                 .execute(&mut *tx)
                 .await?;
 
-            let next_ids: Vec<String> = graph
+            let (current_graph, _) =
+                Self::find_element_graph(&sub.element_id, &graph).ok_or_else(|| {
+                    EngineError::Internal(format!(
+                        "Element '{}' not found in process graph",
+                        sub.element_id
+                    ))
+                })?;
+            let next_ids: Vec<String> = current_graph
                 .outgoing
                 .get(&sub.element_id)
                 .cloned()
@@ -1190,9 +1352,11 @@ impl Engine {
         let element_id = timer_exec.element_id.clone();
         let parallel_scope = timer_exec.parent_id;
 
-        let node = graph.nodes.get(&element_id).ok_or_else(|| {
-            EngineError::Internal(format!("Element '{element_id}' not found in process graph"))
-        })?;
+        let (current_graph, _) =
+            Self::find_element_graph(&element_id, &graph).ok_or_else(|| {
+                EngineError::Internal(format!("Element '{element_id}' not found in process graph"))
+            })?;
+        let node = current_graph.nodes.get(&element_id).unwrap();
 
         let mut tx = self.pool.begin().await?;
 
@@ -1219,8 +1383,11 @@ impl Engine {
                 .execute(&mut *tx)
                 .await?;
 
-                let next_ids: Vec<String> =
-                    graph.outgoing.get(&element_id).cloned().unwrap_or_default();
+                let next_ids: Vec<String> = current_graph
+                    .outgoing
+                    .get(&element_id)
+                    .cloned()
+                    .unwrap_or_default();
                 for next_id in next_ids {
                     Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope)
                         .await?;
@@ -1283,8 +1450,11 @@ impl Engine {
                 .execute(&mut *tx)
                 .await?;
 
-                let next_ids: Vec<String> =
-                    graph.outgoing.get(&element_id).cloned().unwrap_or_default();
+                let next_ids: Vec<String> = current_graph
+                    .outgoing
+                    .get(&element_id)
+                    .cloned()
+                    .unwrap_or_default();
                 for next_id in next_ids {
                     Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, parallel_scope)
                         .await?;
@@ -1350,9 +1520,14 @@ impl Engine {
 
             let graph = self.load_graph(def_row.0).await?;
 
-            let node = graph.nodes.get(sub.element_id.as_str()).ok_or_else(|| {
-                EngineError::Internal(format!("Element '{}' not found in graph", sub.element_id))
-            })?;
+            let (current_graph, _) = Self::find_element_graph(sub.element_id.as_str(), &graph)
+                .ok_or_else(|| {
+                    EngineError::Internal(format!(
+                        "Element '{}' not found in graph",
+                        sub.element_id
+                    ))
+                })?;
+            let node = current_graph.nodes.get(sub.element_id.as_str()).unwrap();
 
             for var in variables {
                 sqlx::query(
@@ -1412,7 +1587,7 @@ impl Engine {
 
                         // Cancel sibling boundary events on the same host task.
                         if let Some(all_boundaries) =
-                            graph.attached_to.get(attached_to.as_str()).cloned()
+                            current_graph.attached_to.get(attached_to.as_str()).cloned()
                         {
                             for bid in &all_boundaries {
                                 if bid != &sub.element_id {
@@ -1453,7 +1628,7 @@ impl Engine {
                         .execute(&mut *tx)
                         .await?;
 
-                    let next_ids: Vec<String> = graph
+                    let next_ids: Vec<String> = current_graph
                         .outgoing
                         .get(sub.element_id.as_str())
                         .cloned()
@@ -1485,7 +1660,7 @@ impl Engine {
                         .execute(&mut *tx)
                         .await?;
 
-                    let next_ids: Vec<String> = graph
+                    let next_ids: Vec<String> = current_graph
                         .outgoing
                         .get(sub.element_id.as_str())
                         .cloned()

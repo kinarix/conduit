@@ -115,9 +115,9 @@ conduit/
 
 ## Current Phase
 
-**Phase 12 — Subprocess + Boundary Events** (next up)
+**Phase 13 — Inclusive Gateway** (next up)
 
-Phases 0–11 are complete. See `docs/phases/PHASE-12-subprocess.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–12a are complete. See `docs/phases/PHASE-13-inclusive-gateway.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -135,6 +135,7 @@ Phases 0–11 are complete. See `docs/phases/PHASE-12-subprocess.md` and `docs/P
 | 9 | Parallel gateway — fork/join with atomic join counting, parallel_join_state table, work-stack execution, variable merging |
 | 10 | Message events — IntermediateCatchEvent (message), ReceiveTask, correlation key matching, MessageStartEvent, `POST /api/v1/messages` |
 | 11 | Signal events — IntermediateSignalCatchEvent, BoundarySignalEvent (interrupting + non-interrupting), SignalStartEvent, `POST /api/v1/signals/broadcast` |
+| 12 | Embedded subprocess — SubProcess variant, `find_element_graph` recursive lookup, subprocess scoping, nested subprocess support |
 
 ## How to Work Through the Phases
 

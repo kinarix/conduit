@@ -43,7 +43,7 @@ build: ## Build the project
 	cargo build
 
 run: db migrate ## Start the dev server
-	DATABASE_URL=$(DATABASE_URL) cargo run
+	DATABASE_URL=$(DATABASE_URL) RUST_LOG=trace cargo run
 
 clean: ## Remove build artifacts
 	cargo clean

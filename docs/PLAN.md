@@ -31,7 +31,7 @@ Every phase follows this pattern:
 | 11 | Signal Events | ✅ Complete | Broadcast |
 | 12 | Subprocess + Boundary | ✅ Complete | Embedded subprocess (12a), boundary events deferred |
 | 13 | Inclusive Gateway | ✅ Complete | OR routing with selective join |
-| 14 | DMN Integration | — | Decision tables |
+| 14 | DMN Integration | ✅ Complete | Decision tables |
 | 15 | Clustering + Observability | — | Multi-node, metrics |
 | 16 | Table Partitioning + Archival | — | Partitioned schema, retention policy |
 
@@ -486,21 +486,21 @@ Conditional parallel paths work correctly.
 from `BusinessRuleTask` elements. Output columns become process variables.
 
 ### Tasks
-- [ ] `migrations/006_decision_definitions.sql` — new table with versioning index
-- [ ] `src/dmn/mod.rs` — DMN XML parser → `Vec<DecisionTable>`
-- [ ] `src/dmn/feel.rs` — mini FEEL evaluator for input-entry cells (`-`, literals, unary comparisons, ranges, OR lists)
-- [ ] Hit policies: UNIQUE (default), FIRST, COLLECT, RULE_ORDER
-- [ ] `src/db/decision_definitions.rs` — deploy, get_latest, list
-- [ ] `src/db/models.rs` — `DecisionDefinition` struct
-- [ ] `src/api/decisions.rs` — `POST /api/v1/decisions`, `GET /api/v1/decisions`
-- [ ] `src/parser/mod.rs` — add `BusinessRuleTask { decision_ref }`, remove from unsupported list
-- [ ] `src/engine/mod.rs` — new arm: load decision → evaluate → write variables → advance
-- [ ] `src/api/instances.rs` — add `variables: Option<Vec<VariableInput>>` to `StartInstanceRequest`
-- [ ] New `EngineError` variants: `DmnParse`, `DmnFeel`, `DmnNotFound`, `DmnNoMatch`, `DmnMultipleMatches`
-- [ ] DMN fixtures: `risk_check.dmn`, `fee_tiers.dmn`, `collect_flags.dmn`, `multi_decision.dmn`
-- [ ] BPMN fixture: `business_rule_task.bpmn`
-- [ ] `tests/dmn_test.rs` — parser + FEEL unit tests (no DB)
-- [ ] `tests/decision_test.rs` — deployment + engine integration tests
+- [x] `migrations/006_decision_definitions.sql` — new table with versioning index
+- [x] `src/dmn/mod.rs` — DMN XML parser → `Vec<DecisionTable>`
+- [x] `src/dmn/feel.rs` — mini FEEL evaluator for input-entry cells (`-`, literals, unary comparisons, ranges, OR lists)
+- [x] Hit policies: UNIQUE (default), FIRST, COLLECT, RULE_ORDER
+- [x] `src/db/decision_definitions.rs` — deploy, get_latest, list
+- [x] `src/db/models.rs` — `DecisionDefinition` struct
+- [x] `src/api/decisions.rs` — `POST /api/v1/decisions`, `GET /api/v1/decisions`
+- [x] `src/parser/mod.rs` — add `BusinessRuleTask { decision_ref }`, remove from unsupported list
+- [x] `src/engine/mod.rs` — new arm: load decision → evaluate → write variables → advance
+- [x] `src/api/instances.rs` — add `variables: Option<Vec<VariableInput>>` to `StartInstanceRequest`
+- [x] New `EngineError` variants: `DmnParse`, `DmnFeel`, `DmnNotFound`, `DmnNoMatch`, `DmnMultipleMatches`
+- [x] DMN fixtures: `risk_check.dmn`, `fee_tiers.dmn`, `collect_flags.dmn`, `multi_decision.dmn`
+- [x] BPMN fixture: `business_rule_task.bpmn`
+- [x] `tests/dmn_test.rs` — parser + FEEL unit tests (no DB)
+- [x] `tests/decision_test.rs` — deployment + engine integration tests
 
 ### Tests
 - Decision table parses correctly (inputs, outputs, rules, hit policy)

@@ -1,0 +1,585 @@
+{
+  "schemaVersion": "1.0.0",
+  "exportedAt": "2026-04-27T00:00:00Z",
+  "generator": "conduit/manual",
+  "project": {
+    "name": "Conduit API",
+    "description": "API collection for the Conduit process orchestration engine",
+    "selectedEnvironmentName": "Local"
+  },
+  "folders": [
+    { "_ref": "folder-0", "name": "Health" },
+    { "_ref": "folder-1", "name": "Organizations" },
+    { "_ref": "folder-2", "name": "Users" },
+    { "_ref": "folder-3", "name": "Deployments" },
+    { "_ref": "folder-4", "name": "Process Instances" },
+    { "_ref": "folder-5", "name": "User Tasks" },
+    { "_ref": "folder-6", "name": "External Tasks" },
+    { "_ref": "folder-7", "name": "Messages" },
+    { "_ref": "folder-8", "name": "Signals" },
+    { "_ref": "folder-9", "name": "Decisions" }
+  ],
+  "requests": [
+    {
+      "_ref": "req-0",
+      "folderRef": "folder-0",
+      "name": "Health Check",
+      "method": "GET",
+      "url": "{{base_url}}/health",
+      "params": [],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-1",
+      "folderRef": "folder-1",
+      "name": "Create Organization",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/orgs",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"name\": \"Test Organization\",\n  \"slug\": \"test-org\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('org_id', body.id);",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-1b",
+      "folderRef": "folder-1",
+      "name": "List Organizations",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/orgs",
+      "params": [],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-2",
+      "folderRef": "folder-2",
+      "name": "Create User",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/users",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"auth_provider\": \"internal\",\n  \"email\": \"test@example.com\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('user_id', body.id);",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-3",
+      "folderRef": "folder-3",
+      "name": "Deploy User Task Process",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"key\": \"user-task-process\",\n  \"name\": \"User Task Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?><definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\"><process id=\\\"user_task_process\\\"><startEvent id=\\\"start\\\"/><userTask id=\\\"task_review\\\" name=\\\"Review\\\"/><endEvent id=\\\"end\\\"/><sequenceFlow id=\\\"f1\\\" sourceRef=\\\"start\\\" targetRef=\\\"task_review\\\"/><sequenceFlow id=\\\"f2\\\" sourceRef=\\\"task_review\\\" targetRef=\\\"end\\\"/></process></definitions>\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('definition_id', body.id);",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-4",
+      "folderRef": "folder-3",
+      "name": "Deploy Service Task Process",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"key\": \"service-task-process\",\n  \"name\": \"Service Task Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?><definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\" xmlns:camunda=\\\"http://camunda.org/schema/1.0/bpmn\\\"><process id=\\\"service_process\\\"><startEvent id=\\\"start\\\"/><serviceTask id=\\\"task_worker\\\" name=\\\"Do Work\\\" camunda:topic=\\\"email-sender\\\"/><endEvent id=\\\"end\\\"/><sequenceFlow id=\\\"f1\\\" sourceRef=\\\"start\\\" targetRef=\\\"task_worker\\\"/><sequenceFlow id=\\\"f2\\\" sourceRef=\\\"task_worker\\\" targetRef=\\\"end\\\"/></process></definitions>\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('service_definition_id', body.id);",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-4b",
+      "folderRef": "folder-3",
+      "name": "Deploy HTTP Call-out Process",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"key\": \"http-callout-process\",\n  \"name\": \"HTTP Call-out Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?><definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\"><process id=\\\"http_process\\\"><startEvent id=\\\"start\\\"/><serviceTask id=\\\"task_http\\\" name=\\\"Call API\\\" url=\\\"https://httpbin.org/post\\\"/><endEvent id=\\\"end\\\"/><sequenceFlow id=\\\"f1\\\" sourceRef=\\\"start\\\" targetRef=\\\"task_http\\\"/><sequenceFlow id=\\\"f2\\\" sourceRef=\\\"task_http\\\" targetRef=\\\"end\\\"/></process></definitions>\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('http_definition_id', body.id);",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-4c",
+      "folderRef": "folder-3",
+      "name": "List Deployments",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [
+        { "key": "org_id", "value": "{{org_id}}", "enabled": true }
+      ],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 3,
+      "attachments": []
+    },
+    {
+      "_ref": "req-4d",
+      "folderRef": "folder-3",
+      "name": "Get Deployment",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/deployments/{{definition_id}}",
+      "params": [],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 4,
+      "attachments": []
+    },
+    {
+      "_ref": "req-5",
+      "folderRef": "folder-4",
+      "name": "Start User Task Process Instance",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/process-instances",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"definition_id\": \"{{definition_id}}\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('instance_id', body.id);",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-6",
+      "folderRef": "folder-4",
+      "name": "Start Service Process Instance",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/process-instances",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"definition_id\": \"{{service_definition_id}}\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('instance_id', body.id);",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-6b",
+      "folderRef": "folder-4",
+      "name": "List Process Instances",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/process-instances",
+      "params": [
+        { "key": "org_id", "value": "{{org_id}}", "enabled": true }
+      ],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-7",
+      "folderRef": "folder-4",
+      "name": "Get Process Instance",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/process-instances/{{instance_id}}",
+      "params": [],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 3,
+      "attachments": []
+    },
+    {
+      "_ref": "req-8",
+      "folderRef": "folder-5",
+      "name": "List Tasks",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/tasks",
+      "params": [],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nif (body.items && body.items.length > 0) {\n  emit('task_id', body.items[0].id);\n}",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-9",
+      "folderRef": "folder-5",
+      "name": "Get Task",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/tasks/{{task_id}}",
+      "params": [],
+      "headers": [],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-10",
+      "folderRef": "folder-5",
+      "name": "Complete Task",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/tasks/{{task_id}}/complete",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"variables\": [\n    {\n      \"name\": \"approved\",\n      \"value_type\": \"bool\",\n      \"value\": true\n    }\n  ]\n}",
+      "preScript": "",
+      "postScript": "",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-11",
+      "folderRef": "folder-6",
+      "name": "Fetch and Lock Jobs",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/external-tasks/fetch-and-lock",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"worker_id\": \"{{worker_id}}\",\n  \"topic\": \"email-sender\",\n  \"max_jobs\": 10,\n  \"lock_duration_secs\": 30\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nif (Array.isArray(body) && body.length > 0) {\n  emit('job_id', body[0].id);\n}",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-12",
+      "folderRef": "folder-6",
+      "name": "Complete External Task",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/external-tasks/{{job_id}}/complete",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"worker_id\": \"{{worker_id}}\",\n  \"variables\": [\n    {\n      \"name\": \"sent\",\n      \"value_type\": \"bool\",\n      \"value\": true\n    }\n  ]\n}",
+      "preScript": "",
+      "postScript": "",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-13",
+      "folderRef": "folder-6",
+      "name": "Report External Task Failure",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/external-tasks/{{job_id}}/failure",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"worker_id\": \"{{worker_id}}\",\n  \"error_message\": \"SMTP connection refused\"\n}",
+      "preScript": "",
+      "postScript": "",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-14",
+      "folderRef": "folder-6",
+      "name": "Extend External Task Lock",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/external-tasks/{{job_id}}/extend-lock",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"worker_id\": \"{{worker_id}}\",\n  \"lock_duration_secs\": 60\n}",
+      "preScript": "",
+      "postScript": "",
+      "position": 3,
+      "attachments": []
+    },
+    {
+      "_ref": "req-15",
+      "folderRef": "folder-7",
+      "name": "Deploy Message Catch Process",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"key\": \"message-catch-process\",\n  \"name\": \"Message Catch Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?><definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\"><message id=\\\"msg_payment\\\" name=\\\"payment-received\\\"/><process id=\\\"message_process\\\"><startEvent id=\\\"start\\\"/><intermediateCatchEvent id=\\\"catch_msg\\\"><messageEventDefinition messageRef=\\\"msg_payment\\\"/></intermediateCatchEvent><endEvent id=\\\"end\\\"/><sequenceFlow id=\\\"f1\\\" sourceRef=\\\"start\\\" targetRef=\\\"catch_msg\\\"/><sequenceFlow id=\\\"f2\\\" sourceRef=\\\"catch_msg\\\" targetRef=\\\"end\\\"/></process></definitions>\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('msg_definition_id', body.id);",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-16",
+      "folderRef": "folder-7",
+      "name": "Start Message Catch Instance",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/process-instances",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"definition_id\": \"{{msg_definition_id}}\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('msg_instance_id', body.id);",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-17",
+      "folderRef": "folder-7",
+      "name": "Correlate Message",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/messages/correlate",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"message_name\": \"payment-received\",\n  \"correlation_key\": null,\n  \"variables\": [\n    {\n      \"name\": \"amount\",\n      \"value_type\": \"number\",\n      \"value\": 99.99\n    }\n  ]\n}",
+      "preScript": "",
+      "postScript": "",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-18",
+      "folderRef": "folder-8",
+      "name": "Deploy Signal Catch Process",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"key\": \"signal-catch-process\",\n  \"name\": \"Signal Catch Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?><definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\"><signal id=\\\"sig_alert\\\" name=\\\"order-cancelled\\\"/><process id=\\\"signal_process\\\"><startEvent id=\\\"start\\\"/><intermediateCatchEvent id=\\\"catch_sig\\\"><signalEventDefinition signalRef=\\\"sig_alert\\\"/></intermediateCatchEvent><endEvent id=\\\"end\\\"/><sequenceFlow id=\\\"f1\\\" sourceRef=\\\"start\\\" targetRef=\\\"catch_sig\\\"/><sequenceFlow id=\\\"f2\\\" sourceRef=\\\"catch_sig\\\" targetRef=\\\"end\\\"/></process></definitions>\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('sig_definition_id', body.id);",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-19",
+      "folderRef": "folder-8",
+      "name": "Start Signal Catch Instance",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/process-instances",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"definition_id\": \"{{sig_definition_id}}\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('sig_instance_id', body.id);",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-20",
+      "folderRef": "folder-8",
+      "name": "Broadcast Signal",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/signals/broadcast",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"signal_name\": \"order-cancelled\",\n  \"variables\": [\n    {\n      \"name\": \"reason\",\n      \"value_type\": \"string\",\n      \"value\": \"out-of-stock\"\n    }\n  ]\n}",
+      "preScript": "",
+      "postScript": "",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-21",
+      "folderRef": "folder-9",
+      "name": "Deploy DMN Decision Table",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/decisions",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/xml", "enabled": true },
+        { "key": "X-Org-Id", "value": "{{org_id}}", "enabled": true }
+      ],
+      "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<definitions xmlns=\"https://www.omg.org/spec/DMN/20191111/MODEL/\" id=\"definitions\" name=\"Definitions\" namespace=\"http://camunda.org/schema/1.0/dmn\">\n  <decision id=\"loan-approval\" name=\"Loan Approval\">\n    <decisionTable id=\"dt_loan\">\n      <input id=\"i_credit\" label=\"Credit Score\">\n        <inputExpression id=\"ie_credit\" typeRef=\"integer\">\n          <text>creditScore</text>\n        </inputExpression>\n      </input>\n      <output id=\"o_approved\" label=\"Approved\" name=\"approved\" typeRef=\"boolean\"/>\n      <rule id=\"r1\">\n        <inputEntry id=\"r1_in\"><text>&gt;= 700</text></inputEntry>\n        <outputEntry id=\"r1_out\"><text>true</text></outputEntry>\n      </rule>\n      <rule id=\"r2\">\n        <inputEntry id=\"r2_in\"><text>&lt; 700</text></inputEntry>\n        <outputEntry id=\"r2_out\"><text>false</text></outputEntry>\n      </rule>\n    </decisionTable>\n  </decision>\n</definitions>",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nif (body.deployed && body.deployed.length > 0) {\n  emit('decision_id', body.deployed[0].id);\n  emit('decision_key', body.deployed[0].decision_key);\n}",
+      "position": 0,
+      "attachments": []
+    },
+    {
+      "_ref": "req-22",
+      "folderRef": "folder-9",
+      "name": "List Decision Definitions",
+      "method": "GET",
+      "url": "{{base_url}}/api/v1/decisions",
+      "params": [],
+      "headers": [
+        { "key": "X-Org-Id", "value": "{{org_id}}", "enabled": true }
+      ],
+      "body": "",
+      "preScript": "",
+      "postScript": "",
+      "position": 1,
+      "attachments": []
+    },
+    {
+      "_ref": "req-23",
+      "folderRef": "folder-9",
+      "name": "Deploy Business Rule Task Process",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/deployments",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"key\": \"business-rule-process\",\n  \"name\": \"Business Rule Task Process\",\n  \"bpmn_xml\": \"<?xml version=\\\"1.0\\\"?><definitions xmlns=\\\"http://www.omg.org/spec/BPMN/20100524/MODEL\\\"><process id=\\\"rule_process\\\"><startEvent id=\\\"start\\\"/><businessRuleTask id=\\\"task_rule\\\" name=\\\"Loan Approval\\\" camunda:decisionRef=\\\"loan-approval\\\"/><endEvent id=\\\"end\\\"/><sequenceFlow id=\\\"f1\\\" sourceRef=\\\"start\\\" targetRef=\\\"task_rule\\\"/><sequenceFlow id=\\\"f2\\\" sourceRef=\\\"task_rule\\\" targetRef=\\\"end\\\"/></process></definitions>\"\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('rule_definition_id', body.id);",
+      "position": 2,
+      "attachments": []
+    },
+    {
+      "_ref": "req-24",
+      "folderRef": "folder-9",
+      "name": "Start Business Rule Instance",
+      "method": "POST",
+      "url": "{{base_url}}/api/v1/process-instances",
+      "params": [],
+      "headers": [
+        { "key": "Content-Type", "value": "application/json", "enabled": true }
+      ],
+      "body": "{\n  \"org_id\": \"{{org_id}}\",\n  \"definition_id\": \"{{rule_definition_id}}\",\n  \"variables\": [\n    {\n      \"name\": \"creditScore\",\n      \"value_type\": \"number\",\n      \"value\": 750\n    }\n  ]\n}",
+      "preScript": "",
+      "postScript": "const body = JSON.parse(response.body);\nemit('rule_instance_id', body.id);",
+      "position": 3,
+      "attachments": []
+    }
+  ],
+  "environments": [
+    {
+      "name": "Local",
+      "variables": [
+        { "key": "base_url",              "value": "http://localhost:8080", "enabled": true },
+        { "key": "org_id",                "value": "",                     "enabled": true },
+        { "key": "user_id",               "value": "",                     "enabled": true },
+        { "key": "definition_id",         "value": "",                     "enabled": true },
+        { "key": "service_definition_id", "value": "",                     "enabled": true },
+        { "key": "http_definition_id",    "value": "",                     "enabled": true },
+        { "key": "msg_definition_id",     "value": "",                     "enabled": true },
+        { "key": "sig_definition_id",     "value": "",                     "enabled": true },
+        { "key": "rule_definition_id",    "value": "",                     "enabled": true },
+        { "key": "instance_id",           "value": "",                     "enabled": true },
+        { "key": "msg_instance_id",       "value": "",                     "enabled": true },
+        { "key": "sig_instance_id",       "value": "",                     "enabled": true },
+        { "key": "rule_instance_id",      "value": "",                     "enabled": true },
+        { "key": "task_id",               "value": "",                     "enabled": true },
+        { "key": "job_id",                "value": "",                     "enabled": true },
+        { "key": "worker_id",             "value": "worker-1",             "enabled": true },
+        { "key": "decision_id",           "value": "",                     "enabled": true },
+        { "key": "decision_key",          "value": "",                     "enabled": true }
+      ]
+    }
+  ],
+  "automations": [
+    {
+      "_ref": "auto-0",
+      "name": "Happy Path — User Task",
+      "envName": "Local",
+      "steps": [
+        { "id": "a0-s0", "type": "request", "requestRef": "req-1"  },
+        { "id": "a0-s1", "type": "request", "requestRef": "req-2"  },
+        { "id": "a0-s2", "type": "request", "requestRef": "req-3"  },
+        { "id": "a0-s3", "type": "request", "requestRef": "req-5"  },
+        { "id": "a0-s4", "type": "request", "requestRef": "req-8"  },
+        { "id": "a0-s5", "type": "request", "requestRef": "req-10" },
+        { "id": "a0-s6", "type": "request", "requestRef": "req-7"  }
+      ]
+    },
+    {
+      "_ref": "auto-1",
+      "name": "Happy Path — External Task",
+      "envName": "Local",
+      "steps": [
+        { "id": "a1-s0", "type": "request", "requestRef": "req-1"  },
+        { "id": "a1-s1", "type": "request", "requestRef": "req-4"  },
+        { "id": "a1-s2", "type": "request", "requestRef": "req-6"  },
+        { "id": "a1-s3", "type": "request", "requestRef": "req-11" },
+        { "id": "a1-s4", "type": "request", "requestRef": "req-12" },
+        { "id": "a1-s5", "type": "request", "requestRef": "req-7"  }
+      ]
+    },
+    {
+      "_ref": "auto-2",
+      "name": "Happy Path — Message Correlation",
+      "envName": "Local",
+      "steps": [
+        { "id": "a2-s0", "type": "request", "requestRef": "req-1"  },
+        { "id": "a2-s1", "type": "request", "requestRef": "req-15" },
+        { "id": "a2-s2", "type": "request", "requestRef": "req-16" },
+        { "id": "a2-s3", "type": "request", "requestRef": "req-17" },
+        { "id": "a2-s4", "type": "request", "requestRef": "req-7"  }
+      ]
+    },
+    {
+      "_ref": "auto-3",
+      "name": "Happy Path — Signal Broadcast",
+      "envName": "Local",
+      "steps": [
+        { "id": "a3-s0", "type": "request", "requestRef": "req-1"  },
+        { "id": "a3-s1", "type": "request", "requestRef": "req-18" },
+        { "id": "a3-s2", "type": "request", "requestRef": "req-19" },
+        { "id": "a3-s3", "type": "request", "requestRef": "req-20" },
+        { "id": "a3-s4", "type": "request", "requestRef": "req-7"  }
+      ]
+    },
+    {
+      "_ref": "auto-4",
+      "name": "Happy Path — DMN Business Rule",
+      "envName": "Local",
+      "steps": [
+        { "id": "a4-s0", "type": "request", "requestRef": "req-1"  },
+        { "id": "a4-s1", "type": "request", "requestRef": "req-21" },
+        { "id": "a4-s2", "type": "request", "requestRef": "req-23" },
+        { "id": "a4-s3", "type": "request", "requestRef": "req-24" },
+        { "id": "a4-s4", "type": "request", "requestRef": "req-7"  }
+      ]
+    }
+  ],
+  "dataFiles": [],
+  "responses": []
+}

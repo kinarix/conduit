@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -23,10 +23,24 @@ pub struct StartInstanceRequest {
     pub variables: Option<Vec<VariableInput>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListInstancesQuery {
+    pub org_id: Uuid,
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
+        .route("/api/v1/process-instances", get(list_instances))
         .route("/api/v1/process-instances", post(start_instance))
         .route("/api/v1/process-instances/{id}", get(get_instance))
+}
+
+async fn list_instances(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListInstancesQuery>,
+) -> Result<Json<Vec<ProcessInstance>>> {
+    let instances = process_instances::list_by_org(&state.pool, params.org_id).await?;
+    Ok(Json(instances))
 }
 
 async fn start_instance(

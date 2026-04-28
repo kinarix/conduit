@@ -1,14 +1,25 @@
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{
+    extract::{Path, Query, State},
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::db::models::ProcessDefinition;
 use crate::db::process_definitions;
 use crate::error::{EngineError, Result};
 use crate::parser;
 use crate::state::AppState;
+
+#[derive(Debug, Deserialize)]
+pub struct ListDeploymentsQuery {
+    pub org_id: Uuid,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct DeployRequest {
@@ -29,7 +40,26 @@ pub struct DeployResponse {
 }
 
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new().route("/api/v1/deployments", post(deploy))
+    Router::new()
+        .route("/api/v1/deployments", get(list_deployments))
+        .route("/api/v1/deployments", post(deploy))
+        .route("/api/v1/deployments/{id}", get(get_deployment))
+}
+
+async fn list_deployments(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListDeploymentsQuery>,
+) -> Result<Json<Vec<ProcessDefinition>>> {
+    let defs = process_definitions::list_by_org(&state.pool, params.org_id).await?;
+    Ok(Json(defs))
+}
+
+async fn get_deployment(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ProcessDefinition>> {
+    let def = process_definitions::get_by_id(&state.pool, id).await?;
+    Ok(Json(def))
 }
 
 async fn deploy(

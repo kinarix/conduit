@@ -115,9 +115,9 @@ conduit/
 
 ## Current Phase
 
-**Phase 14 — DMN Integration** (next up)
+**Phase 15 — Clustering + Observability** (next up)
 
-Phases 0–13 are complete. See `docs/phases/PHASE-14-dmn.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–14 are complete. See `docs/phases/PHASE-15-clustering.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -137,6 +137,7 @@ Phases 0–13 are complete. See `docs/phases/PHASE-14-dmn.md` and `docs/PLAN.md`
 | 11 | Signal events — IntermediateSignalCatchEvent, BoundarySignalEvent (interrupting + non-interrupting), SignalStartEvent, `POST /api/v1/signals/broadcast` |
 | 12 | Embedded subprocess — SubProcess variant, `find_element_graph` recursive lookup, subprocess scoping, nested subprocess support |
 | 13 | Inclusive gateway — OR routing with selective join, condition evaluation on all outgoing flows, `parallel_join_state` reuse with `expected_count = matched.len()` |
+| 14 | DMN integration — decision_definitions table, DMN XML parser, mini FEEL evaluator, BusinessRuleTask engine arm, `POST /api/v1/decisions` |
 
 ## How to Work Through the Phases
 

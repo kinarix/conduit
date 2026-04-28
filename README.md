@@ -51,9 +51,9 @@ The engine is being built incrementally. Each phase is working and deployable be
 | 9 | Parallel gateway | ✅ |
 | 10 | Messages | ✅ |
 | 11 | Signals | ✅ |
-| 12 | Sub-processes | 🔜 |
-| 13 | Inclusive gateway | 🔜 |
-| 14 | DMN decision tables | 🔜 |
+| 12 | Sub-processes | ✅ |
+| 13 | Inclusive gateway | ✅ |
+| 14 | DMN decision tables | ✅ |
 | 15 | Clustering + observability | 🔜 |
 
 ## Supported BPMN Elements
@@ -73,7 +73,11 @@ The engine is being built incrementally. Each phase is working and deployable be
 | `receiveTask` | Phase 10 |
 | `intermediateCatchEvent` — signal (broadcast) | Phase 11 |
 | `boundaryEvent` — interrupting / non-interrupting signal | Phase 11 |
+| `startEvent` — message start | Phase 10 |
 | `startEvent` — signal start | Phase 11 |
+| `subProcess` (embedded, nested) | Phase 12 |
+| `inclusiveGateway` (OR routing with selective join) | Phase 13 |
+| `businessRuleTask` (with `camunda:decisionRef`) | Phase 14 |
 
 Both standard BPMN 2.0 and Camunda dialect (`bpmn:` namespace prefix, `camunda:` extension attributes) are supported.
 

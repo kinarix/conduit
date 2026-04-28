@@ -50,7 +50,7 @@ fn parse_service_and_user() {
 
     let svc = graph.nodes.get("task_notify").unwrap();
     match &svc.kind {
-        FlowNodeKind::ServiceTask { topic } => {
+        FlowNodeKind::ServiceTask { topic, .. } => {
             assert_eq!(topic.as_deref(), Some("email-sender"));
         }
         _ => panic!("expected ServiceTask"),
@@ -69,7 +69,7 @@ fn parse_complex_subset() {
     // Check two service tasks have topics
     let payment = graph.nodes.get("task_payment").unwrap();
     match &payment.kind {
-        FlowNodeKind::ServiceTask { topic } => {
+        FlowNodeKind::ServiceTask { topic, .. } => {
             assert_eq!(topic.as_deref(), Some("payment-validator"))
         }
         _ => panic!("expected ServiceTask"),
@@ -77,7 +77,7 @@ fn parse_complex_subset() {
 
     let dispatch = graph.nodes.get("task_dispatch").unwrap();
     match &dispatch.kind {
-        FlowNodeKind::ServiceTask { topic } => assert_eq!(topic.as_deref(), Some("logistics")),
+        FlowNodeKind::ServiceTask { topic, .. } => assert_eq!(topic.as_deref(), Some("logistics")),
         _ => panic!("expected ServiceTask"),
     }
 }
@@ -95,7 +95,7 @@ fn parse_camunda_dialect() {
     // Camunda topic extracted from camunda:topic attribute
     let payment = graph.nodes.get("task_payment").unwrap();
     match &payment.kind {
-        FlowNodeKind::ServiceTask { topic } => {
+        FlowNodeKind::ServiceTask { topic, .. } => {
             assert_eq!(topic.as_deref(), Some("payment-processor"));
         }
         _ => panic!("expected ServiceTask"),
@@ -103,7 +103,7 @@ fn parse_camunda_dialect() {
 
     let notify = graph.nodes.get("task_notify").unwrap();
     match &notify.kind {
-        FlowNodeKind::ServiceTask { topic } => {
+        FlowNodeKind::ServiceTask { topic, .. } => {
             assert_eq!(topic.as_deref(), Some("email-sender"));
         }
         _ => panic!("expected ServiceTask"),
@@ -207,6 +207,6 @@ fn service_task_without_topic_is_valid() {
     let svc = graph.nodes.get("t").unwrap();
     assert!(matches!(
         &svc.kind,
-        FlowNodeKind::ServiceTask { topic: None }
+        FlowNodeKind::ServiceTask { topic: None, .. }
     ));
 }

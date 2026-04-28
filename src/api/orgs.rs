@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -14,7 +14,16 @@ pub struct CreateOrgRequest {
 }
 
 pub fn routes() -> Router<Arc<AppState>> {
-    Router::new().route("/api/v1/orgs", post(create_org))
+    Router::new()
+        .route("/api/v1/orgs", get(list_orgs))
+        .route("/api/v1/orgs", post(create_org))
+}
+
+async fn list_orgs(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<Org>>> {
+    let orgs = orgs::list_all(&state.pool).await?;
+    Ok(Json(orgs))
 }
 
 async fn create_org(

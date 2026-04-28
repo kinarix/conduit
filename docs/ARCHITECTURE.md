@@ -46,7 +46,8 @@ A modern process engine needs only: **PostgreSQL + an HTTP server**.
 │   │                    API Layer (Axum)                   │  │
 │   │                                                       │  │
 │   │  /orgs  /users  /deployments  /instances  /tasks       │  │
-│   │  /external-tasks  /messages  /signals  /health        │  │
+│   │  /external-tasks  /messages  /signals  /decisions      │  │
+│   │  /health                                               │  │
 │   └────────────────────────┬──────────────────────────────┘  │
 │                            │                                  │
 │   ┌────────────────────────▼──────────────────────────────┐  │
@@ -69,7 +70,8 @@ A modern process engine needs only: **PostgreSQL + an HTTP server**.
 │   │  orgs  users                                          │  │
 │   │  process_definitions  process_instances  executions   │  │
 │   │  variables  tasks  jobs  event_subscriptions          │  │
-│   │  execution_history                                    │  │
+│   │  execution_history  parallel_join_state               │  │
+│   │  decision_definitions                                 │  │
 │   └───────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────┘
          ▲                                   ▲

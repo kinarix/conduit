@@ -34,6 +34,16 @@ pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<ProcessInstance> {
         .ok_or_else(|| EngineError::NotFound(format!("Process instance {id} not found")))
 }
 
+pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessInstance>> {
+    let rows = sqlx::query_as::<_, ProcessInstance>(
+        "SELECT * FROM process_instances WHERE org_id = $1 ORDER BY started_at DESC LIMIT 100",
+    )
+    .bind(org_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn list_by_definition(
     pool: &PgPool,
     definition_id: Uuid,

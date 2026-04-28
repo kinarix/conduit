@@ -1,6 +1,7 @@
 use axum::Router;
 use conduit::{api, config, db, state::AppState};
 use std::sync::Arc;
+use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -35,6 +36,19 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Background HTTP service task executor: calls out to configured URLs every second.
+    let http_executor_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        loop {
+            match http_executor_state.engine.fire_due_http_tasks().await {
+                Ok(n) if n > 0 => tracing::debug!(fired = n, "HTTP service tasks fired"),
+                Err(e) => tracing::error!(error = %e, "HTTP executor error"),
+                _ => {}
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
+
     let app = Router::new()
         .merge(api::health::routes())
         .merge(api::orgs::routes())
@@ -46,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::messages::routes())
         .merge(api::signals::routes())
         .merge(api::decisions::routes())
+        .layer(CorsLayer::very_permissive())
         .with_state(state);
 
     let addr = format!("{}:{}", config.server_host, config.server_port);

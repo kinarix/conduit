@@ -1,7 +1,7 @@
 # Phase 14 — DMN Integration
 
 ## Status
-Not started
+Complete
 
 ## Prerequisites
 Phase 13 complete and all tests passing.
@@ -132,7 +132,6 @@ pub enum HitPolicy {
 }
 
 pub struct InputClause {
-    pub label: Option<String>,         // <input label="...">
     pub expression: String,            // <inputExpression><text>age</text></inputExpression>
 }
 
@@ -310,10 +309,10 @@ Process: start → BusinessRuleTask(risk-check) → end.
 ---
 
 ## Checklist
-- [ ] Failing tests written
-- [ ] Implementation complete
-- [ ] All tests passing (this phase + all previous)
-- [ ] cargo clippy clean
-- [ ] cargo fmt clean
-- [ ] CI green
-- [ ] Phase marked complete in PLAN.md
+- [x] Failing tests written
+- [x] Implementation complete
+- [x] All tests passing (this phase + all previous)
+- [x] cargo clippy clean
+- [x] cargo fmt clean
+- [x] CI green
+- [x] Phase marked complete in PLAN.md

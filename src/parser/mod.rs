@@ -6,6 +6,7 @@ use crate::error::{EngineError, Result};
 const BPMN_NS: &str = "http://www.omg.org/spec/BPMN/20100524/MODEL";
 // Camunda 7 / Activiti external-task attribute namespace
 const CAMUNDA_NS: &str = "http://activiti.org/bpmn";
+const CONDUIT_NS: &str = "http://conduit.io/ext";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FlowNodeKind {
@@ -17,6 +18,7 @@ pub enum FlowNodeKind {
     UserTask,
     ServiceTask {
         topic: Option<String>,
+        url: Option<String>,
     },
     ExclusiveGateway {
         default_flow: Option<String>,
@@ -87,6 +89,9 @@ pub struct ProcessGraph {
     pub incoming: HashMap<String, Vec<String>>,
     /// attached_to[host_element_id] = [boundary_event_ids, ...]
     pub attached_to: HashMap<String, Vec<String>>,
+    /// JSON Schema for validating start_instance input variables.
+    /// Stored as <conduit:inputSchema> inside <bpmn:extensionElements> on the process element.
+    pub input_schema: Option<serde_json::Value>,
 }
 
 /// Parse BPMN XML into a validated `ProcessGraph`.
@@ -134,11 +139,13 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         .to_string();
     let process_name = process_node.attribute("name").map(|s| s.to_string());
 
+    let input_schema = extract_input_schema(&process_node)?;
+
     let (nodes, flows) = parse_children(&process_node, &message_defs, &signal_defs)?;
 
     validate(&process_id, &nodes, &flows)?;
 
-    Ok(build_graph(process_id, process_name, nodes, flows))
+    Ok(build_graph(process_id, process_name, nodes, flows, input_schema))
 }
 
 /// Parse the child elements of a process or subProcess node into nodes + flows.
@@ -207,12 +214,13 @@ fn parse_children(
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
                 let topic = extract_topic(&child);
+                let url = extract_url(&child);
                 nodes.insert(
                     id.clone(),
                     FlowNode {
                         id,
                         name,
-                        kind: FlowNodeKind::ServiceTask { topic },
+                        kind: FlowNodeKind::ServiceTask { topic, url },
                     },
                 );
             }
@@ -372,7 +380,7 @@ fn parse_children(
                 let name = child.attribute("name").map(|s| s.to_string());
                 let (inner_nodes, inner_flows) = parse_children(&child, message_defs, signal_defs)?;
                 validate(&id, &inner_nodes, &inner_flows)?;
-                let sub_graph = build_graph(id.clone(), name.clone(), inner_nodes, inner_flows);
+                let sub_graph = build_graph(id.clone(), name.clone(), inner_nodes, inner_flows, None);
                 nodes.insert(
                     id.clone(),
                     FlowNode {
@@ -443,6 +451,7 @@ fn build_graph(
     process_name: Option<String>,
     nodes: HashMap<String, FlowNode>,
     flows: Vec<SequenceFlow>,
+    input_schema: Option<serde_json::Value>,
 ) -> ProcessGraph {
     let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
@@ -477,7 +486,39 @@ fn build_graph(
         outgoing,
         incoming,
         attached_to,
+        input_schema,
     }
+}
+
+/// Extract a JSON Schema from <conduit:inputSchema> inside the process's <extensionElements>.
+/// The schema is stored as raw JSON text content of the element.
+fn extract_input_schema(process_node: &roxmltree::Node) -> Result<Option<serde_json::Value>> {
+    for ext in process_node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
+    {
+        for inner in ext.children().filter(|n| n.is_element()) {
+            let is_conduit_schema = inner.tag_name().name() == "inputSchema"
+                && inner
+                    .tag_name()
+                    .namespace()
+                    .map_or(false, |ns| ns == CONDUIT_NS);
+            if is_conduit_schema {
+                if let Some(text) = inner.text() {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        let schema = serde_json::from_str(trimmed).map_err(|e| {
+                            EngineError::Parse(format!(
+                                "conduit:inputSchema is not valid JSON: {e}"
+                            ))
+                        })?;
+                        return Ok(Some(schema));
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn require_id<'a>(node: &roxmltree::Node<'a, '_>, element: &str) -> Result<String> {
@@ -508,6 +549,16 @@ fn extract_topic(node: &roxmltree::Node) -> Option<String> {
                     .filter(|s| !s.is_empty());
             }
         }
+    }
+    None
+}
+
+fn extract_url(node: &roxmltree::Node) -> Option<String> {
+    if let Some(u) = node.attribute("url") {
+        return Some(u.to_string());
+    }
+    if let Some(u) = node.attribute((CAMUNDA_NS, "url")) {
+        return Some(u.to_string());
     }
     None
 }

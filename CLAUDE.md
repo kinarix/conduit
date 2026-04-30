@@ -161,14 +161,14 @@ docker-compose up -d
 # Run migrations
 cargo sqlx migrate run
 
-# Run all tests
-cargo test
+# Run all tests (always use make test, never cargo test directly)
+make test
 
 # Run with logging
 RUST_LOG=debug cargo run
 
 # Check before commit
-cargo fmt && cargo clippy -- -D warnings && cargo test
+make check
 ```
 
 ## Environment Variables

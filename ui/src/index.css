@@ -1,32 +1,8 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --color-bg: #f8fafc;
-  --color-surface: #ffffff;
-  --color-surface-2: #f1f5f9;
-  --color-border: #e2e8f0;
-  --color-text: #0f172a;
-  --color-text-muted: #64748b;
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
-  --color-success: #16a34a;
-  --color-warning: #d97706;
-  --color-error: #dc2626;
-  --color-running: #2563eb;
-  --radius: 6px;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}
-
-body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font);
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-a { color: var(--color-primary); text-decoration: none; }
-a:hover { color: var(--color-primary-hover); }
+/* Legacy global styles. Tokens and reset live in styles/tokens.css and
+ * styles/reset.css respectively (imported from main.tsx). New components
+ * should use *.module.css and the semantic tokens (--bg-*, --text-*, …);
+ * the utility classes below remain to keep existing pages rendering.
+ */
 
 button {
   cursor: pointer;

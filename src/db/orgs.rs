@@ -18,3 +18,14 @@ pub async fn insert(pool: &PgPool, name: &str, slug: &str) -> Result<Org> {
         .await?;
     Ok(row)
 }
+
+pub async fn delete(pool: &PgPool, id: uuid::Uuid) -> Result<()> {
+    let res = sqlx::query("DELETE FROM orgs WHERE id = $1")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(crate::error::EngineError::NotFound(format!("org {id} not found")));
+    }
+    Ok(())
+}

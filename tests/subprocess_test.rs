@@ -26,12 +26,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("sp-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Subprocess Test Org", &slug)
+    let org = db::orgs::insert(pool, "Subprocess Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -148,12 +150,13 @@ fn nested_subprocess_bpmn() -> String {
 #[tokio::test]
 async fn subprocess_executes_inner_flow_before_parent_continues() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,
@@ -199,12 +202,13 @@ async fn subprocess_executes_inner_flow_before_parent_continues() {
 #[tokio::test]
 async fn subprocess_completes_instance_after_exit() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,
@@ -228,12 +232,13 @@ async fn subprocess_completes_instance_after_exit() {
 #[tokio::test]
 async fn subprocess_with_user_task_pauses_and_resumes() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,
@@ -295,12 +300,13 @@ async fn subprocess_with_user_task_pauses_and_resumes() {
 #[tokio::test]
 async fn subprocess_variables_visible_to_parent() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,
@@ -352,12 +358,13 @@ async fn subprocess_variables_visible_to_parent() {
 #[tokio::test]
 async fn parent_variables_visible_inside_subprocess() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,
@@ -429,7 +436,7 @@ async fn parent_variables_visible_inside_subprocess() {
 #[tokio::test]
 async fn subprocess_with_exclusive_gateway() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     // Use a process: Outer Start → UserTask(outer-task) → SubProcess(ExclusiveGateway) → End
     // outer-task sets x=10, subprocess routes x>5 → inner-end-a
@@ -460,6 +467,7 @@ async fn subprocess_with_exclusive_gateway() {
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,
@@ -523,12 +531,13 @@ async fn subprocess_with_exclusive_gateway() {
 #[tokio::test]
 async fn nested_subprocess() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sp"),
         1,
         None,

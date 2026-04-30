@@ -49,6 +49,32 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // Background send-message executor: delivers queued SendTask messages every second.
+    let send_msg_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        loop {
+            match send_msg_state.engine.fire_due_send_message_jobs().await {
+                Ok(n) if n > 0 => tracing::debug!(fired = n, "Send message jobs fired"),
+                Err(e) => tracing::error!(error = %e, "Send message executor error"),
+                _ => {}
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
+
+    // Background timer-start executor: fires due timer-start triggers every second.
+    let timer_start_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        loop {
+            match timer_start_state.engine.fire_due_timer_start_triggers().await {
+                Ok(n) if n > 0 => tracing::debug!(fired = n, "Timer start triggers fired"),
+                Err(e) => tracing::error!(error = %e, "Timer start executor error"),
+                _ => {}
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
+
     let app = Router::new()
         .merge(api::health::routes())
         .merge(api::orgs::routes())
@@ -60,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::messages::routes())
         .merge(api::signals::routes())
         .merge(api::decisions::routes())
+        .merge(api::process_groups::routes())
         .layer(CorsLayer::very_permissive())
         .with_state(state);
 

@@ -1,6 +1,7 @@
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{extract::{Path, State}, http::StatusCode, routing::{delete, get, post}, Json, Router};
 use serde::Deserialize;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::db::models::Org;
 use crate::db::orgs;
@@ -17,6 +18,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/orgs", get(list_orgs))
         .route("/api/v1/orgs", post(create_org))
+        .route("/api/v1/orgs/{id}", delete(delete_org))
 }
 
 async fn list_orgs(
@@ -37,4 +39,12 @@ async fn create_org(
     }
     let org = orgs::insert(&state.pool, &req.name, &req.slug).await?;
     Ok((StatusCode::CREATED, Json(org)))
+}
+
+async fn delete_org(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode> {
+    orgs::delete(&state.pool, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

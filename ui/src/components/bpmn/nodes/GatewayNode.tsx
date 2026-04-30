@@ -1,6 +1,8 @@
 import { Handle, Position, NodeProps } from '@xyflow/react';
 import type { BpmnNodeData } from '../bpmnTypes';
-import { ELEMENT_COLORS } from '../bpmnTypes';
+import { ELEMENT_COLORS, RUNTIME_STATUS_COLOR } from '../bpmnTypes';
+import { useIsConnecting } from '../connectingContext';
+import { useNodeWarnings } from '../warningsContext';
 
 const MARKER: Record<string, string> = {
   exclusiveGateway: '×',
@@ -8,20 +10,42 @@ const MARKER: Record<string, string> = {
   inclusiveGateway: '○',
 };
 
-export default function GatewayNode({ data, selected }: NodeProps) {
+export default function GatewayNode({ id, data, selected }: NodeProps) {
   const d = data as BpmnNodeData;
   const colors = ELEMENT_COLORS[d.bpmnType];
-  const stroke = selected ? '#6366f1' : colors.stroke;
+  const statusColor = d.runtimeStatus ? RUNTIME_STATUS_COLOR[d.runtimeStatus] : null;
+  const stroke = selected ? '#6366f1' : (statusColor ?? colors.stroke);
+  const isConnecting = useIsConnecting();
   const handleStyle = (base?: React.CSSProperties) => ({
     ...base,
     background: colors.stroke,
-    opacity: selected ? 1 : 0,
+    opacity: selected || isConnecting ? 1 : 0,
   });
+  const warnings = useNodeWarnings(id);
+  const opacity = d.runtimeStatus === 'pending' ? 0.55 : 1;
+  const dropShadow = d.runtimeStatus === 'active'
+    ? `drop-shadow(0 0 4px ${statusColor!}88)`
+    : undefined;
 
   return (
-    <div style={{ position: 'relative', width: 30, height: 30 }}>
-      <Handle type="target" position={Position.Left} style={handleStyle()} />
-      <Handle type="target" position={Position.Top} style={handleStyle()} />
+    <div
+      style={{ position: 'relative', width: 30, height: 30, opacity, filter: dropShadow }}
+      title={warnings.length > 0 ? warnings.join('\n') : undefined}
+    >
+      {warnings.length > 0 && (
+        <div style={{
+          position: 'absolute', top: -6, right: -6,
+          width: 16, height: 16, borderRadius: '50%',
+          background: '#f59e0b', border: '1.5px solid #fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 9, fontWeight: 700, color: '#fff',
+          zIndex: 10, pointerEvents: 'none', lineHeight: 1,
+        }}>
+          {warnings.length}
+        </div>
+      )}
+      <Handle id="target-left" type="target" position={Position.Left} style={handleStyle()} />
+      <Handle id="target-top"  type="target" position={Position.Top}  style={handleStyle()} />
 
       <svg width={30} height={30}>
         <rect
@@ -29,7 +53,7 @@ export default function GatewayNode({ data, selected }: NodeProps) {
           transform="rotate(45 15 15)"
           fill={colors.fill}
           stroke={stroke}
-          strokeWidth={1.5}
+          strokeWidth={statusColor ? 2.5 : 1.5}
         />
         <text
           x={15} y={19}
@@ -57,8 +81,8 @@ export default function GatewayNode({ data, selected }: NodeProps) {
         </div>
       )}
 
-      <Handle type="source" position={Position.Right} style={handleStyle()} />
-      <Handle type="source" position={Position.Bottom} style={handleStyle()} />
+      <Handle id="source-right"  type="source" position={Position.Right}  style={handleStyle()} />
+      <Handle id="source-bottom" type="source" position={Position.Bottom} style={handleStyle()} />
     </div>
   );
 }

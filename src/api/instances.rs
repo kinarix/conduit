@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -9,7 +9,10 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::db::models::ProcessInstance;
+use crate::db::execution_history;
+use crate::db::jobs;
+use crate::db::models::{ExecutionHistory, Job, ProcessEvent, ProcessInstance};
+use crate::db::process_events;
 use crate::db::process_instances;
 use crate::engine::VariableInput;
 use crate::error::Result;
@@ -33,6 +36,13 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/process-instances", get(list_instances))
         .route("/api/v1/process-instances", post(start_instance))
         .route("/api/v1/process-instances/{id}", get(get_instance))
+        .route("/api/v1/process-instances/{id}", delete(delete_instance))
+        .route("/api/v1/process-instances/{id}/pause", post(pause_instance))
+        .route("/api/v1/process-instances/{id}/resume", post(resume_instance))
+        .route("/api/v1/process-instances/{id}/cancel", post(cancel_instance))
+        .route("/api/v1/process-instances/{id}/history", get(list_history))
+        .route("/api/v1/process-instances/{id}/events", get(list_events))
+        .route("/api/v1/process-instances/{id}/jobs", get(list_jobs))
 }
 
 async fn list_instances(
@@ -62,4 +72,60 @@ async fn get_instance(
 ) -> Result<Json<ProcessInstance>> {
     let instance = process_instances::get_by_id(&state.pool, id).await?;
     Ok(Json(instance))
+}
+
+async fn pause_instance(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ProcessInstance>> {
+    let inst = process_instances::pause(&state.pool, id).await?;
+    Ok(Json(inst))
+}
+
+async fn resume_instance(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ProcessInstance>> {
+    let inst = process_instances::resume(&state.pool, id).await?;
+    Ok(Json(inst))
+}
+
+async fn cancel_instance(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ProcessInstance>> {
+    let inst = process_instances::cancel(&state.pool, id).await?;
+    Ok(Json(inst))
+}
+
+async fn delete_instance(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode> {
+    process_instances::delete(&state.pool, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn list_history(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ExecutionHistory>>> {
+    let rows = execution_history::list_by_instance(&state.pool, id).await?;
+    Ok(Json(rows))
+}
+
+async fn list_events(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ProcessEvent>>> {
+    let rows = process_events::list_by_instance(&state.pool, id).await?;
+    Ok(Json(rows))
+}
+
+async fn list_jobs(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<Job>>> {
+    let rows = jobs::list_by_instance(&state.pool, id).await?;
+    Ok(Json(rows))
 }

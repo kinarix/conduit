@@ -1,6 +1,6 @@
 use conduit::db;
-use conduit::engine::{parse_duration, Engine, VariableInput};
-use conduit::parser::{self, FlowNodeKind};
+use conduit::engine::{parse_duration, Engine};
+use conduit::parser::{self, FlowNodeKind, TimerSpec};
 use conduit::state::GraphCache;
 use serde_json::json;
 use sqlx::PgPool;
@@ -27,12 +27,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("timer-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Timer Test Org", &slug)
+    let org = db::orgs::insert(pool, "Timer Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -93,11 +95,11 @@ fn parse_intermediate_timer_catch_event() {
     let timer_node = graph.nodes.get("timer1").unwrap();
     assert_eq!(timer_node.name.as_deref(), Some("Wait"));
     match &timer_node.kind {
-        FlowNodeKind::IntermediateTimerCatchEvent { duration } => {
-            assert_eq!(duration, "PT1H");
+        FlowNodeKind::IntermediateTimerCatchEvent { timer: TimerSpec::Duration(d) } => {
+            assert_eq!(d, "PT1H");
         }
         _ => panic!(
-            "expected IntermediateTimerCatchEvent, got {:?}",
+            "expected IntermediateTimerCatchEvent(Duration), got {:?}",
             timer_node.kind
         ),
     }
@@ -120,15 +122,15 @@ fn parse_boundary_timer_event() {
     let boundary = graph.nodes.get("timer-boundary").unwrap();
     match &boundary.kind {
         FlowNodeKind::BoundaryTimerEvent {
-            duration,
+            timer: TimerSpec::Duration(d),
             attached_to,
             cancelling,
         } => {
-            assert_eq!(duration, "PT24H");
+            assert_eq!(d, "PT24H");
             assert_eq!(attached_to, "task1");
             assert!(*cancelling);
         }
-        _ => panic!("expected BoundaryTimerEvent, got {:?}", boundary.kind),
+        _ => panic!("expected BoundaryTimerEvent(Duration), got {:?}", boundary.kind),
     }
     // outgoing from boundary → end_escalated
     assert_eq!(graph.outgoing["timer-boundary"], vec!["end_escalated"]);
@@ -179,12 +181,13 @@ fn duration_invalid_returns_error() {
 #[tokio::test]
 async fn timer_event_pauses_process_and_inserts_timer_job() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -225,12 +228,13 @@ async fn timer_event_pauses_process_and_inserts_timer_job() {
 #[tokio::test]
 async fn timer_event_execution_history_entered_not_left() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -260,12 +264,13 @@ async fn timer_event_execution_history_entered_not_left() {
 #[tokio::test]
 async fn fire_timer_job_advances_token_to_end_event() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -299,12 +304,13 @@ async fn fire_timer_job_advances_token_to_end_event() {
 #[tokio::test]
 async fn fire_timer_job_closes_history_and_marks_job_completed() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -357,12 +363,13 @@ async fn fire_timer_job_unknown_id_returns_not_found() {
 #[tokio::test]
 async fn fire_timer_job_already_completed_returns_conflict() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -392,12 +399,13 @@ async fn fire_timer_job_already_completed_returns_conflict() {
 #[tokio::test]
 async fn fire_timer_job_cold_cache() {
     let (pool, _warm) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -434,13 +442,14 @@ async fn fire_timer_job_cold_cache() {
 #[tokio::test]
 async fn fire_due_timer_jobs_fires_overdue_job() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     // Use a 1-hour timer, then manually backdate it to simulate it being overdue
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -481,12 +490,13 @@ async fn fire_due_timer_jobs_fires_overdue_job() {
 #[tokio::test]
 async fn fire_due_timer_jobs_skips_future_job() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -514,12 +524,13 @@ async fn fire_due_timer_jobs_skips_future_job() {
 #[tokio::test]
 async fn fire_due_timer_jobs_concurrent_executors_dont_double_fire() {
     let (pool, engine1) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("timer"),
         1,
         None,
@@ -573,12 +584,13 @@ async fn fire_due_timer_jobs_concurrent_executors_dont_double_fire() {
 #[tokio::test]
 async fn boundary_timer_inserts_timer_job_alongside_task() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("boundary"),
         1,
         None,
@@ -622,12 +634,13 @@ async fn boundary_timer_inserts_timer_job_alongside_task() {
 #[tokio::test]
 async fn boundary_timer_fires_cancels_task_and_advances_to_escalated_end() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("boundary"),
         1,
         None,
@@ -680,12 +693,13 @@ async fn boundary_timer_fires_cancels_task_and_advances_to_escalated_end() {
 #[tokio::test]
 async fn completing_user_task_cancels_boundary_timer_job() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("boundary"),
         1,
         None,

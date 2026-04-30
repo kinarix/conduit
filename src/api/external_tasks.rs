@@ -23,6 +23,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/api/v1/external-tasks/{id}/complete", post(complete))
         .route("/api/v1/external-tasks/{id}/failure", post(failure))
+        .route("/api/v1/external-tasks/{id}/bpmn-error", post(bpmn_error))
         .route("/api/v1/external-tasks/{id}/extend-lock", post(extend_lock))
 }
 
@@ -129,6 +130,28 @@ async fn failure(
     state
         .engine
         .fail_external_task(id, &req.worker_id, &req.error_message)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct BpmnErrorRequest {
+    worker_id: String,
+    error_code: String,
+    #[serde(default)]
+    error_message: String,
+    #[serde(default)]
+    variables: Vec<crate::engine::VariableInput>,
+}
+
+async fn bpmn_error(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<BpmnErrorRequest>,
+) -> Result<StatusCode> {
+    state
+        .engine
+        .throw_bpmn_error(id, &req.worker_id, &req.error_code, &req.error_message, &req.variables)
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

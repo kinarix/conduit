@@ -1,8 +1,9 @@
 use serde_json::Value as JsonValue;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::models::Variable;
+use crate::db::process_events;
 use crate::error::{EngineError, Result};
 
 pub async fn upsert(
@@ -30,6 +31,53 @@ pub async fn upsert(
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+/// Upsert a variable inside a transaction, emitting a `variable_set` or `variable_changed`
+/// audit event. `element_id` is the BPMN element that caused the write (None for initial vars).
+pub async fn upsert_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    instance_id: Uuid,
+    execution_id: Uuid,
+    element_id: Option<&str>,
+    name: &str,
+    value_type: &str,
+    value: &JsonValue,
+) -> Result<()> {
+    let old_value = sqlx::query_scalar::<_, JsonValue>(
+        "SELECT value FROM variables WHERE execution_id = $1 AND name = $2",
+    )
+    .bind(execution_id)
+    .bind(name)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "INSERT INTO variables (instance_id, execution_id, name, value_type, value) \
+         VALUES ($1, $2, $3, $4, $5) \
+         ON CONFLICT (execution_id, name) \
+         DO UPDATE SET value_type = EXCLUDED.value_type, value = EXCLUDED.value",
+    )
+    .bind(instance_id)
+    .bind(execution_id)
+    .bind(name)
+    .bind(value_type)
+    .bind(value)
+    .execute(&mut **tx)
+    .await?;
+
+    process_events::record_variable(
+        &mut **tx,
+        instance_id,
+        execution_id,
+        element_id,
+        name,
+        value_type,
+        old_value.as_ref(),
+        value,
+    )
+    .await?;
+    Ok(())
 }
 
 pub async fn get(pool: &PgPool, execution_id: Uuid, name: &str) -> Result<Variable> {

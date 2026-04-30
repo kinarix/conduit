@@ -26,7 +26,8 @@ fn business_rule_bpmn() -> String {
 #[tokio::test]
 async fn deploy_single_decision() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let _process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let resp = client
@@ -51,7 +52,8 @@ async fn deploy_single_decision() {
 #[tokio::test]
 async fn deploy_increments_version() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let _process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     // First deploy
@@ -82,7 +84,8 @@ async fn deploy_increments_version() {
 #[tokio::test]
 async fn deploy_multi_decision_file() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let _process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let resp = client
@@ -109,7 +112,8 @@ async fn deploy_multi_decision_file() {
 #[tokio::test]
 async fn list_decisions_returns_latest_versions() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let _process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     // Deploy once, then again to bump version
@@ -146,7 +150,8 @@ async fn list_decisions_returns_latest_versions() {
 #[tokio::test]
 async fn deploy_invalid_xml_returns_400() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let _process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let resp = client
@@ -176,11 +181,22 @@ async fn deploy_decision(app: &common::TestApp, org_id: Uuid, dmn_xml: &str) {
     assert_eq!(resp.status(), 201, "decision deploy failed");
 }
 
-async fn deploy_bpmn(app: &common::TestApp, org_id: Uuid, key: &str, bpmn: &str) -> serde_json::Value {
+async fn deploy_bpmn(
+    app: &common::TestApp,
+    org_id: Uuid,
+    process_group_id: Uuid,
+    key: &str,
+    bpmn: &str,
+) -> serde_json::Value {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": key, "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({
+            "org_id": org_id,
+            "process_group_id": process_group_id,
+            "key": key,
+            "bpmn_xml": bpmn,
+        }))
         .send()
         .await
         .unwrap();
@@ -212,14 +228,15 @@ async fn start_instance(
 #[tokio::test]
 async fn engine_runs_business_rule_task() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
 
     // Deploy the decision first
     deploy_decision(&app, org_id, &risk_check_dmn()).await;
 
     // Deploy the BPMN
     let key = unique_key("brt");
-    let def = deploy_bpmn(&app, org_id, &key, &business_rule_bpmn()).await;
+    let def = deploy_bpmn(&app, org_id, process_group_id, &key, &business_rule_bpmn()).await;
     let def_id: Uuid = def["id"].as_str().unwrap().parse().unwrap();
 
     // Start instance with inputs that match the "low" risk rule
@@ -269,11 +286,12 @@ fn parser_accepts_business_rule_task() {
 #[tokio::test]
 async fn engine_decision_not_found_errors_instance() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
 
     // Deploy BPMN referencing "risk-check" but do NOT deploy the DMN
     let key = unique_key("brt-nofound");
-    let def = deploy_bpmn(&app, org_id, &key, &business_rule_bpmn()).await;
+    let def = deploy_bpmn(&app, org_id, process_group_id, &key, &business_rule_bpmn()).await;
     let def_id: Uuid = def["id"].as_str().unwrap().parse().unwrap();
 
     let instance = start_instance(

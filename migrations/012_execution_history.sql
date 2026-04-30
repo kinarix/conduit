@@ -1,7 +1,6 @@
--- Phase 4: Execution history audit table
 CREATE TABLE execution_history (
     id           UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
-    instance_id  UUID        NOT NULL REFERENCES process_instances(id) ON DELETE CASCADE,
+    instance_id  UUID        NOT NULL REFERENCES process_instances (id) ON DELETE CASCADE,
     execution_id UUID        NOT NULL,
     element_id   TEXT        NOT NULL,
     element_type TEXT        NOT NULL,
@@ -12,5 +11,3 @@ CREATE TABLE execution_history (
 
 CREATE INDEX idx_execution_history_instance_id  ON execution_history (instance_id);
 CREATE INDEX idx_execution_history_execution_id ON execution_history (execution_id);
-
-INSERT INTO schema_info (version, description) VALUES (3, 'execution_history audit table');

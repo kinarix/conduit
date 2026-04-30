@@ -26,12 +26,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("par-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Parallel Test Org", &slug)
+    let org = db::orgs::insert(pool, "Parallel Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -125,12 +127,13 @@ fn parser_parallel_gateway_parses() {
 #[tokio::test]
 async fn fork_creates_two_pending_tasks() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("par"),
         1,
         None,
@@ -171,12 +174,13 @@ async fn fork_creates_two_pending_tasks() {
 #[tokio::test]
 async fn completing_one_parallel_task_does_not_complete_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("par"),
         1,
         None,
@@ -210,12 +214,13 @@ async fn completing_one_parallel_task_does_not_complete_instance() {
 #[tokio::test]
 async fn completing_both_parallel_tasks_completes_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("par"),
         1,
         None,
@@ -249,12 +254,13 @@ async fn completing_both_parallel_tasks_completes_instance() {
 #[tokio::test]
 async fn completing_tasks_in_reverse_order_also_completes_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("par"),
         1,
         None,
@@ -290,12 +296,13 @@ async fn completing_tasks_in_reverse_order_also_completes_instance() {
 #[tokio::test]
 async fn parallel_branch_variables_are_merged_after_join() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("par"),
         1,
         None,
@@ -344,12 +351,13 @@ async fn parallel_branch_variables_are_merged_after_join() {
 #[tokio::test]
 async fn after_join_process_continues_to_next_task() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("par"),
         1,
         None,

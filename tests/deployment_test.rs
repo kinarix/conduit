@@ -24,7 +24,8 @@ fn minimal_bpmn(process_id: &str) -> String {
 #[tokio::test]
 async fn deploy_valid_bpmn_returns_201() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("deploy");
@@ -32,7 +33,7 @@ async fn deploy_valid_bpmn_returns_201() {
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": key, "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": bpmn }))
         .send()
         .await
         .unwrap();
@@ -52,7 +53,8 @@ async fn deploy_valid_bpmn_returns_201() {
 #[tokio::test]
 async fn deploy_with_optional_name() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("named");
@@ -60,7 +62,7 @@ async fn deploy_with_optional_name() {
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": key, "name": "My Process", "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "name": "My Process", "bpmn_xml": bpmn }))
         .send()
         .await
         .unwrap();
@@ -71,7 +73,8 @@ async fn deploy_with_optional_name() {
 #[tokio::test]
 async fn deploy_same_key_twice_increments_version() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("versioned");
@@ -79,7 +82,7 @@ async fn deploy_same_key_twice_increments_version() {
 
     let resp1 = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": &key, "bpmn_xml": &bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": &bpmn }))
         .send()
         .await
         .unwrap();
@@ -89,7 +92,7 @@ async fn deploy_same_key_twice_increments_version() {
 
     let resp2 = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": &key, "bpmn_xml": &bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": &bpmn }))
         .send()
         .await
         .unwrap();
@@ -105,7 +108,8 @@ async fn deploy_same_key_twice_increments_version() {
 #[tokio::test]
 async fn deploy_stores_bpmn_xml_in_db() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("stored");
@@ -113,7 +117,7 @@ async fn deploy_stores_bpmn_xml_in_db() {
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": &key, "bpmn_xml": &bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": &bpmn }))
         .send()
         .await
         .unwrap();
@@ -136,14 +140,15 @@ async fn deploy_stores_bpmn_xml_in_db() {
 #[tokio::test]
 async fn deploy_empty_key_returns_400() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let bpmn = minimal_bpmn("p5");
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": "   ", "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": "   ", "bpmn_xml": bpmn }))
         .send()
         .await
         .unwrap();
@@ -157,7 +162,8 @@ async fn deploy_empty_key_returns_400() {
 #[tokio::test]
 async fn deploy_invalid_xml_returns_400() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("badxml");
@@ -165,7 +171,7 @@ async fn deploy_invalid_xml_returns_400() {
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(
-            &serde_json::json!({ "org_id": org_id, "key": key, "bpmn_xml": "<not valid xml <<>>" }),
+            &serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": "<not valid xml <<>>" }),
         )
         .send()
         .await
@@ -180,7 +186,8 @@ async fn deploy_invalid_xml_returns_400() {
 #[tokio::test]
 async fn deploy_unsupported_gateway_returns_400() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("gateway");
@@ -197,7 +204,7 @@ async fn deploy_unsupported_gateway_returns_400() {
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": key, "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": bpmn }))
         .send()
         .await
         .unwrap();
@@ -218,7 +225,8 @@ async fn deploy_unsupported_gateway_returns_400() {
 #[tokio::test]
 async fn deploy_missing_start_event_returns_400() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("nostart");
@@ -233,7 +241,7 @@ async fn deploy_missing_start_event_returns_400() {
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": key, "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": bpmn }))
         .send()
         .await
         .unwrap();
@@ -244,14 +252,15 @@ async fn deploy_missing_start_event_returns_400() {
 #[tokio::test]
 async fn deploy_does_not_persist_on_parse_failure() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let key = unique_key("nopersist");
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": &key, "bpmn_xml": "<bad>" }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": "<bad>" }))
         .send()
         .await
         .unwrap();
@@ -274,14 +283,15 @@ async fn deploy_does_not_persist_on_parse_failure() {
 #[tokio::test]
 async fn deploy_missing_key_field_returns_422() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let bpmn = minimal_bpmn("p6");
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "bpmn_xml": bpmn }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "bpmn_xml": bpmn }))
         .send()
         .await
         .unwrap();
@@ -293,12 +303,13 @@ async fn deploy_missing_key_field_returns_422() {
 #[tokio::test]
 async fn deploy_missing_bpmn_xml_field_returns_422() {
     let app = common::spawn_test_app().await;
-    let org_id = common::create_test_org(&app).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "key": "some-key" }))
+        .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": "some-key" }))
         .send()
         .await
         .unwrap();

@@ -211,3 +211,210 @@ fn numeric_eq(v: &Value, n: f64) -> bool {
         None => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::eval_input_entry;
+    use serde_json::{json, Value};
+
+    // ── wildcard ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn wildcard_always_true() {
+        assert!(eval_input_entry("-", &json!(42)).unwrap());
+        assert!(eval_input_entry("-", &json!("hello")).unwrap());
+        assert!(eval_input_entry("-", &Value::Null).unwrap());
+    }
+
+    // ── string literals ───────────────────────────────────────────────────────
+
+    #[test]
+    fn string_literal_match() {
+        assert!(eval_input_entry(r#""approved""#, &json!("approved")).unwrap());
+    }
+
+    #[test]
+    fn string_literal_no_match() {
+        assert!(!eval_input_entry(r#""approved""#, &json!("rejected")).unwrap());
+    }
+
+    #[test]
+    fn string_literal_against_number_is_false() {
+        assert!(!eval_input_entry(r#""42""#, &json!(42)).unwrap());
+    }
+
+    // ── number literals ───────────────────────────────────────────────────────
+
+    #[test]
+    fn number_literal_match() {
+        assert!(eval_input_entry("42", &json!(42)).unwrap());
+    }
+
+    #[test]
+    fn number_literal_float_match() {
+        assert!(eval_input_entry("3.14", &json!(3.14)).unwrap());
+    }
+
+    #[test]
+    fn number_literal_no_match() {
+        assert!(!eval_input_entry("42", &json!(43)).unwrap());
+    }
+
+    // ── boolean literals ──────────────────────────────────────────────────────
+
+    #[test]
+    fn bool_true_match() {
+        assert!(eval_input_entry("true", &json!(true)).unwrap());
+    }
+
+    #[test]
+    fn bool_false_match() {
+        assert!(eval_input_entry("false", &json!(false)).unwrap());
+    }
+
+    #[test]
+    fn bool_true_no_match() {
+        assert!(!eval_input_entry("true", &json!(false)).unwrap());
+    }
+
+    // ── unary comparisons ─────────────────────────────────────────────────────
+
+    #[test]
+    fn unary_gte_true() {
+        assert!(eval_input_entry(">= 10", &json!(10)).unwrap());
+        assert!(eval_input_entry(">= 10", &json!(15)).unwrap());
+    }
+
+    #[test]
+    fn unary_gte_false() {
+        assert!(!eval_input_entry(">= 10", &json!(9)).unwrap());
+    }
+
+    #[test]
+    fn unary_gt() {
+        assert!(eval_input_entry("> 5", &json!(6)).unwrap());
+        assert!(!eval_input_entry("> 5", &json!(5)).unwrap());
+    }
+
+    #[test]
+    fn unary_lte() {
+        assert!(eval_input_entry("<= 5", &json!(5)).unwrap());
+        assert!(!eval_input_entry("<= 5", &json!(6)).unwrap());
+    }
+
+    #[test]
+    fn unary_lt() {
+        assert!(eval_input_entry("< 5", &json!(4)).unwrap());
+        assert!(!eval_input_entry("< 5", &json!(5)).unwrap());
+    }
+
+    #[test]
+    fn unary_eq() {
+        assert!(eval_input_entry("= 7", &json!(7)).unwrap());
+        assert!(!eval_input_entry("= 7", &json!(8)).unwrap());
+    }
+
+    #[test]
+    fn unary_neq() {
+        assert!(eval_input_entry("!= 7", &json!(8)).unwrap());
+        assert!(!eval_input_entry("!= 7", &json!(7)).unwrap());
+    }
+
+    #[test]
+    fn unary_string_eq() {
+        assert!(eval_input_entry(r#"= "yes""#, &json!("yes")).unwrap());
+        assert!(!eval_input_entry(r#"= "yes""#, &json!("no")).unwrap());
+    }
+
+    #[test]
+    fn unary_string_neq() {
+        assert!(eval_input_entry(r#"!= "foo""#, &json!("bar")).unwrap());
+        assert!(!eval_input_entry(r#"!= "foo""#, &json!("foo")).unwrap());
+    }
+
+    // ── numeric ranges ────────────────────────────────────────────────────────
+
+    #[test]
+    fn range_closed_inclusive_inside() {
+        assert!(eval_input_entry("[1..10]", &json!(5)).unwrap());
+        assert!(eval_input_entry("[1..10]", &json!(1)).unwrap());
+        assert!(eval_input_entry("[1..10]", &json!(10)).unwrap());
+    }
+
+    #[test]
+    fn range_closed_inclusive_outside() {
+        assert!(!eval_input_entry("[1..10]", &json!(0)).unwrap());
+        assert!(!eval_input_entry("[1..10]", &json!(11)).unwrap());
+    }
+
+    #[test]
+    fn range_open_exclusive() {
+        assert!(eval_input_entry("(1..10)", &json!(5)).unwrap());
+        assert!(!eval_input_entry("(1..10)", &json!(1)).unwrap());
+        assert!(!eval_input_entry("(1..10)", &json!(10)).unwrap());
+    }
+
+    #[test]
+    fn range_half_open_lower_exclusive() {
+        assert!(eval_input_entry("(1..10]", &json!(10)).unwrap());
+        assert!(!eval_input_entry("(1..10]", &json!(1)).unwrap());
+    }
+
+    #[test]
+    fn range_half_open_upper_exclusive() {
+        assert!(eval_input_entry("[1..10)", &json!(1)).unwrap());
+        assert!(!eval_input_entry("[1..10)", &json!(10)).unwrap());
+    }
+
+    #[test]
+    fn range_null_value_is_false() {
+        assert!(!eval_input_entry("[1..10]", &Value::Null).unwrap());
+    }
+
+    // ── OR lists ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn or_list_number_match() {
+        assert!(eval_input_entry("1,2,3", &json!(2)).unwrap());
+    }
+
+    #[test]
+    fn or_list_number_no_match() {
+        assert!(!eval_input_entry("1,2,3", &json!(4)).unwrap());
+    }
+
+    #[test]
+    fn or_list_string_match() {
+        assert!(eval_input_entry(r#""low","medium","high""#, &json!("medium")).unwrap());
+    }
+
+    #[test]
+    fn or_list_string_no_match() {
+        assert!(!eval_input_entry(r#""low","medium","high""#, &json!("critical")).unwrap());
+    }
+
+    #[test]
+    fn or_list_mixed_ranges() {
+        assert!(eval_input_entry("[1..5],[10..15]", &json!(12)).unwrap());
+        assert!(!eval_input_entry("[1..5],[10..15]", &json!(7)).unwrap());
+    }
+
+    // ── null/missing values ───────────────────────────────────────────────────
+
+    #[test]
+    fn null_against_number_comparator_is_false() {
+        assert!(!eval_input_entry("> 0", &Value::Null).unwrap());
+    }
+
+    #[test]
+    fn null_against_string_literal_is_false() {
+        assert!(!eval_input_entry(r#""foo""#, &Value::Null).unwrap());
+    }
+
+    // ── error cases ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn unrecognised_cell_is_err() {
+        assert!(eval_input_entry("???", &json!(1)).is_err());
+    }
+}

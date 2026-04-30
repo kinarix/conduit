@@ -275,3 +275,222 @@ fn parse_output_literal(raw: &str) -> Result<serde_json::Value, EngineError> {
         "Cannot parse output literal: {raw:?}"
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{evaluate, parse};
+    use serde_json::json;
+    use std::collections::HashMap;
+
+    const DMN_NS: &str = "https://www.omg.org/spec/DMN/20191111/MODEL/";
+
+    fn age_category_dmn() -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="{ns}" id="def1" name="AgeCategory">
+  <decision xmlns="{ns}" id="ageCategory" name="Age Category">
+    <decisionTable id="dt1" hitPolicy="UNIQUE">
+      <input id="i1"><inputExpression id="ie1"><text>age</text></inputExpression></input>
+      <output id="o1" name="category"/>
+      <rule id="r1">
+        <inputEntry id="in1"><text>&gt;= 18</text></inputEntry>
+        <outputEntry id="out1"><text>"adult"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry id="in2"><text>&lt; 18</text></inputEntry>
+        <outputEntry id="out2"><text>"minor"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>"#,
+            ns = DMN_NS
+        )
+    }
+
+    fn collect_dmn() -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="{ns}" id="def1" name="Collect">
+  <decision xmlns="{ns}" id="scores" name="Scores">
+    <decisionTable id="dt1" hitPolicy="COLLECT">
+      <input id="i1"><inputExpression id="ie1"><text>flag</text></inputExpression></input>
+      <output id="o1" name="score"/>
+      <rule id="r1">
+        <inputEntry id="in1"><text>-</text></inputEntry>
+        <outputEntry id="out1"><text>10</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry id="in2"><text>-</text></inputEntry>
+        <outputEntry id="out2"><text>20</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>"#,
+            ns = DMN_NS
+        )
+    }
+
+    fn first_dmn() -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="{ns}" id="def1" name="First">
+  <decision xmlns="{ns}" id="result" name="Result">
+    <decisionTable id="dt1" hitPolicy="FIRST">
+      <input id="i1"><inputExpression id="ie1"><text>x</text></inputExpression></input>
+      <output id="o1" name="out"/>
+      <rule id="r1">
+        <inputEntry id="in1"><text>&gt; 0</text></inputEntry>
+        <outputEntry id="out1"><text>"positive"</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry id="in2"><text>-</text></inputEntry>
+        <outputEntry id="out2"><text>"other"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>"#,
+            ns = DMN_NS
+        )
+    }
+
+    // ── parse ─────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parse_valid_dmn() {
+        let tables = parse(&age_category_dmn()).unwrap();
+        assert_eq!(tables.len(), 1);
+        assert_eq!(tables[0].decision_key, "ageCategory");
+        assert_eq!(tables[0].inputs.len(), 1);
+        assert_eq!(tables[0].outputs.len(), 1);
+        assert_eq!(tables[0].rules.len(), 2);
+    }
+
+    #[test]
+    fn parse_bad_xml_is_err() {
+        assert!(parse("<not-valid").is_err());
+    }
+
+    #[test]
+    fn parse_wrong_root_is_err() {
+        assert!(parse(r#"<root xmlns="x"/>"#).is_err());
+    }
+
+    #[test]
+    fn parse_no_decisions_is_err() {
+        let xml = format!(
+            r#"<?xml version="1.0"?><definitions xmlns="{}"/>"#,
+            DMN_NS
+        );
+        assert!(parse(&xml).is_err());
+    }
+
+    #[test]
+    fn parse_unknown_hit_policy_is_err() {
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="{ns}" id="d">
+  <decision xmlns="{ns}" id="dec1">
+    <decisionTable id="dt1" hitPolicy="PRIORITY">
+      <output id="o1" name="out"/>
+    </decisionTable>
+  </decision>
+</definitions>"#,
+            ns = DMN_NS
+        );
+        assert!(parse(&xml).is_err());
+    }
+
+    // ── evaluate: Unique hit policy ───────────────────────────────────────────
+
+    #[test]
+    fn unique_match_adult() {
+        let tables = parse(&age_category_dmn()).unwrap();
+        let mut ctx = HashMap::new();
+        ctx.insert("age".to_string(), json!(25));
+        let result = evaluate(&tables[0], &ctx).unwrap();
+        assert_eq!(result["category"], json!("adult"));
+    }
+
+    #[test]
+    fn unique_match_minor() {
+        let tables = parse(&age_category_dmn()).unwrap();
+        let mut ctx = HashMap::new();
+        ctx.insert("age".to_string(), json!(10));
+        let result = evaluate(&tables[0], &ctx).unwrap();
+        assert_eq!(result["category"], json!("minor"));
+    }
+
+    #[test]
+    fn unique_no_match_is_err() {
+        let tables = parse(&age_category_dmn()).unwrap();
+        // age is missing → no rule fires
+        let ctx = HashMap::new();
+        assert!(evaluate(&tables[0], &ctx).is_err());
+    }
+
+    // ── evaluate: First hit policy ────────────────────────────────────────────
+
+    #[test]
+    fn first_returns_first_matching_rule() {
+        let tables = parse(&first_dmn()).unwrap();
+        let mut ctx = HashMap::new();
+        ctx.insert("x".to_string(), json!(5));
+        let result = evaluate(&tables[0], &ctx).unwrap();
+        assert_eq!(result["out"], json!("positive"));
+    }
+
+    #[test]
+    fn first_falls_through_to_default() {
+        let tables = parse(&first_dmn()).unwrap();
+        let mut ctx = HashMap::new();
+        ctx.insert("x".to_string(), json!(-1));
+        let result = evaluate(&tables[0], &ctx).unwrap();
+        assert_eq!(result["out"], json!("other"));
+    }
+
+    // ── evaluate: Collect hit policy ──────────────────────────────────────────
+
+    #[test]
+    fn collect_returns_all_matches_as_array() {
+        let tables = parse(&collect_dmn()).unwrap();
+        let mut ctx = HashMap::new();
+        ctx.insert("flag".to_string(), json!(true));
+        let result = evaluate(&tables[0], &ctx).unwrap();
+        assert_eq!(result["score"], json!([10, 20]));
+    }
+
+    // ── parse_output_literal (tested via evaluate) ────────────────────────────
+
+    #[test]
+    fn output_literal_types() {
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="{ns}" id="d">
+  <decision xmlns="{ns}" id="literals">
+    <decisionTable id="dt1" hitPolicy="FIRST">
+      <input id="i1"><inputExpression><text>key</text></inputExpression></input>
+      <output id="o1" name="str_out"/>
+      <output id="o2" name="num_out"/>
+      <output id="o3" name="bool_out"/>
+      <output id="o4" name="null_out"/>
+      <rule id="r1">
+        <inputEntry><text>-</text></inputEntry>
+        <outputEntry><text>"hello"</text></outputEntry>
+        <outputEntry><text>99</text></outputEntry>
+        <outputEntry><text>true</text></outputEntry>
+        <outputEntry><text>null</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>"#,
+            ns = DMN_NS
+        );
+        let tables = parse(&xml).unwrap();
+        let ctx = HashMap::new();
+        let result = evaluate(&tables[0], &ctx).unwrap();
+        assert_eq!(result["str_out"], json!("hello"));
+        assert_eq!(result["num_out"], json!(99));
+        assert_eq!(result["bool_out"], json!(true));
+        assert_eq!(result["null_out"], json!(null));
+    }
+}

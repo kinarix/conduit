@@ -1,0 +1,96 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-primary);
+  cursor: pointer;
+  transition: background var(--transition-base);
+}
+
+.row:hover {
+  background: var(--bg-tertiary);
+}
+
+.toneBar {
+  width: 3px;
+  align-self: stretch;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  background: var(--border-primary);
+}
+
+.toneBar.ok    { background: var(--status-ok); }
+.toneBar.warn  { background: var(--status-warn); }
+.toneBar.error { background: var(--status-error); }
+
+.icon {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  font-family: var(--font-ui);
+}
+
+.icon.error  { background: var(--status-error-soft); color: var(--status-error); }
+.icon.warn   { background: var(--status-warn-soft); color: var(--status-warn); }
+.icon.ok     { background: var(--status-ok-soft); color: var(--status-ok); }
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.title {
+  flex: 1;
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.time {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.subtitle {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+}

@@ -1,104 +1,28 @@
+mod extract;
+mod validate;
+pub mod types;
+
+pub use types::{FlowNode, FlowNodeKind, ProcessGraph, SequenceFlow, TimerSpec};
+
 use roxmltree::Document;
 use std::collections::HashMap;
 
 use crate::error::{EngineError, Result};
+use extract::{
+    extract_condition, extract_correlation_key, extract_error_code, extract_input_schema,
+    extract_message_name, extract_signal_name, extract_timer_spec, extract_topic, extract_url,
+    require_id,
+};
+use validate::validate;
 
 const BPMN_NS: &str = "http://www.omg.org/spec/BPMN/20100524/MODEL";
-// Camunda 7 / Activiti external-task attribute namespace
 const CAMUNDA_NS: &str = "http://activiti.org/bpmn";
 const CONDUIT_NS: &str = "http://conduit.io/ext";
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum FlowNodeKind {
-    StartEvent,
-    MessageStartEvent {
-        message_name: String,
-    },
-    EndEvent,
-    UserTask,
-    ServiceTask {
-        topic: Option<String>,
-        url: Option<String>,
-    },
-    ExclusiveGateway {
-        default_flow: Option<String>,
-    },
-    InclusiveGateway {
-        default_flow: Option<String>,
-    },
-    ParallelGateway,
-    IntermediateTimerCatchEvent {
-        duration: String,
-    },
-    IntermediateMessageCatchEvent {
-        message_name: String,
-        correlation_key_expr: Option<String>,
-    },
-    ReceiveTask {
-        message_name: String,
-        correlation_key_expr: Option<String>,
-    },
-    BoundaryTimerEvent {
-        duration: String,
-        attached_to: String,
-        cancelling: bool,
-    },
-    SignalStartEvent {
-        signal_name: String,
-    },
-    IntermediateSignalCatchEvent {
-        signal_name: String,
-    },
-    BoundarySignalEvent {
-        signal_name: String,
-        attached_to: String,
-        cancelling: bool,
-    },
-    SubProcess {
-        sub_graph: Box<ProcessGraph>,
-    },
-    BusinessRuleTask {
-        decision_ref: String,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FlowNode {
-    pub id: String,
-    pub name: Option<String>,
-    pub kind: FlowNodeKind,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct SequenceFlow {
-    pub id: String,
-    pub source_ref: String,
-    pub target_ref: String,
-    pub condition: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProcessGraph {
-    pub process_id: String,
-    pub process_name: Option<String>,
-    pub nodes: HashMap<String, FlowNode>,
-    pub flows: Vec<SequenceFlow>,
-    /// outgoing[source_id] = [target_id, ...]
-    pub outgoing: HashMap<String, Vec<String>>,
-    /// incoming[target_id] = [source_id, ...]
-    pub incoming: HashMap<String, Vec<String>>,
-    /// attached_to[host_element_id] = [boundary_event_ids, ...]
-    pub attached_to: HashMap<String, Vec<String>>,
-    /// JSON Schema for validating start_instance input variables.
-    /// Stored as <conduit:inputSchema> inside <bpmn:extensionElements> on the process element.
-    pub input_schema: Option<serde_json::Value>,
-}
 
 /// Parse BPMN XML into a validated `ProcessGraph`.
 pub fn parse(xml: &str) -> Result<ProcessGraph> {
     let doc = Document::parse(xml).map_err(|e| EngineError::Parse(format!("Invalid XML: {e}")))?;
 
-    // Collect <message> definitions from the <definitions> root level (id → name)
     let message_defs: HashMap<String, String> = doc
         .root_element()
         .children()
@@ -110,7 +34,6 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         })
         .collect();
 
-    // Collect <signal> definitions from the <definitions> root level (id → name)
     let signal_defs: HashMap<String, String> = doc
         .root_element()
         .children()
@@ -122,7 +45,17 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         })
         .collect();
 
-    // Find the <process> element — works for both bare `<process>` and `<bpmn:process>`
+    let error_defs: HashMap<String, String> = doc
+        .root_element()
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "error")
+        .filter_map(|n| {
+            let id = n.attribute("id")?;
+            let code = n.attribute("errorCode").unwrap_or("");
+            Some((id.to_string(), code.to_string()))
+        })
+        .collect();
+
     let process_node = doc
         .root_element()
         .children()
@@ -139,20 +72,20 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         .to_string();
     let process_name = process_node.attribute("name").map(|s| s.to_string());
 
-    let input_schema = extract_input_schema(&process_node)?;
+    let input_schema = extract_input_schema(&process_node, CONDUIT_NS)?;
 
-    let (nodes, flows) = parse_children(&process_node, &message_defs, &signal_defs)?;
+    let (nodes, flows) = parse_children(&process_node, &message_defs, &signal_defs, &error_defs)?;
 
     validate(&process_id, &nodes, &flows)?;
 
     Ok(build_graph(process_id, process_name, nodes, flows, input_schema))
 }
 
-/// Parse the child elements of a process or subProcess node into nodes + flows.
 fn parse_children(
     container: &roxmltree::Node,
     message_defs: &HashMap<String, String>,
     signal_defs: &HashMap<String, String>,
+    error_defs: &HashMap<String, String>,
 ) -> Result<(HashMap<String, FlowNode>, Vec<SequenceFlow>)> {
     let mut nodes: HashMap<String, FlowNode> = HashMap::new();
     let mut flows: Vec<SequenceFlow> = Vec::new();
@@ -161,7 +94,6 @@ fn parse_children(
         let local = child.tag_name().name();
         let ns = child.tag_name().namespace();
 
-        // Skip non-BPMN namespace elements (e.g. bpmndi: inside process, camunda: listeners)
         if let Some(ns_uri) = ns {
             if ns_uri != BPMN_NS {
                 continue;
@@ -180,6 +112,13 @@ fn parse_children(
                 } else if let Some(sig_name) = extract_signal_name(&child, signal_defs, &id)? {
                     FlowNodeKind::SignalStartEvent {
                         signal_name: sig_name,
+                    }
+                } else if child
+                    .children()
+                    .any(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition")
+                {
+                    FlowNodeKind::TimerStartEvent {
+                        timer: extract_timer_spec(&child)?,
                     }
                 } else {
                     FlowNodeKind::StartEvent
@@ -213,8 +152,8 @@ fn parse_children(
             "serviceTask" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let topic = extract_topic(&child);
-                let url = extract_url(&child);
+                let topic = extract_topic(&child, CAMUNDA_NS);
+                let url = extract_url(&child, CAMUNDA_NS);
                 nodes.insert(
                     id.clone(),
                     FlowNode {
@@ -246,7 +185,6 @@ fn parse_children(
                     condition,
                 });
             }
-
             "exclusiveGateway" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -260,7 +198,6 @@ fn parse_children(
                     },
                 );
             }
-
             "inclusiveGateway" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -274,7 +211,6 @@ fn parse_children(
                     },
                 );
             }
-
             "intermediateCatchEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -283,10 +219,10 @@ fn parse_children(
                     .any(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition");
                 let kind = if has_timer {
                     FlowNodeKind::IntermediateTimerCatchEvent {
-                        duration: extract_timer_duration(&child)?,
+                        timer: extract_timer_spec(&child)?,
                     }
                 } else if let Some(msg_name) = extract_message_name(&child, message_defs, &id)? {
-                    let correlation_key_expr = extract_correlation_key(&child);
+                    let correlation_key_expr = extract_correlation_key(&child, CAMUNDA_NS);
                     FlowNodeKind::IntermediateMessageCatchEvent {
                         message_name: msg_name,
                         correlation_key_expr,
@@ -302,7 +238,6 @@ fn parse_children(
                 };
                 nodes.insert(id.clone(), FlowNode { id, name, kind });
             }
-
             "boundaryEvent" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -320,8 +255,16 @@ fn parse_children(
                     .children()
                     .any(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition");
                 let kind = if has_timer {
+                    let timer = extract_timer_spec(&child)?;
+                    if cancelling {
+                        if let TimerSpec::Cycle(_) = &timer {
+                            return Err(EngineError::Parse(format!(
+                                "Boundary timer '{id}': interrupting boundary event cannot use timeCycle"
+                            )));
+                        }
+                    }
                     FlowNodeKind::BoundaryTimerEvent {
-                        duration: extract_timer_duration(&child)?,
+                        timer,
                         attached_to,
                         cancelling,
                     }
@@ -331,14 +274,19 @@ fn parse_children(
                         attached_to,
                         cancelling,
                     }
+                } else if let Some(error_code) = extract_error_code(&child, error_defs) {
+                    FlowNodeKind::BoundaryErrorEvent {
+                        error_code,
+                        attached_to,
+                        cancelling,
+                    }
                 } else {
                     return Err(EngineError::Parse(format!(
-                        "boundaryEvent '{id}' has no supported event definition (timer or signal)"
+                        "boundaryEvent '{id}' has no supported event definition (timer, signal, or error)"
                     )));
                 };
                 nodes.insert(id.clone(), FlowNode { id, name, kind });
             }
-
             "parallelGateway" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -351,7 +299,6 @@ fn parse_children(
                     },
                 );
             }
-
             "receiveTask" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -361,7 +308,7 @@ fn parse_children(
                             "receiveTask '{id}' missing messageRef or message definition"
                         ))
                     })?;
-                let correlation_key_expr = extract_correlation_key(&child);
+                let correlation_key_expr = extract_correlation_key(&child, CAMUNDA_NS);
                 nodes.insert(
                     id.clone(),
                     FlowNode {
@@ -374,13 +321,14 @@ fn parse_children(
                     },
                 );
             }
-
             "subProcess" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let (inner_nodes, inner_flows) = parse_children(&child, message_defs, signal_defs)?;
+                let (inner_nodes, inner_flows) =
+                    parse_children(&child, message_defs, signal_defs, error_defs)?;
                 validate(&id, &inner_nodes, &inner_flows)?;
-                let sub_graph = build_graph(id.clone(), name.clone(), inner_nodes, inner_flows, None);
+                let sub_graph =
+                    build_graph(id.clone(), name.clone(), inner_nodes, inner_flows, None);
                 nodes.insert(
                     id.clone(),
                     FlowNode {
@@ -392,7 +340,6 @@ fn parse_children(
                     },
                 );
             }
-
             "businessRuleTask" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
@@ -413,19 +360,36 @@ fn parse_children(
                     },
                 );
             }
+            "sendTask" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let message_name =
+                    extract_message_name(&child, message_defs, &id)?.ok_or_else(|| {
+                        EngineError::Parse(format!(
+                            "sendTask '{id}' missing messageRef or message definition"
+                        ))
+                    })?;
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::SendTask { message_name },
+                    },
+                );
+            }
 
-            // Future-phase semantic elements — reject explicitly so callers get a clear error
+            // Future-phase elements — reject explicitly
             "eventBasedGateway"
             | "complexGateway"
             | "intermediateThrowEvent"
             | "transaction"
             | "adHocSubProcess"
-            | "sendTask"
             | "manualTask"
             | "scriptTask"
             | "callActivity" => return Err(EngineError::UnsupportedElement(local.to_string())),
 
-            // Non-semantic / presentation elements that are harmless to ignore
+            // Non-semantic / presentation elements — safe to ignore
             "laneSet"
             | "extensionElements"
             | "documentation"
@@ -445,7 +409,267 @@ fn parse_children(
     Ok((nodes, flows))
 }
 
-/// Build outgoing/incoming/attached_to indices from parsed nodes+flows.
+#[cfg(test)]
+mod tests {
+    use super::parse;
+    use crate::parser::types::FlowNodeKind;
+
+    fn minimal_bpmn(extra: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="def1">
+  <process id="proc1" name="Test">
+    <startEvent id="start"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="end"/>
+    {extra}
+  </process>
+</definitions>"#
+        )
+    }
+
+    // ── happy path ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parses_minimal_process() {
+        let g = parse(&minimal_bpmn("")).unwrap();
+        assert_eq!(g.process_id, "proc1");
+        assert_eq!(g.process_name.as_deref(), Some("Test"));
+        assert!(g.nodes.contains_key("start"));
+        assert!(g.nodes.contains_key("end"));
+        assert_eq!(g.flows.len(), 1);
+    }
+
+    #[test]
+    fn outgoing_and_incoming_built() {
+        let g = parse(&minimal_bpmn("")).unwrap();
+        assert_eq!(g.outgoing["start"], vec!["end"]);
+        assert_eq!(g.incoming["end"], vec!["start"]);
+    }
+
+    #[test]
+    fn parses_service_task() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <serviceTask id="svc" xmlns:camunda="http://activiti.org/bpmn" camunda:topic="my-topic"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="svc"/>
+    <sequenceFlow id="f2" sourceRef="svc" targetRef="end"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        let svc = &g.nodes["svc"];
+        assert!(matches!(&svc.kind, FlowNodeKind::ServiceTask { topic: Some(t), .. } if t == "my-topic"));
+    }
+
+    #[test]
+    fn parses_exclusive_gateway() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <exclusiveGateway id="gw" default="f3"/>
+    <endEvent id="end1"/>
+    <endEvent id="end2"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="gw"/>
+    <sequenceFlow id="f2" sourceRef="gw" targetRef="end1"><conditionExpression>x &gt; 0</conditionExpression></sequenceFlow>
+    <sequenceFlow id="f3" sourceRef="gw" targetRef="end2"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        let gw = &g.nodes["gw"];
+        assert!(matches!(&gw.kind, FlowNodeKind::ExclusiveGateway { default_flow: Some(f) } if f == "f3"));
+        let flow_with_cond = g.flows.iter().find(|f| f.id == "f2").unwrap();
+        assert_eq!(flow_with_cond.condition.as_deref(), Some("x > 0"));
+    }
+
+    #[test]
+    fn parses_parallel_gateway() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <parallelGateway id="fork"/>
+    <userTask id="t1"/>
+    <userTask id="t2"/>
+    <parallelGateway id="join"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="fork"/>
+    <sequenceFlow id="f2" sourceRef="fork" targetRef="t1"/>
+    <sequenceFlow id="f3" sourceRef="fork" targetRef="t2"/>
+    <sequenceFlow id="f4" sourceRef="t1" targetRef="join"/>
+    <sequenceFlow id="f5" sourceRef="t2" targetRef="join"/>
+    <sequenceFlow id="f6" sourceRef="join" targetRef="end"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        assert!(matches!(g.nodes["fork"].kind, FlowNodeKind::ParallelGateway));
+    }
+
+    #[test]
+    fn parses_message_start_event() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <message id="msg1" name="OrderReceived"/>
+  <process id="p1">
+    <startEvent id="start">
+      <messageEventDefinition messageRef="msg1"/>
+    </startEvent>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="end"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        assert!(matches!(&g.nodes["start"].kind, FlowNodeKind::MessageStartEvent { message_name: n } if n == "OrderReceived"));
+    }
+
+    #[test]
+    fn parses_timer_intermediate_event() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <intermediateCatchEvent id="timer">
+      <timerEventDefinition><timeDuration>PT5M</timeDuration></timerEventDefinition>
+    </intermediateCatchEvent>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="timer"/>
+    <sequenceFlow id="f2" sourceRef="timer" targetRef="end"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        assert!(matches!(&g.nodes["timer"].kind, FlowNodeKind::IntermediateTimerCatchEvent { .. }));
+    }
+
+    #[test]
+    fn parses_boundary_timer_event() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <userTask id="task"/>
+    <boundaryEvent id="bt" attachedToRef="task">
+      <timerEventDefinition><timeDuration>PT10M</timeDuration></timerEventDefinition>
+    </boundaryEvent>
+    <endEvent id="end"/>
+    <endEvent id="end2"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="task"/>
+    <sequenceFlow id="f2" sourceRef="task" targetRef="end"/>
+    <sequenceFlow id="f3" sourceRef="bt" targetRef="end2"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        assert!(matches!(&g.nodes["bt"].kind, FlowNodeKind::BoundaryTimerEvent { attached_to, .. } if attached_to == "task"));
+        assert_eq!(g.attached_to["task"], vec!["bt"]);
+    }
+
+    #[test]
+    fn parses_subprocess() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <subProcess id="sub">
+      <startEvent id="inner_start"/>
+      <endEvent id="inner_end"/>
+      <sequenceFlow id="if1" sourceRef="inner_start" targetRef="inner_end"/>
+    </subProcess>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="sub"/>
+    <sequenceFlow id="f2" sourceRef="sub" targetRef="end"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        if let FlowNodeKind::SubProcess { sub_graph } = &g.nodes["sub"].kind {
+            assert!(sub_graph.nodes.contains_key("inner_start"));
+        } else {
+            panic!("expected SubProcess");
+        }
+    }
+
+    #[test]
+    fn parses_input_schema_from_extension_elements() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <extensionElements>
+      <conduit:inputSchema xmlns:conduit="http://conduit.io/ext">{"type":"object"}</conduit:inputSchema>
+    </extensionElements>
+    <startEvent id="start"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="end"/>
+  </process>
+</definitions>"#;
+        let g = parse(xml).unwrap();
+        assert!(g.input_schema.is_some());
+    }
+
+    // ── error cases ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn bad_xml_is_err() {
+        assert!(parse("<not-closed").is_err());
+    }
+
+    #[test]
+    fn no_process_element_is_err() {
+        let xml = r#"<?xml version="1.0"?><definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"/>"#;
+        assert!(parse(xml).is_err());
+    }
+
+    #[test]
+    fn process_missing_id_is_err() {
+        let xml = r#"<?xml version="1.0"?><definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"><process><startEvent id="s"/><endEvent id="e"/><sequenceFlow id="f" sourceRef="s" targetRef="e"/></process></definitions>"#;
+        assert!(parse(xml).is_err());
+    }
+
+    #[test]
+    fn unsupported_element_is_err() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <callActivity id="ca"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="end"/>
+  </process>
+</definitions>"#;
+        assert!(parse(xml).is_err());
+    }
+
+    #[test]
+    fn intermediate_catch_event_without_definition_is_err() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <intermediateCatchEvent id="ice"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="ice"/>
+    <sequenceFlow id="f2" sourceRef="ice" targetRef="end"/>
+  </process>
+</definitions>"#;
+        assert!(parse(xml).is_err());
+    }
+
+    #[test]
+    fn business_rule_task_without_decision_ref_is_err() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="d1">
+  <process id="p1">
+    <startEvent id="start"/>
+    <businessRuleTask id="brt"/>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="brt"/>
+    <sequenceFlow id="f2" sourceRef="brt" targetRef="end"/>
+  </process>
+</definitions>"#;
+        assert!(parse(xml).is_err());
+    }
+}
+
 fn build_graph(
     process_id: String,
     process_name: Option<String>,
@@ -471,6 +695,7 @@ fn build_graph(
         let host_id = match &node.kind {
             FlowNodeKind::BoundaryTimerEvent { attached_to: h, .. } => Some(h.clone()),
             FlowNodeKind::BoundarySignalEvent { attached_to: h, .. } => Some(h.clone()),
+            FlowNodeKind::BoundaryErrorEvent { attached_to: h, .. } => Some(h.clone()),
             _ => None,
         };
         if let Some(h) = host_id {
@@ -488,279 +713,4 @@ fn build_graph(
         attached_to,
         input_schema,
     }
-}
-
-/// Extract a JSON Schema from <conduit:inputSchema> inside the process's <extensionElements>.
-/// The schema is stored as raw JSON text content of the element.
-fn extract_input_schema(process_node: &roxmltree::Node) -> Result<Option<serde_json::Value>> {
-    for ext in process_node
-        .children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
-    {
-        for inner in ext.children().filter(|n| n.is_element()) {
-            let is_conduit_schema = inner.tag_name().name() == "inputSchema"
-                && inner
-                    .tag_name()
-                    .namespace()
-                    .map_or(false, |ns| ns == CONDUIT_NS);
-            if is_conduit_schema {
-                if let Some(text) = inner.text() {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() {
-                        let schema = serde_json::from_str(trimmed).map_err(|e| {
-                            EngineError::Parse(format!(
-                                "conduit:inputSchema is not valid JSON: {e}"
-                            ))
-                        })?;
-                        return Ok(Some(schema));
-                    }
-                }
-            }
-        }
-    }
-    Ok(None)
-}
-
-fn require_id<'a>(node: &roxmltree::Node<'a, '_>, element: &str) -> Result<String> {
-    node.attribute("id")
-        .map(|s| s.to_string())
-        .ok_or_else(|| EngineError::Parse(format!("<{element}> element missing id attribute")))
-}
-
-/// Extract the external-task topic from a serviceTask node.
-/// Checks (in order): plain `topic` attribute, Camunda `camunda:topic` attribute,
-/// and a `<topic>` child text element inside `<extensionElements>`.
-fn extract_topic(node: &roxmltree::Node) -> Option<String> {
-    if let Some(t) = node.attribute("topic") {
-        return Some(t.to_string());
-    }
-    if let Some(t) = node.attribute((CAMUNDA_NS, "topic")) {
-        return Some(t.to_string());
-    }
-    for ext in node
-        .children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
-    {
-        for inner in ext.children().filter(|n| n.is_element()) {
-            if inner.tag_name().name() == "topic" {
-                return inner
-                    .text()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-            }
-        }
-    }
-    None
-}
-
-fn extract_url(node: &roxmltree::Node) -> Option<String> {
-    if let Some(u) = node.attribute("url") {
-        return Some(u.to_string());
-    }
-    if let Some(u) = node.attribute((CAMUNDA_NS, "url")) {
-        return Some(u.to_string());
-    }
-    None
-}
-
-fn extract_timer_duration(node: &roxmltree::Node) -> Result<String> {
-    for def in node
-        .children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "timerEventDefinition")
-    {
-        for dur_node in def
-            .children()
-            .filter(|n| n.is_element() && n.tag_name().name() == "timeDuration")
-        {
-            if let Some(text) = dur_node.text() {
-                let s = text.trim().to_string();
-                if !s.is_empty() {
-                    return Ok(s);
-                }
-            }
-        }
-    }
-    Err(EngineError::Parse(
-        "Timer event missing timerEventDefinition/timeDuration".to_string(),
-    ))
-}
-
-fn extract_condition(node: &roxmltree::Node) -> Option<String> {
-    node.children()
-        .find(|n| n.is_element() && n.tag_name().name() == "conditionExpression")
-        .and_then(|n| n.text())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-/// Resolve the message name for an event node that contains a `<messageEventDefinition>`.
-/// Returns `None` if the node has no `messageEventDefinition` child.
-/// Returns `Err` if the `messageRef` attribute is present but references an unknown message.
-fn extract_message_name(
-    node: &roxmltree::Node,
-    message_defs: &HashMap<String, String>,
-    element_id: &str,
-) -> Result<Option<String>> {
-    let def = node
-        .children()
-        .find(|n| n.is_element() && n.tag_name().name() == "messageEventDefinition");
-    let def = match def {
-        Some(d) => d,
-        None => return Ok(None),
-    };
-
-    // messageRef may be a bare id or a prefixed QName like "bpmn:msg1" — strip prefix
-    if let Some(msg_ref) = def.attribute("messageRef") {
-        let bare_id = msg_ref.split(':').next_back().unwrap_or(msg_ref);
-        if let Some(name) = message_defs.get(bare_id) {
-            return Ok(Some(name.clone()));
-        }
-        // Inline message name fallback: some tools embed the name directly as messageRef
-        return Ok(Some(bare_id.to_string()));
-    }
-
-    Err(EngineError::Parse(format!(
-        "messageEventDefinition on '{element_id}' is missing messageRef attribute"
-    )))
-}
-
-/// Extract the correlation key expression from a message event node.
-/// Looks for a plain `correlationKey` attribute or a Camunda-namespace `camunda:correlationKey`.
-fn extract_correlation_key(node: &roxmltree::Node) -> Option<String> {
-    if let Some(v) = node.attribute("correlationKey") {
-        return Some(v.to_string());
-    }
-    if let Some(v) = node.attribute((CAMUNDA_NS, "correlationKey")) {
-        return Some(v.to_string());
-    }
-    // Also check inside <extensionElements>
-    for ext in node
-        .children()
-        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
-    {
-        for inner in ext.children().filter(|n| n.is_element()) {
-            if inner.tag_name().name() == "correlationKey" {
-                return inner
-                    .text()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty());
-            }
-        }
-    }
-    None
-}
-
-/// Resolve the signal name for an event node that contains a `<signalEventDefinition>`.
-/// Returns `None` if the node has no `signalEventDefinition` child.
-/// Returns `Err` if the `signalRef` attribute is present but unresolvable.
-fn extract_signal_name(
-    node: &roxmltree::Node,
-    signal_defs: &HashMap<String, String>,
-    element_id: &str,
-) -> Result<Option<String>> {
-    let def = node
-        .children()
-        .find(|n| n.is_element() && n.tag_name().name() == "signalEventDefinition");
-    let def = match def {
-        Some(d) => d,
-        None => return Ok(None),
-    };
-
-    if let Some(sig_ref) = def.attribute("signalRef") {
-        let bare_id = sig_ref.split(':').next_back().unwrap_or(sig_ref);
-        if let Some(name) = signal_defs.get(bare_id) {
-            return Ok(Some(name.clone()));
-        }
-        return Ok(Some(bare_id.to_string()));
-    }
-
-    Err(EngineError::Parse(format!(
-        "signalEventDefinition on '{element_id}' is missing signalRef attribute"
-    )))
-}
-
-fn validate(
-    process_id: &str,
-    nodes: &HashMap<String, FlowNode>,
-    flows: &[SequenceFlow],
-) -> Result<()> {
-    let plain_start_count = nodes
-        .values()
-        .filter(|n| matches!(n.kind, FlowNodeKind::StartEvent))
-        .count();
-    let message_start_count = nodes
-        .values()
-        .filter(|n| matches!(n.kind, FlowNodeKind::MessageStartEvent { .. }))
-        .count();
-    let signal_start_count = nodes
-        .values()
-        .filter(|n| matches!(n.kind, FlowNodeKind::SignalStartEvent { .. }))
-        .count();
-    let total_start_count = plain_start_count + message_start_count + signal_start_count;
-
-    if total_start_count == 0 {
-        return Err(EngineError::Parse(format!(
-            "Process '{process_id}' has no start event"
-        )));
-    }
-    if plain_start_count > 1 {
-        return Err(EngineError::Parse(format!(
-            "Process '{process_id}' has {plain_start_count} plain start events; only one supported"
-        )));
-    }
-
-    let end_count = nodes
-        .values()
-        .filter(|n| matches!(n.kind, FlowNodeKind::EndEvent))
-        .count();
-
-    if end_count == 0 {
-        return Err(EngineError::Parse(format!(
-            "Process '{process_id}' has no end event"
-        )));
-    }
-
-    for flow in flows {
-        if !nodes.contains_key(&flow.source_ref) {
-            return Err(EngineError::Parse(format!(
-                "SequenceFlow '{}' has unknown sourceRef '{}'",
-                flow.id, flow.source_ref
-            )));
-        }
-        if !nodes.contains_key(&flow.target_ref) {
-            return Err(EngineError::Parse(format!(
-                "SequenceFlow '{}' has unknown targetRef '{}'",
-                flow.id, flow.target_ref
-            )));
-        }
-    }
-
-    for node in nodes.values() {
-        if let FlowNodeKind::ExclusiveGateway {
-            default_flow: Some(default_id),
-        } = &node.kind
-        {
-            if !flows.iter().any(|f| &f.id == default_id) {
-                return Err(EngineError::Parse(format!(
-                    "ExclusiveGateway '{}' references unknown default flow '{}'",
-                    node.id, default_id
-                )));
-            }
-        }
-        let boundary_host = match &node.kind {
-            FlowNodeKind::BoundaryTimerEvent { attached_to, .. } => Some(attached_to.as_str()),
-            FlowNodeKind::BoundarySignalEvent { attached_to, .. } => Some(attached_to.as_str()),
-            _ => None,
-        };
-        if let Some(host_id) = boundary_host {
-            if !nodes.contains_key(host_id) {
-                return Err(EngineError::Parse(format!(
-                    "BoundaryEvent '{}' attachedToRef '{}' not found in process",
-                    node.id, host_id
-                )));
-            }
-        }
-    }
-
-    Ok(())
 }

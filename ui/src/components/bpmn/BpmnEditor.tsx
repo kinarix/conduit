@@ -2,10 +2,14 @@ import {
   forwardRef,
   useCallback,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   useEffect,
 } from 'react';
+import { ConnectingContext } from './connectingContext';
+import { WarningsContext } from './warningsContext';
+import { computeWarningsMap, computeInvalidEdgeIds } from './bpmnValidation';
 import {
   ReactFlow,
   Background,
@@ -20,10 +24,19 @@ import {
   type Edge,
   type OnConnect,
   type NodeTypes,
+  type EdgeTypes,
   type Connection,
+  type EdgeProps,
+  Position,
+  type NodeChange,
+  type EdgeChange,
   ReactFlowProvider,
   useReactFlow,
   useViewport,
+  BaseEdge,
+  getBezierPath,
+  ConnectionMode,
+  MarkerType,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -59,15 +72,76 @@ function ZoomDisplay() {
   );
 }
 
+function AttachmentEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected }: EdgeProps) {
+  const [edgePath] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  return (
+    <BaseEdge
+      id={id}
+      path={edgePath}
+      style={{
+        stroke: selected ? '#6366f1' : '#94a3b8',
+        strokeDasharray: '5 4',
+        strokeWidth: selected ? 2 : 1.5,
+      }}
+    />
+  );
+}
+
 const nodeTypes: NodeTypes = {
   bpmnEvent:   EventNode,
   bpmnTask:    TaskNode,
   bpmnGateway: GatewayNode,
 };
 
+const edgeTypes: EdgeTypes = {
+  attachment: AttachmentEdge,
+};
+
+function CustomConnectionLine({ fromX, fromY, toX, toY, fromPosition, toPosition, connectionStatus, fromNode }: {
+  fromX: number; fromY: number; toX: number; toY: number;
+  fromPosition: Position; toPosition: Position;
+  connectionStatus: 'valid' | 'invalid' | null;
+  fromNode?: Node;
+}) {
+  const isInvalid = connectionStatus === 'invalid';
+  const fromType = (fromNode?.data as BpmnNodeData | undefined)?.bpmnType;
+  const isBoundarySrc = fromType && BOUNDARY_TYPES.has(fromType as BpmnElementType);
+  const stroke = isInvalid ? '#ef4444' : '#94a3b8';
+  const [edgePath] = getBezierPath({
+    sourceX: fromX, sourceY: fromY, sourcePosition: fromPosition,
+    targetX: toX, targetY: toY, targetPosition: toPosition,
+  });
+  return (
+    <path
+      fill="none"
+      stroke={stroke}
+      strokeWidth={1.5}
+      strokeDasharray={(isInvalid || isBoundarySrc) ? '5 4' : undefined}
+      d={edgePath}
+    />
+  );
+}
+
+const BOUNDARY_TYPES = new Set<BpmnElementType>([
+  'boundaryTimerEvent', 'boundarySignalEvent', 'boundaryErrorEvent',
+]);
+
+const TASK_TYPES = new Set<BpmnElementType>([
+  'userTask', 'serviceTask', 'businessRuleTask', 'subProcess', 'sendTask', 'receiveTask',
+]);
+
+const START_EVENT_TYPES = new Set<BpmnElementType>([
+  'startEvent', 'messageStartEvent', 'timerStartEvent',
+]);
+
 function nodeTypeFor(t: BpmnElementType): string {
-  if (t === 'startEvent' || t === 'endEvent') return 'bpmnEvent';
-  if (t === 'userTask' || t === 'serviceTask') return 'bpmnTask';
+  const eventTypes: BpmnElementType[] = [
+    'startEvent', 'messageStartEvent', 'timerStartEvent', 'endEvent',
+    'boundaryTimerEvent', 'boundarySignalEvent', 'boundaryErrorEvent',
+    'intermediateCatchTimerEvent', 'intermediateCatchMessageEvent', 'intermediateCatchSignalEvent',
+  ];
+  if (eventTypes.includes(t)) return 'bpmnEvent';
+  if (t === 'userTask' || t === 'serviceTask' || t === 'businessRuleTask' || t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask';
   return 'bpmnGateway';
 }
 
@@ -88,12 +162,14 @@ interface Props {
   xml?: string;
   processId?: string;
   processName?: string;
+  onProcessNameChange?: (name: string) => void;
 }
 
-function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Props, ref: React.Ref<BpmnEditorHandle>) {
+function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onProcessNameChange }: Props, ref: React.Ref<BpmnEditorHandle>) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(DEFAULT_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selected, setSelected] = useState<Node | Edge | null>(null);
+  const [connecting, setConnecting] = useState(false);
   const [processId, setProcessId] = useState(initPid ?? `process_${Date.now()}`);
   const [processName, setProcessName] = useState(initPname ?? '');
   const [processSchema, setProcessSchema] = useState<string | undefined>(undefined);
@@ -103,6 +179,28 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
   const resizingRef = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
+
+  const warningsMap = useMemo(() => computeWarningsMap(nodes, edges), [nodes, edges]);
+  const invalidEdgeIds = useMemo(() => computeInvalidEdgeIds(nodes, edges), [nodes, edges]);
+  const displayEdges = useMemo(
+    () => edges.map(e => {
+      const data = e.data as BpmnEdgeData | undefined;
+      if (data?.kind === 'attachment') return e;
+      const isInvalid = invalidEdgeIds.has(e.id);
+      const stroke = isInvalid ? '#ef4444' : (e.selected ? '#6366f1' : '#94a3b8');
+      const strokeWidth = e.selected ? 2.5 : 1.5;
+      return {
+        ...e,
+        style: {
+          stroke,
+          strokeWidth,
+          ...(isInvalid ? { strokeDasharray: '5 4' } : {}),
+        },
+        markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: stroke },
+      };
+    }),
+    [edges, invalidEdgeIds],
+  );
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     resizingRef.current = true;
@@ -135,6 +233,7 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
       setEdges(parsed.edges);
       setProcessId(parsed.processId);
       setProcessName(parsed.processName);
+      onProcessNameChange?.(parsed.processName);
       setProcessSchema(parsed.inputSchema);
     } catch (e) {
       console.error('Failed to parse BPMN XML', e);
@@ -147,10 +246,31 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
 
   const onConnect: OnConnect = useCallback(
     (conn: Connection) => {
+      if (conn.source === conn.target) return;
+      if (edges.some(e => e.source === conn.source && e.target === conn.target)) return;
       const id = `flow_${Date.now()}`;
-      setEdges(eds => addEdge({ ...conn, id, data: {} as BpmnEdgeData }, eds));
+      const sourceNode = nodes.find(n => n.id === conn.source);
+      const targetNode = nodes.find(n => n.id === conn.target);
+      const sourceType = (sourceNode?.data as BpmnNodeData | undefined)?.bpmnType;
+      const targetType = (targetNode?.data as BpmnNodeData | undefined)?.bpmnType;
+      const isBoundarySource = sourceType && BOUNDARY_TYPES.has(sourceType);
+      const isTaskTarget = targetType && TASK_TYPES.has(targetType);
+      const alreadyAttached = edges.some(
+        e => (e.data as BpmnEdgeData | undefined)?.kind === 'attachment' && e.source === conn.source,
+      );
+      const isAttachment = isBoundarySource && isTaskTarget && !alreadyAttached;
+      if (isAttachment) {
+        setEdges(eds => addEdge({
+          ...conn,
+          id,
+          type: 'attachment',
+          data: { kind: 'attachment' } as BpmnEdgeData,
+        }, eds));
+      } else {
+        setEdges(eds => addEdge({ ...conn, id, data: {} as BpmnEdgeData }, eds));
+      }
     },
-    [setEdges],
+    [setEdges, nodes, edges],
   );
 
   const onDragOver = (e: React.DragEvent) => {
@@ -182,6 +302,26 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
     [reactFlow, setNodes],
   );
 
+  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+    onNodesChange(changes);
+    const removedIds = new Set(
+      changes.filter(c => c.type === 'remove').map(c => (c as { id: string }).id),
+    );
+    if (removedIds.size > 0) {
+      setSelected(prev => (prev && removedIds.has(prev.id) ? null : prev));
+    }
+  }, [onNodesChange]);
+
+  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+    onEdgesChange(changes);
+    const removedIds = new Set(
+      changes.filter(c => c.type === 'remove').map(c => (c as { id: string }).id),
+    );
+    if (removedIds.size > 0) {
+      setSelected(prev => (prev && removedIds.has(prev.id) ? null : prev));
+    }
+  }, [onEdgesChange]);
+
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelected(node);
   }, []);
@@ -210,9 +350,12 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
 
   const onEdgeChange = useCallback((id: string, patch: Partial<BpmnEdgeData>) => {
     setEdges(es =>
-      es.map(e => e.id === id
-        ? { ...e, data: { ...e.data, ...patch }, label: patch.condition ?? e.label }
-        : e),
+      es.map(e => {
+        if (e.id !== id) return e;
+        const d = (e.data ?? {}) as BpmnEdgeData;
+        if (d.kind === 'attachment') return e;
+        return { ...e, data: { ...d, ...patch }, label: patch.condition ?? e.label };
+      }),
     );
     setSelected(prev =>
       prev && !('position' in prev) && prev.id === id
@@ -221,28 +364,46 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
     );
   }, [setEdges]);
 
+  const isValidConnection = useCallback((conn: Connection | Edge) => {
+    if (conn.source === conn.target) return false;
+    if (edges.some(e => e.source === conn.source && e.target === conn.target)) return false;
+    const sourceType = (nodes.find(n => n.id === conn.source)?.data as BpmnNodeData | undefined)?.bpmnType;
+    const targetType = (nodes.find(n => n.id === conn.target)?.data as BpmnNodeData | undefined)?.bpmnType;
+    if (sourceType === 'endEvent') return false;
+    if (targetType && START_EVENT_TYPES.has(targetType)) return false;
+    return true;
+  }, [nodes, edges]);
+
   return (
+    <ConnectingContext.Provider value={connecting}>
+    <WarningsContext.Provider value={warningsMap}>
     <div style={{ display: 'flex', height: '100%', width: '100%' }}>
       <div ref={wrapperRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <ReactFlow
           nodes={nodes}
-          edges={edges}
+          edges={displayEdges}
           nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
+          edgeTypes={edgeTypes}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
           onConnect={onConnect}
           onDrop={onDrop}
           onDragOver={onDragOver}
           onNodeClick={onNodeClick}
           onEdgeClick={onEdgeClick}
           onPaneClick={onPaneClick}
+          onConnectStart={() => setConnecting(true)}
+          onConnectEnd={() => setConnecting(false)}
+          connectionLineComponent={CustomConnectionLine}
+          isValidConnection={isValidConnection}
           fitView
+          connectionMode={ConnectionMode.Loose}
           proOptions={{ hideAttribution: true }}
           style={{ background: '#f8fafc' }}
         >
           <Background variant={BackgroundVariant.Dots} color="#cbd5e1" gap={20} size={1.5} />
-          <Controls />
-          <MiniMap nodeColor={() => '#cbd5e1'} maskColor="rgba(248,250,252,0.7)" />
+          <Controls position="bottom-right" style={{ right: 12, bottom: 34 }} />
+          <MiniMap nodeColor={() => '#cbd5e1'} maskColor="rgba(248,250,252,0.7)" position="bottom-left" />
           <Panel position="top-right">
             <button
               onClick={onAutoLayout}
@@ -299,13 +460,23 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname }: Pr
       <div style={{ width: propWidth, flexShrink: 0, borderLeft: 'none', overflow: 'hidden' }}>
         <BpmnProperties
           selected={selected}
+          nodes={nodes}
+          edges={edges}
           onNodeChange={onNodeChange}
           onEdgeChange={onEdgeChange}
+          processKey={processId}
+          processName={processName}
+          onProcessNameChange={(n) => {
+            setProcessName(n);
+            onProcessNameChange?.(n);
+          }}
           processSchema={processSchema}
           onProcessSchemaChange={setProcessSchema}
         />
       </div>
     </div>
+    </WarningsContext.Provider>
+    </ConnectingContext.Provider>
   );
 }
 

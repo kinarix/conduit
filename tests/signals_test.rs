@@ -27,12 +27,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("sig-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Signal Test Org", &slug)
+    let org = db::orgs::insert(pool, "Signal Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -204,12 +206,13 @@ fn parse_boundary_signal_event_non_interrupting() {
 #[tokio::test]
 async fn signal_catch_pauses_instance_and_creates_subscription() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-catch"),
         1,
         None,
@@ -237,12 +240,13 @@ async fn signal_catch_pauses_instance_and_creates_subscription() {
 #[tokio::test]
 async fn broadcast_signal_advances_waiting_instance_to_end() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-catch"),
         1,
         None,
@@ -276,12 +280,13 @@ async fn broadcast_signal_advances_waiting_instance_to_end() {
 #[tokio::test]
 async fn broadcast_signal_passes_variables() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-vars"),
         1,
         None,
@@ -320,13 +325,14 @@ async fn broadcast_signal_passes_variables() {
 #[tokio::test]
 async fn broadcast_signal_reaches_all_waiting_instances() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     // Deploy two separate processes both waiting on the same signal
     let def_a = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-multi-a"),
         1,
         None,
@@ -340,6 +346,7 @@ async fn broadcast_signal_reaches_all_waiting_instances() {
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-multi-b"),
         1,
         None,
@@ -376,7 +383,7 @@ async fn broadcast_signal_reaches_all_waiting_instances() {
 #[tokio::test]
 async fn broadcast_signal_with_no_listeners_succeeds() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, _groups) = create_org(&pool).await;
 
     // No instances running — broadcast should still return Ok (unlike correlate_message)
     engine
@@ -388,12 +395,13 @@ async fn broadcast_signal_with_no_listeners_succeeds() {
 #[tokio::test]
 async fn signal_start_event_creates_new_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-start"),
         1,
         None,
@@ -436,12 +444,13 @@ async fn signal_start_event_creates_new_instance() {
 #[tokio::test]
 async fn boundary_signal_interrupting_cancels_task() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-boundary-int"),
         1,
         None,
@@ -497,12 +506,13 @@ async fn boundary_signal_interrupting_cancels_task() {
 #[tokio::test]
 async fn boundary_signal_non_interrupting_keeps_task() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-boundary-non"),
         1,
         None,
@@ -538,12 +548,13 @@ async fn boundary_signal_non_interrupting_keeps_task() {
 #[tokio::test]
 async fn normal_task_completion_cleans_up_signal_subscription() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("sig-cleanup"),
         1,
         None,

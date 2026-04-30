@@ -22,6 +22,14 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ProcessGroup {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProcessDefinition {
     pub id: Uuid,
     pub org_id: Uuid,
@@ -32,6 +40,8 @@ pub struct ProcessDefinition {
     pub bpmn_xml: String,
     pub labels: JsonValue,
     pub deployed_at: DateTime<Utc>,
+    pub status: String,
+    pub process_group_id: Uuid,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -95,6 +105,22 @@ pub struct Job {
     pub error_message: Option<String>,
     pub state: String,
     pub created_at: DateTime<Utc>,
+    pub timer_expression: Option<String>,
+    pub repetitions_remaining: Option<i32>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct TimerStartTrigger {
+    pub id: Uuid,
+    pub definition_id: Uuid,
+    pub element_id: String,
+    pub timer_expression: String,
+    pub repetitions_remaining: Option<i32>,
+    pub due_at: DateTime<Utc>,
+    pub state: String,
+    pub locked_by: Option<String>,
+    pub locked_until: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -107,6 +133,18 @@ pub struct ExecutionHistory {
     pub entered_at: DateTime<Utc>,
     pub left_at: Option<DateTime<Utc>>,
     pub worker_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ProcessEvent {
+    pub id: Uuid,
+    pub instance_id: Uuid,
+    pub execution_id: Option<Uuid>,
+    pub event_type: String,
+    pub element_id: Option<String>,
+    pub occurred_at: DateTime<Utc>,
+    pub payload: JsonValue,
+    pub metadata: JsonValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

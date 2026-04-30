@@ -28,12 +28,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("msg-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Message Test Org", &slug)
+    let org = db::orgs::insert(pool, "Message Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -187,12 +189,13 @@ fn parse_receive_task() {
 #[tokio::test]
 async fn message_catch_event_pauses_instance_and_creates_subscription() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("msg-catch"),
         1,
         None,
@@ -222,12 +225,13 @@ async fn message_catch_event_pauses_instance_and_creates_subscription() {
 #[tokio::test]
 async fn correlate_message_advances_waiting_instance_to_end() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("msg-catch"),
         1,
         None,
@@ -262,12 +266,13 @@ async fn correlate_message_advances_waiting_instance_to_end() {
 #[tokio::test]
 async fn correlate_message_passes_variables_to_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("msg-catch"),
         1,
         None,
@@ -306,7 +311,7 @@ async fn correlate_message_passes_variables_to_instance() {
 #[tokio::test]
 async fn message_before_ready_returns_not_found() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, _groups) = create_org(&pool).await;
 
     // No instance is running — no subscription exists, no MessageStartEvent deployed
     let result = engine
@@ -322,13 +327,14 @@ async fn message_before_ready_returns_not_found() {
 #[tokio::test]
 async fn correlate_message_wrong_correlation_key_returns_not_found() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     // Deploy the correlated version (uses ${orderId} expression)
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("msg-corr"),
         1,
         None,
@@ -379,13 +385,14 @@ async fn correlate_message_wrong_correlation_key_returns_not_found() {
 #[tokio::test]
 async fn message_start_event_creates_new_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     // Deploy a process with a MessageStartEvent — do NOT call start_instance
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("msg-start"),
         1,
         None,
@@ -431,12 +438,13 @@ async fn message_start_event_creates_new_instance() {
 #[tokio::test]
 async fn receive_task_pauses_and_advances_via_message() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("rt"),
         1,
         None,
@@ -473,12 +481,13 @@ async fn receive_task_pauses_and_advances_via_message() {
 #[tokio::test]
 async fn correlate_message_closes_execution_history() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("msg-hist"),
         1,
         None,

@@ -31,6 +31,7 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::health::routes())
         .merge(conduit::api::orgs::routes())
         .merge(conduit::api::users::routes())
+        .merge(conduit::api::process_groups::routes())
         .merge(conduit::api::deployments::routes())
         .merge(conduit::api::instances::routes())
         .merge(conduit::api::tasks::routes())
@@ -65,4 +66,57 @@ pub async fn create_test_org(app: &TestApp) -> Uuid {
     assert_eq!(resp.status(), 201, "create_test_org failed");
     let body: serde_json::Value = resp.json().await.unwrap();
     Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
+}
+
+/// Create a process group via the HTTP API. Used by integration tests that
+/// exercise the deploy endpoints.
+#[allow(dead_code)]
+pub async fn create_test_process_group(app: &TestApp, org_id: Uuid, name: &str) -> Uuid {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/api/v1/process-groups", app.address))
+        .json(&serde_json::json!({ "org_id": org_id, "name": name }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create_test_process_group failed: {:?}", resp.text().await);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
+}
+
+/// Create an org plus `count` process groups. Returns (org_id, group_ids).
+/// Tests that only need a single primary group typically destructure as
+/// `(org_id, groups)` and pass `groups[0]` to deployments.
+#[allow(dead_code)]
+pub async fn create_test_org_with_groups(app: &TestApp, count: usize) -> (Uuid, Vec<Uuid>) {
+    let org_id = create_test_org(app).await;
+    let mut groups = Vec::with_capacity(count);
+    for i in 0..count {
+        let name = format!("Group {}", i + 1);
+        groups.push(create_test_process_group(app, org_id, &name).await);
+    }
+    (org_id, groups)
+}
+
+/// DB-pool variant for tests that don't spin up the HTTP server. Inserts an
+/// org and `count` process groups. Returns (org_id, group_ids).
+#[allow(dead_code)]
+pub async fn db_create_org_with_groups(
+    pool: &PgPool,
+    slug_prefix: &str,
+    count: usize,
+) -> (Uuid, Vec<Uuid>) {
+    let slug = format!("{}-{}", slug_prefix, Uuid::new_v4());
+    let org = conduit::db::orgs::insert(pool, "Test Org", &slug)
+        .await
+        .expect("insert org");
+    let mut groups = Vec::with_capacity(count);
+    for i in 0..count {
+        let name = format!("Group {}", i + 1);
+        let group = conduit::db::process_groups::insert(pool, org.id, &name)
+            .await
+            .expect("insert process group");
+        groups.push(group.id);
+    }
+    (org.id, groups)
 }

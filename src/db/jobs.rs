@@ -1,9 +1,51 @@
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use serde_json::{json, Value as JsonValue};
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::models::Job;
+use crate::db::process_events;
 use crate::error::{EngineError, Result};
+
+/// Emit a job state-change audit event. Looks up instance/execution/job_type from the row.
+pub async fn record_state_change(
+    tx: &mut Transaction<'_, Postgres>,
+    job_id: Uuid,
+    event_type: &str,
+    metadata: JsonValue,
+) -> Result<()> {
+    let row: Option<(Uuid, Uuid, String)> = sqlx::query_as(
+        "SELECT instance_id, execution_id, job_type FROM jobs WHERE id = $1",
+    )
+    .bind(job_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((instance_id, execution_id, job_type)) = row else {
+        return Ok(()); // Job already gone — skip audit
+    };
+    process_events::record_job(
+        &mut **tx,
+        instance_id,
+        Some(execution_id),
+        None,
+        Some(job_id),
+        &job_type,
+        event_type,
+        metadata,
+    )
+    .await
+}
+
+/// Bulk-cancel audit: emit one `job_cancelled` event per affected job.
+pub async fn record_bulk_cancelled(
+    tx: &mut Transaction<'_, Postgres>,
+    job_ids: &[Uuid],
+) -> Result<()> {
+    for id in job_ids {
+        record_state_change(tx, *id, "job_cancelled", json!({})).await?;
+    }
+    Ok(())
+}
 
 pub async fn insert(
     pool: &PgPool,
@@ -55,12 +97,14 @@ pub async fn fetch_and_lock(
             locked_by    = $1,
             locked_until = NOW() + ($2 * interval '1 second')
         WHERE id = (
-            SELECT id FROM jobs
-            WHERE state = 'pending'
-              AND due_date <= NOW()
-              AND locked_until IS NULL
-              AND ($3::text IS NULL OR topic = $3)
-            ORDER BY due_date ASC
+            SELECT j.id FROM jobs j
+            JOIN process_instances pi ON pi.id = j.instance_id
+            WHERE j.state = 'pending'
+              AND j.due_date <= NOW()
+              AND j.locked_until IS NULL
+              AND ($3::text IS NULL OR j.topic = $3)
+              AND pi.state = 'running'
+            ORDER BY j.due_date ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1
         )
@@ -72,6 +116,20 @@ pub async fn fetch_and_lock(
     .bind(topic)
     .fetch_optional(pool)
     .await?;
+
+    if let Some(job) = &row {
+        process_events::record_job(
+            pool,
+            job.instance_id,
+            Some(job.execution_id),
+            None,
+            Some(job.id),
+            &job.job_type,
+            "job_locked",
+            json!({"worker_id": worker_id, "lock_duration_secs": lock_duration_secs}),
+        )
+        .await?;
+    }
     Ok(row)
 }
 
@@ -132,12 +190,14 @@ pub async fn fetch_and_lock_many(
     let rows = sqlx::query_as::<_, Job>(
         r#"
         WITH candidates AS (
-            SELECT id FROM jobs
-            WHERE (state = 'pending' OR (state = 'locked' AND locked_until < NOW()))
-              AND due_date <= NOW()
-              AND ($3::text IS NULL OR topic = $3)
-              AND ($4::text IS NULL OR job_type = $4)
-            ORDER BY due_date ASC
+            SELECT j.id FROM jobs j
+            JOIN process_instances pi ON pi.id = j.instance_id
+            WHERE (j.state = 'pending' OR (j.state = 'locked' AND j.locked_until < NOW()))
+              AND j.due_date <= NOW()
+              AND ($3::text IS NULL OR j.topic = $3)
+              AND ($4::text IS NULL OR j.job_type = $4)
+              AND pi.state = 'running'
+            ORDER BY j.due_date ASC
             FOR UPDATE SKIP LOCKED
             LIMIT $5
         )
@@ -157,6 +217,20 @@ pub async fn fetch_and_lock_many(
     .bind(max_jobs)
     .fetch_all(pool)
     .await?;
+
+    for j in &rows {
+        process_events::record_job(
+            pool,
+            j.instance_id,
+            Some(j.execution_id),
+            None,
+            Some(j.id),
+            &j.job_type,
+            "job_locked",
+            json!({"worker_id": worker_id, "lock_duration_secs": lock_duration_secs}),
+        )
+        .await?;
+    }
     Ok(rows)
 }
 

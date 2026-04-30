@@ -26,12 +26,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("eng-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Engine Test Org", &slug)
+    let org = db::orgs::insert(pool, "Engine Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -86,12 +88,13 @@ fn service_task_bpmn() -> String {
 #[tokio::test]
 async fn start_instance_creates_running_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -114,12 +117,13 @@ async fn start_instance_creates_running_instance() {
 #[tokio::test]
 async fn start_instance_creates_pending_user_task() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -147,12 +151,13 @@ async fn start_instance_creates_pending_user_task() {
 #[tokio::test]
 async fn start_to_end_completes_instance_immediately() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -179,7 +184,7 @@ async fn start_to_end_completes_instance_immediately() {
 #[tokio::test]
 async fn start_instance_unknown_definition_returns_not_found() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, _groups) = create_org(&pool).await;
     let result = engine
         .start_instance(Uuid::new_v4(), org_id, &json!({}), &[])
         .await;
@@ -192,12 +197,13 @@ async fn start_instance_unknown_definition_returns_not_found() {
 #[tokio::test]
 async fn start_instance_with_service_task() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -237,12 +243,13 @@ async fn start_instance_with_service_task() {
 #[tokio::test]
 async fn start_instance_writes_history_for_each_element_visited() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -276,12 +283,13 @@ async fn start_instance_writes_history_for_each_element_visited() {
 #[tokio::test]
 async fn start_to_end_all_history_entries_closed() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -315,12 +323,13 @@ async fn start_to_end_all_history_entries_closed() {
 #[tokio::test]
 async fn complete_user_task_advances_token_to_end() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -357,12 +366,13 @@ async fn complete_user_task_advances_token_to_end() {
 #[tokio::test]
 async fn complete_user_task_closes_history_entry() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -410,12 +420,13 @@ async fn complete_task_not_found_returns_error() {
 #[tokio::test]
 async fn complete_already_completed_task_returns_conflict() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -447,13 +458,14 @@ async fn complete_already_completed_task_returns_conflict() {
 #[tokio::test]
 async fn engine_cold_cache_can_start_instance() {
     let (pool, _warm_engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     // Deploy a definition with one engine (warms the cache)
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -488,12 +500,13 @@ fn var(name: &str, value_type: &str, value: serde_json::Value) -> VariableInput 
 #[tokio::test]
 async fn complete_task_with_variables_writes_to_db() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -581,12 +594,13 @@ fn gateway_no_default_bpmn() -> String {
 #[tokio::test]
 async fn gateway_routes_to_conditioned_flow_when_condition_true() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -632,12 +646,13 @@ async fn gateway_routes_to_conditioned_flow_when_condition_true() {
 #[tokio::test]
 async fn gateway_routes_to_default_flow_when_no_condition_matches() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -683,12 +698,13 @@ async fn gateway_routes_to_default_flow_when_no_condition_matches() {
 #[tokio::test]
 async fn gateway_no_match_no_default_marks_instance_error() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,
@@ -745,12 +761,13 @@ async fn gateway_nested_routes_correctly() {
 </definitions>"#;
 
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("eng"),
         1,
         None,

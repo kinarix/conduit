@@ -26,12 +26,14 @@ async fn setup() -> (PgPool, Engine) {
     (pool, engine)
 }
 
-async fn create_org(pool: &PgPool) -> Uuid {
+async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("igw-org-{}", Uuid::new_v4());
-    db::orgs::insert(pool, "Inclusive GW Test Org", &slug)
+    let org = db::orgs::insert(pool, "Inclusive GW Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 fn unique_key(prefix: &str) -> String {
@@ -190,12 +192,13 @@ fn parser_inclusive_gateway_reads_default_flow() {
 #[tokio::test]
 async fn all_conditions_true_activates_all_paths() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("igw"),
         1,
         None,
@@ -277,12 +280,13 @@ async fn all_conditions_true_activates_all_paths() {
 #[tokio::test]
 async fn single_condition_true_activates_one_path() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("igw"),
         1,
         None,
@@ -348,12 +352,13 @@ async fn single_condition_true_activates_one_path() {
 #[tokio::test]
 async fn two_of_three_conditions_join_waits_for_both() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("igw"),
         1,
         None,
@@ -440,12 +445,13 @@ async fn two_of_three_conditions_join_waits_for_both() {
 #[tokio::test]
 async fn no_matching_condition_no_default_errors_instance() {
     let (pool, engine) = setup().await;
-    let org_id = create_org(&pool).await;
+    let (org_id, groups) = create_org(&pool).await;
 
     let def = db::process_definitions::insert(
         &pool,
         org_id,
         None,
+        groups[0],
         &unique_key("igw"),
         1,
         None,

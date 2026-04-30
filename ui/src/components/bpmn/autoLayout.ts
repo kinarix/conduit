@@ -1,30 +1,111 @@
 import dagre from '@dagrejs/dagre';
 import type { Node, Edge } from '@xyflow/react';
 import { NODE_DIMENSIONS } from './bpmnTypes';
-import type { BpmnNodeData } from './bpmnTypes';
+import type { BpmnNodeData, BpmnEdgeData } from './bpmnTypes';
+
+const BOUNDARY_DIM = { width: 22, height: 22 };
+const BOUNDARY_GAP = 12; // clear gap between host edge and boundary event
+
+interface BoundaryInfo {
+  nodeId: string;
+  side: 'top' | 'bottom';
+}
 
 export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
+  const attachmentEdges = edges.filter(e => (e.data as BpmnEdgeData | undefined)?.kind === 'attachment');
+  const sequenceEdges   = edges.filter(e => (e.data as BpmnEdgeData | undefined)?.kind !== 'attachment');
+
+  // Build maps: boundary node id ↔ host node id, plus side from targetHandle
+  // Attachment edge: source = boundary event, target = host task
+  const boundaryToHost   = new Map<string, string>();
+  const hostToBoundaries = new Map<string, BoundaryInfo[]>();
+
+  for (const ae of attachmentEdges) {
+    boundaryToHost.set(ae.source, ae.target);
+    const side: 'top' | 'bottom' = ae.targetHandle === 'target-top' ? 'top' : 'bottom';
+    const list = hostToBoundaries.get(ae.target) ?? [];
+    list.push({ nodeId: ae.source, side });
+    hostToBoundaries.set(ae.target, list);
+  }
+
+  const boundaryNodeIds = new Set(boundaryToHost.keys());
+
+  // Dagre graph — boundary nodes excluded so they don't consume an extra rank
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 80, marginx: 40, marginy: 40 });
 
   for (const node of nodes) {
+    if (boundaryNodeIds.has(node.id)) continue;
     const d = node.data as BpmnNodeData;
     const dim = NODE_DIMENSIONS[d.bpmnType] ?? { width: 80, height: 40 };
     g.setNode(node.id, { width: dim.width, height: dim.height });
   }
 
-  for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
+  // Sequence edges: substitute any boundary endpoint with its host so that
+  // exception-path downstream nodes still get ranked correctly
+  for (const edge of sequenceEdges) {
+    const src = boundaryToHost.get(edge.source) ?? edge.source;
+    const tgt = boundaryToHost.get(edge.target) ?? edge.target;
+    if (src !== tgt && g.hasNode(src) && g.hasNode(tgt)) {
+      g.setEdge(src, tgt);
+    }
   }
 
   dagre.layout(g);
 
+  // Position boundary events relative to their host after main layout is done.
+  // They sit clearly above or below the host (no overlap), centered horizontally
+  // on the host, staggered when multiple events share the same side.
+  const boundaryPositions = new Map<string, { x: number; y: number }>();
+
+  for (const [hostId, bInfos] of hostToBoundaries) {
+    const hostDagre = g.node(hostId);
+    if (!hostDagre) continue;
+
+    const hostNode = nodes.find(n => n.id === hostId);
+    const hostDim  = NODE_DIMENSIONS[(hostNode?.data as BpmnNodeData)?.bpmnType] ?? { width: 80, height: 40 };
+
+    const topGroup    = bInfos.filter(b => b.side === 'top');
+    const bottomGroup = bInfos.filter(b => b.side === 'bottom');
+    const xStep = 28;
+
+    // hostDagre.{x,y} are Dagre CENTER coordinates
+    const hostCX = hostDagre.x;
+    const hostCY = hostDagre.y;
+
+    const placeGroup = (group: BoundaryInfo[], aboveHost: boolean) => {
+      group.forEach(({ nodeId }, idx) => {
+        const count = group.length;
+        const xOffset = count === 1 ? 0 : (idx - (count - 1) / 2) * xStep;
+
+        // top-left x: center boundary on the host's center-x (± stagger)
+        const bLeft = hostCX + xOffset - BOUNDARY_DIM.width / 2;
+
+        // top-left y: fully outside the host with a clear gap
+        const bTop = aboveHost
+          ? hostCY - hostDim.height / 2 - BOUNDARY_GAP - BOUNDARY_DIM.height  // above
+          : hostCY + hostDim.height / 2 + BOUNDARY_GAP;                        // below
+
+        boundaryPositions.set(nodeId, { x: bLeft, y: bTop });
+      });
+    };
+
+    placeGroup(topGroup,    true);
+    placeGroup(bottomGroup, false);
+  }
+
   return nodes.map(node => {
+    if (boundaryNodeIds.has(node.id)) {
+      const pos = boundaryPositions.get(node.id);
+      return pos ? { ...node, position: pos } : node;
+    }
+
     const pos = g.node(node.id);
-    const d = node.data as BpmnNodeData;
+    if (!pos) return node;
+    const d   = node.data as BpmnNodeData;
     const dim = NODE_DIMENSIONS[d.bpmnType] ?? { width: 80, height: 40 };
     return {
       ...node,

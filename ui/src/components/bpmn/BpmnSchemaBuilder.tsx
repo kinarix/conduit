@@ -85,7 +85,15 @@ const fieldLabel: React.CSSProperties = {
   color: '#94a3b8',
   fontWeight: 500,
   flexShrink: 0,
-  textAlign: 'right',
+  textAlign: 'left',
+};
+
+const fieldRow: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '4px 0',
+  borderBottom: '1px solid #e2e8f0',
 };
 
 const iconBtn: React.CSSProperties = {
@@ -275,6 +283,16 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
       {/* Fields */}
       {open && (
         <div style={{ marginTop: 8 }}>
+          {/* Additional Variables — pinned top */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0', borderBottom: '1px solid #e2e8f0', marginBottom: 8 }}>
+            <span style={fieldLabel}>Additional Variables</span>
+            <input
+              type="checkbox"
+              checked={additionalProperties}
+              onChange={e => commit(fields, e.target.checked)}
+              style={{ cursor: 'pointer', margin: 0 }}
+            />
+          </div>
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
@@ -286,10 +304,10 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
                 background: '#f8fafc',
                 border: '1px solid #e2e8f0',
                 borderRadius: 4,
-                padding: '6px 8px',
+                padding: '0 8px',
               }}>
                 {/* Name */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={fieldRow}>
                   <span style={fieldLabel}>Name</span>
                   <input
                     style={{ ...inputStyle, flex: 1 }}
@@ -317,7 +335,7 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
                   </button>
                 </div>
                 {/* Type */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={fieldRow}>
                   <span style={fieldLabel}>Type</span>
                   <select
                     style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
@@ -328,7 +346,7 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
                   </select>
                 </div>
                 {/* Optional */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <div style={fieldRow}>
                   <span style={fieldLabel}>Optional</span>
                   <input
                     type="checkbox"
@@ -338,7 +356,7 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
                   />
                 </div>
                 {/* Nullable */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: f.type === 'string' ? 4 : 0 }}>
+                <div style={f.type === 'string' ? fieldRow : { ...fieldRow, borderBottom: 'none' }}>
                   <span style={fieldLabel}>Nullable</span>
                   <input
                     type="checkbox"
@@ -349,7 +367,7 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
                 </div>
                 {/* Pattern — string only */}
                 {f.type === 'string' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ ...fieldRow, borderBottom: 'none' }}>
                     <span style={fieldLabel}>Pattern</span>
                     <input
                       style={{ ...inputStyle, flex: 1 }}
@@ -363,34 +381,23 @@ export default function BpmnSchemaBuilder({ value, onChange, accentColor = '#636
             ))}
           </div>
 
-          {/* Footer row */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <button
-              onClick={addField}
-              style={{
-                flex: 1,
-                padding: '4px 0',
-                fontSize: 11,
-                fontWeight: 500,
-                color: accentColor,
-                background: 'none',
-                border: `1px dashed ${accentColor}`,
-                borderRadius: 4,
-                cursor: 'pointer',
-              }}
-            >
-              + Add variable
-            </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#64748b', flexShrink: 0, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={additionalProperties}
-                onChange={e => commit(fields, e.target.checked)}
-                style={{ cursor: 'pointer', margin: 0 }}
-              />
-              Extra fields
-            </label>
-          </div>
+          {/* Add variable button */}
+          <button
+            onClick={addField}
+            style={{
+              width: '100%',
+              padding: '4px 0',
+              fontSize: 11,
+              fontWeight: 500,
+              color: accentColor,
+              background: 'none',
+              border: `1px dashed ${accentColor}`,
+              borderRadius: 4,
+              cursor: 'pointer',
+            }}
+          >
+            + Add variable
+          </button>
         </div>
       )}
     </div>

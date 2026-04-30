@@ -2,8 +2,8 @@ mod common;
 
 use chrono::Utc;
 use conduit::db::{
-    event_subscriptions, executions, jobs, orgs, process_definitions, process_instances, tasks,
-    variables,
+    event_subscriptions, executions, process_groups, jobs, orgs, process_definitions, process_instances,
+    tasks, variables,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -14,21 +14,24 @@ fn unique_key(prefix: &str) -> String {
     format!("{}.{}", prefix, Uuid::new_v4())
 }
 
-async fn create_org(pool: &sqlx::PgPool) -> Uuid {
+async fn create_org(pool: &sqlx::PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("schema-org-{}", Uuid::new_v4());
-    orgs::insert(pool, "Schema Test Org", &slug)
+    let org = orgs::insert(pool, "Schema Test Org", &slug)
         .await
-        .unwrap()
-        .id
+        .unwrap();
+    let f1 = process_groups::insert(pool, org.id, "Primary").await.unwrap();
+    let f2 = process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    (org.id, vec![f1.id, f2.id])
 }
 
 async fn seed_definition(pool: &sqlx::PgPool) -> conduit::db::models::ProcessDefinition {
-    let org_id = create_org(pool).await;
+    let (org_id, groups) = create_org(pool).await;
     let key = unique_key("test");
     process_definitions::insert(
         pool,
         org_id,
         None,
+        groups[0],
         &key,
         1,
         Some("Test Process"),
@@ -79,12 +82,13 @@ async fn process_definition_unique_key_version() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
-    let org_id = create_org(pool).await;
+    let (org_id, groups) = create_org(pool).await;
     let key = unique_key("unique");
     process_definitions::insert(
         pool,
         org_id,
         None,
+        groups[0],
         &key,
         1,
         None,
@@ -99,6 +103,7 @@ async fn process_definition_unique_key_version() {
         pool,
         org_id,
         None,
+        groups[0],
         &key,
         1,
         None,
@@ -114,7 +119,7 @@ async fn process_definition_next_version_increments() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
-    let org_id = create_org(pool).await;
+    let (org_id, groups) = create_org(pool).await;
     let key = unique_key("versioned");
     let v1 = process_definitions::next_version(pool, org_id, &key)
         .await
@@ -123,6 +128,7 @@ async fn process_definition_next_version_increments() {
         pool,
         org_id,
         None,
+        groups[0],
         &key,
         v1,
         None,
@@ -143,12 +149,13 @@ async fn process_definition_get_latest() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
-    let org_id = create_org(pool).await;
+    let (org_id, groups) = create_org(pool).await;
     let key = unique_key("latest");
     process_definitions::insert(
         pool,
         org_id,
         None,
+        groups[0],
         &key,
         1,
         Some("v1"),
@@ -161,6 +168,7 @@ async fn process_definition_get_latest() {
         pool,
         org_id,
         None,
+        groups[0],
         &key,
         2,
         Some("v2"),
@@ -175,6 +183,80 @@ async fn process_definition_get_latest() {
         .unwrap();
     assert_eq!(latest.id, def2.id);
     assert_eq!(latest.version, 2);
+}
+
+#[tokio::test]
+async fn process_definitions_are_isolated_by_process_group() {
+    let app = common::spawn_test_app().await;
+    let pool = &app.pool;
+
+    let (org_id, groups) = create_org(pool).await;
+    let group_a = groups[0];
+    let group_b = groups[1];
+
+    // Two defs in group A, one in group B
+    let key_a1 = unique_key("a1");
+    let key_a2 = unique_key("a2");
+    let key_b = unique_key("b");
+    for (group, key) in [
+        (group_a, &key_a1),
+        (group_a, &key_a2),
+        (group_b, &key_b),
+    ] {
+        process_definitions::insert(
+            pool,
+            org_id,
+            None,
+            group,
+            key,
+            1,
+            None,
+            "<definitions/>",
+            &json!({}),
+        )
+        .await
+        .unwrap();
+    }
+
+    let all = process_definitions::list_by_org(pool, org_id)
+        .await
+        .unwrap();
+    let in_a: Vec<_> = all.iter().filter(|d| d.process_group_id == group_a).collect();
+    let in_b: Vec<_> = all.iter().filter(|d| d.process_group_id == group_b).collect();
+
+    assert_eq!(in_a.len(), 2, "group A should hold two definitions");
+    assert_eq!(in_b.len(), 1, "group B should hold one definition");
+    assert!(in_a.iter().all(|d| d.process_group_id == group_a));
+    assert!(in_b.iter().all(|d| d.process_group_id == group_b));
+}
+
+#[tokio::test]
+async fn process_group_with_definitions_cannot_be_deleted() {
+    let app = common::spawn_test_app().await;
+    let pool = &app.pool;
+
+    let (org_id, groups) = create_org(pool).await;
+    let group = groups[0];
+
+    process_definitions::insert(
+        pool,
+        org_id,
+        None,
+        group,
+        &unique_key("locked"),
+        1,
+        None,
+        "<definitions/>",
+        &json!({}),
+    )
+    .await
+    .unwrap();
+
+    let result = conduit::db::process_groups::delete(pool, group).await;
+    assert!(
+        matches!(result, Err(conduit::error::EngineError::Conflict(_))),
+        "deleting a non-empty group should return Conflict, got {result:?}"
+    );
 }
 
 // ── process_instances ─────────────────────────────────────────────────────────
@@ -199,7 +281,7 @@ async fn process_instance_fk_rejects_unknown_definition() {
     let app = common::spawn_test_app().await;
     let pool = &app.pool;
 
-    let org_id = create_org(pool).await;
+    let (org_id, _groups) = create_org(pool).await;
     let fake_id = uuid::Uuid::new_v4();
     let result = process_instances::insert(pool, org_id, fake_id, &json!({})).await;
     assert!(result.is_err(), "FK violation should be rejected");

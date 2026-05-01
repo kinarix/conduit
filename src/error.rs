@@ -52,7 +52,8 @@ pub enum EngineError {
 /// Generic message returned for any 5xx response so we never leak internal
 /// details (DB errors, expression panics, etc.) to API callers. Operators see
 /// the full error in logs via the `tracing::error!` calls below.
-const PUBLIC_500_MESSAGE: &str = "An internal server error occurred. Please contact the administrator if the problem persists.";
+const PUBLIC_500_MESSAGE: &str =
+    "An internal server error occurred. Please contact the administrator if the problem persists.";
 
 impl EngineError {
     /// Short, stable label for this variant — used in structured logs and the
@@ -175,9 +176,9 @@ impl From<sqlx::Error> for EngineError {
                         format!("Referenced resource does not exist (constraint '{constraint}')")
                     }),
                     // not_null_violation
-                    "23502" => EngineError::Validation(format!(
-                        "Required field is missing: {detail}"
-                    )),
+                    "23502" => {
+                        EngineError::Validation(format!("Required field is missing: {detail}"))
+                    }
                     // check_violation
                     "23514" => EngineError::Validation(if constraint.is_empty() {
                         format!("Value failed validation: {detail}")

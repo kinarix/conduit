@@ -44,6 +44,22 @@ export default function FooterNav() {
         <span>All instances</span>
         {runningInstances > 0 && <span className={styles.footerCount}>{runningInstances}</span>}
       </Link>
+      <Link
+        to="/secrets"
+        className={`${styles.footerRow} ${location.pathname === '/secrets' ? styles.selected : ''}`}
+      >
+        <span className={styles.icon}><KeyIcon size={13} /></span>
+        <span>Secrets</span>
+      </Link>
     </nav>
+  )
+}
+
+function KeyIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <circle cx="6" cy="10" r="3" />
+      <path d="M8 8 L13.5 2.5 M11 5 L13 7 M12 4 L14 6" strokeLinecap="round" />
+    </svg>
   )
 }

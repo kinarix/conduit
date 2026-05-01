@@ -1,14 +1,15 @@
 mod evaluator;
-mod helpers;
-mod token;
-mod instance;
-mod user_task;
 mod external_task;
-mod timer;
-mod message;
-mod signal;
+mod helpers;
 mod http;
+mod instance;
+mod jq;
+mod message;
 mod send_message;
+mod signal;
+mod timer;
+mod token;
+mod user_task;
 
 pub use helpers::parse_duration;
 
@@ -33,13 +34,25 @@ pub struct VariableInput {
 pub struct Engine {
     pool: PgPool,
     process_cache: GraphCache,
+    /// Reused across HTTP service-task calls so the connection pool isn't
+    /// rebuilt per request. Per-task `timeoutMs` is applied via
+    /// `RequestBuilder::timeout()` rather than the client builder.
+    http_client: reqwest::Client,
+    /// Compiled jq filter cache for HTTP request/response transforms.
+    jq_cache: jq::JqCache,
+    /// ChaCha20-Poly1305 master key used to decrypt secrets at HTTP fire time.
+    /// Cloned from `AppState::secrets_key`.
+    secrets_key: [u8; 32],
 }
 
 impl Engine {
-    pub fn new(pool: PgPool, process_cache: GraphCache) -> Self {
+    pub fn new(pool: PgPool, process_cache: GraphCache, secrets_key: [u8; 32]) -> Self {
         Self {
             pool,
             process_cache,
+            http_client: reqwest::Client::new(),
+            jq_cache: jq::JqCache::new(),
+            secrets_key,
         }
     }
 

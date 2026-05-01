@@ -9,7 +9,6 @@ use crate::parser::FlowNodeKind;
 use super::{Engine, VariableInput};
 
 impl Engine {
-
     /// Complete a locked external (service) task and advance the token.
     pub async fn complete_external_task(
         &self,
@@ -178,7 +177,6 @@ impl Engine {
         Ok(())
     }
 
-
     /// Throw a BPMN business error from a locked external-task job.
     /// Routes to the best-matching `BoundaryErrorEvent` on the service task (exact error code
     /// first, then catch-all), or terminates the instance if nothing matches.
@@ -289,8 +287,8 @@ impl Engine {
         )
         .await?;
 
-        let (current_graph, _) =
-            Self::find_element_graph(sub.element_id.as_str(), &graph).ok_or_else(|| {
+        let (current_graph, _) = Self::find_element_graph(sub.element_id.as_str(), &graph)
+            .ok_or_else(|| {
                 EngineError::Internal(format!(
                     "Element '{}' not found in process graph",
                     sub.element_id
@@ -304,9 +302,11 @@ impl Engine {
             })?;
 
         let (attached_to, cancelling) = match &boundary_node.kind {
-            FlowNodeKind::BoundaryErrorEvent { attached_to, cancelling, .. } => {
-                (attached_to.clone(), *cancelling)
-            }
+            FlowNodeKind::BoundaryErrorEvent {
+                attached_to,
+                cancelling,
+                ..
+            } => (attached_to.clone(), *cancelling),
             _ => {
                 return Err(EngineError::Internal(format!(
                     "Expected BoundaryErrorEvent at '{}'",

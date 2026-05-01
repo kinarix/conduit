@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- authType="bearer" without secretRef must reject at parse time. -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             id="Definitions_http_bad_auth"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="http_bad_auth" isExecutable="true">
+    <startEvent id="start_1"/>
+    <serviceTask id="t1" url="https://example.com/x">
+      <extensionElements>
+        <conduit:http method="GET" authType="bearer"/>
+      </extensionElements>
+    </serviceTask>
+    <endEvent id="end_1"/>
+    <sequenceFlow id="f1" sourceRef="start_1" targetRef="t1"/>
+    <sequenceFlow id="f2" sourceRef="t1" targetRef="end_1"/>
+  </process>
+</definitions>

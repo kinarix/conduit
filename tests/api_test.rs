@@ -65,7 +65,14 @@ async fn start_instance_returns_201() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy_definition(&app, org_id, process_group_id, &unique_key("inst"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("inst"),
+        &linear_bpmn(),
+    )
+    .await;
 
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
@@ -91,8 +98,14 @@ async fn start_instance_start_to_end_returns_completed() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id =
-        deploy_definition(&app, org_id, process_group_id, &unique_key("inst-end"), &start_to_end_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("inst-end"),
+        &start_to_end_bpmn(),
+    )
+    .await;
 
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
@@ -149,7 +162,14 @@ async fn get_instance_returns_200() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy_definition(&app, org_id, process_group_id, &unique_key("get-inst"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("get-inst"),
+        &linear_bpmn(),
+    )
+    .await;
 
     let start_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
@@ -205,7 +225,14 @@ async fn list_tasks_returns_pending_task() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy_definition(&app, org_id, process_group_id, &unique_key("list-tasks"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("list-tasks"),
+        &linear_bpmn(),
+    )
+    .await;
     let start_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
@@ -245,7 +272,14 @@ async fn get_task_returns_200() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy_definition(&app, org_id, process_group_id, &unique_key("get-task"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("get-task"),
+        &linear_bpmn(),
+    )
+    .await;
     let start_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
@@ -309,8 +343,14 @@ async fn complete_task_returns_204() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id =
-        deploy_definition(&app, org_id, process_group_id, &unique_key("complete-task"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("complete-task"),
+        &linear_bpmn(),
+    )
+    .await;
     let start_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
@@ -354,7 +394,14 @@ async fn complete_task_advances_instance_to_completed() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy_definition(&app, org_id, process_group_id, &unique_key("advance"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("advance"),
+        &linear_bpmn(),
+    )
+    .await;
     let start_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
@@ -430,7 +477,14 @@ async fn complete_already_completed_task_returns_409() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy_definition(&app, org_id, process_group_id, &unique_key("conflict"), &linear_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("conflict"),
+        &linear_bpmn(),
+    )
+    .await;
     let start_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
@@ -539,8 +593,14 @@ async fn start_instance_default_labels_is_empty_object() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id =
-        deploy_definition(&app, org_id, process_group_id, &unique_key("no-labels"), &start_to_end_bpmn()).await;
+    let def_id = deploy_definition(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("no-labels"),
+        &start_to_end_bpmn(),
+    )
+    .await;
 
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))

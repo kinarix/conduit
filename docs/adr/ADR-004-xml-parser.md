@@ -27,8 +27,8 @@ Use **roxmltree 0.19.x** for initial implementation.
 - If files grow very large, can switch to quick-xml later
 
 ## Spike Validation
-- [ ] Parse a real Camunda BPMN file (download from Camunda examples)
+- [ ] Parse a real BPMN 2.0 file
 - [ ] Extract: all flowElements, sequenceFlows, gateway conditions
-- [ ] Extract namespaced attributes: `camunda:topic`, `camunda:delegateExpression`
+- [ ] Extract namespaced attributes from the Conduit extension namespace: `conduit:topic`, `conduit:assignee`
 - [ ] Handle nested elements: subprocesses, boundary events
 - [ ] Parse time for 1000-element BPMN file (should be < 10ms)

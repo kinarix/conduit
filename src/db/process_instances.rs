@@ -126,10 +126,12 @@ pub async fn cancel(pool: &PgPool, id: Uuid) -> Result<ProcessInstance> {
     .fetch_all(&mut *tx)
     .await?;
     crate::db::jobs::record_bulk_cancelled(&mut tx, &cancelled_job_ids).await?;
-    sqlx::query("UPDATE executions SET state = 'cancelled' WHERE instance_id = $1 AND state = 'active'")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE executions SET state = 'cancelled' WHERE instance_id = $1 AND state = 'active'",
+    )
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query("DELETE FROM event_subscriptions WHERE instance_id = $1")
         .bind(id)
         .execute(&mut *tx)

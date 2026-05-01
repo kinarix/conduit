@@ -29,8 +29,9 @@ impl Engine {
                     .map(|v| (v.name.clone(), v.value.clone()))
                     .collect(),
             );
-            let validator = Validator::new(schema)
-                .map_err(|e| EngineError::Validation(format!("Invalid input schema in process definition: {e}")))?;
+            let validator = Validator::new(schema).map_err(|e| {
+                EngineError::Validation(format!("Invalid input schema in process definition: {e}"))
+            })?;
             let msgs: Vec<String> = validator
                 .iter_errors(&vars_obj)
                 .map(|e| e.to_string())

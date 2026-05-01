@@ -171,8 +171,8 @@ impl Engine {
                 if !*cancelling {
                     if let Some(expr) = &job.timer_expression {
                         let reschedule = match job.repetitions_remaining {
-                            None => true,       // infinite cycle
-                            Some(1) => false,   // last repetition
+                            None => true,     // infinite cycle
+                            Some(1) => false, // last repetition
                             Some(_) => true,
                         };
                         if reschedule {
@@ -257,16 +257,20 @@ impl Engine {
         for node in graph.nodes.values() {
             if let FlowNodeKind::TimerStartEvent { timer } = &node.kind {
                 let (due_date, repetitions_remaining, timer_expr) = match timer {
-                    crate::parser::TimerSpec::Duration(d) => {
-                        (Utc::now() + super::helpers::parse_duration(d)?, Some(1i32), d.clone())
-                    }
+                    crate::parser::TimerSpec::Duration(d) => (
+                        Utc::now() + super::helpers::parse_duration(d)?,
+                        Some(1i32),
+                        d.clone(),
+                    ),
                     crate::parser::TimerSpec::Cycle(expr) => {
                         let (reps, interval) = super::helpers::parse_cycle(expr)?;
                         (Utc::now() + interval, reps, expr.clone())
                     }
-                    crate::parser::TimerSpec::Date(dt_str) => {
-                        (super::helpers::parse_date(dt_str)?, Some(1i32), dt_str.clone())
-                    }
+                    crate::parser::TimerSpec::Date(dt_str) => (
+                        super::helpers::parse_date(dt_str)?,
+                        Some(1i32),
+                        dt_str.clone(),
+                    ),
                 };
 
                 sqlx::query(
@@ -388,8 +392,8 @@ impl Engine {
 
         // Reschedule if this is a cycle timer with remaining repetitions.
         let reschedule = match trigger.repetitions_remaining {
-            None => true,       // infinite cycle
-            Some(1) => false,   // last/only fire
+            None => true,     // infinite cycle
+            Some(1) => false, // last/only fire
             Some(_) => true,
         };
         if reschedule {

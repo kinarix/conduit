@@ -47,8 +47,12 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 # XML parsing (Phase 3)
 roxmltree = "0.19"
 
-# Expression evaluator (Phase 6)
-rhai = { version = "1", features = ["sync"] }
+# Expression evaluator (Phase 6) — FEEL via dsntk (DMN 1.5).
+# Used by sequence-flow conditions on Exclusive / Inclusive gateways and
+# slated to subsume the mini-FEEL DMN cell evaluator in src/dmn/feel.rs.
+dsntk-feel = "0.3"
+dsntk-feel-parser = "0.3"
+dsntk-feel-evaluator = "0.3"
 
 # HTTP client (for HTTP service task call-out)
 reqwest = { version = "0.13.2", features = ["json"] }
@@ -56,11 +60,28 @@ reqwest = { version = "0.13.2", features = ["json"] }
 # JSON Schema validation (Phase 15)
 jsonschema = "0.26"
 
+# Secret encryption-at-rest (Phase 16: HTTP connector)
+chacha20poly1305 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+
+# Declarative JSON-to-JSON transforms for HTTP connector (Phase 16).
+# Pure-Rust jq, no native deps. Used for both request and response shaping.
+jaq-interpret = "1.5"
+jaq-parse = "1.0"
+jaq-core = "1.5"
+jaq-std = "1.5"
+
+# URL path-segment encoding for `:placeholder` substitutions.
+urlencoding = "2"
+
 [dev-dependencies]
 tokio-test = "0.4"
 testcontainers = "0.27.3"
 testcontainers-modules = { version = "0.15.0", features = ["postgres"] }
 serde_json = "1"
+# Mock HTTP server for the HTTP service-task integration tests (Phase 16).
+wiremock = "0.6"
 
 [profile.release]
 opt-level = 3

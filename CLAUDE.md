@@ -62,7 +62,10 @@ conduit/
 │       ├── PHASE-12-subprocess.md
 │       ├── PHASE-13-inclusive-gateway.md
 │       ├── PHASE-14-dmn.md
-│       └── PHASE-15-clustering.md
+│       ├── PHASE-15-clustering.md
+│       ├── PHASE-17-external-task-long-polling.md
+│       ├── PHASE-18-element-documentation.md
+│       └── PHASE-19-instance-notes.md
 │
 ├── migrations/                  ← SQL migrations (SQLx)
 │   ├── 001_initial.sql          ← uuid-ossp, schema_info, orgs
@@ -129,7 +132,7 @@ Phases 0–14 are complete. See `docs/phases/PHASE-15-clustering.md` and `docs/P
 | 4 | Token engine — start_instance, complete_user_task, execution_history audit log, single-transaction advancement |
 | 5 | REST API — deployments, instances, tasks endpoints; 77 integration tests |
 | 5.5 | Ownership + labels — orgs table, users table, org_id/owner_id/labels on definitions and instances; `POST /api/v1/orgs`, `/users` |
-| 6 | Exclusive gateway — condition evaluation via Rhai, default flow fallback, expression error handling |
+| 6 | Exclusive gateway — condition evaluation (FEEL via dsntk; originally Rhai, migrated in Phase 6.1), default flow fallback, strict expression-error handling |
 | 7 | External task API — fetch-and-lock, complete, failure, extend-lock; Camunda-style worker pattern |
 | 8 | Job executor + timers — ISO 8601 duration parsing, IntermediateCatchEvent (timer), boundary timer events (interrupting), FOR UPDATE SKIP LOCKED concurrent safety |
 | 9 | Parallel gateway — fork/join with atomic join counting, parallel_join_state table, work-stack execution, variable merging |
@@ -200,7 +203,7 @@ Variable            → process working memory (key-value)
 | Web framework | Axum | 0.7.x | Native Tokio, ergonomic |
 | Database | SQLx | 0.7.x | Compile-time checked queries |
 | XML parsing | roxmltree | 0.19.x | Simple DOM API |
-| Expressions | Rhai | 1.x | Sandboxed, fast |
+| Expressions | dsntk-feel-evaluator (FEEL, DMN 1.5) | 0.3.x | Sandboxed; spec-aligned with BPMN/DMN and Camunda 8 / Zeebe |
 | Migrations | SQLx migrate | built-in | Zero overhead |
 | Testing | testcontainers | 0.15.x | Real DB in tests |
 

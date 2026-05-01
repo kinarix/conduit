@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Migrations applied");
 
-    let state = Arc::new(AppState::new(pool));
+    let state = Arc::new(AppState::new(pool, config.secrets_key));
 
     // Background timer executor: polls for due timer jobs every second.
     let executor_state = Arc::clone(&state);
@@ -66,7 +66,11 @@ async fn main() -> anyhow::Result<()> {
     let timer_start_state = Arc::clone(&state);
     tokio::spawn(async move {
         loop {
-            match timer_start_state.engine.fire_due_timer_start_triggers().await {
+            match timer_start_state
+                .engine
+                .fire_due_timer_start_triggers()
+                .await
+            {
                 Ok(n) if n > 0 => tracing::debug!(fired = n, "Timer start triggers fired"),
                 Err(e) => tracing::error!(error = %e, "Timer start executor error"),
                 _ => {}
@@ -87,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::signals::routes())
         .merge(api::decisions::routes())
         .merge(api::process_groups::routes())
+        .merge(api::secrets::routes())
         .layer(CorsLayer::very_permissive())
         .with_state(state);
 

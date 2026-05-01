@@ -9,6 +9,7 @@ import ProcessDashboard from './pages/Process/ProcessDashboard'
 import InstancesList from './pages/InstancesList'
 import InstanceDetail from './pages/Instance/InstanceDetail'
 import TaskList from './pages/TaskList'
+import Secrets from './pages/Secrets'
 import { fetchDeployment } from './api/deployments'
 
 export interface Org {
@@ -64,6 +65,7 @@ export default function App() {
           <Route path="instances" element={<InstancesList />} />
           <Route path="instances/:instanceId" element={<InstanceDetail />} />
           <Route path="tasks" element={<TaskList />} />
+          <Route path="secrets" element={<Secrets />} />
         </Route>
       </Routes>
     </OrgContext.Provider>

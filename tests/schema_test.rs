@@ -2,8 +2,8 @@ mod common;
 
 use chrono::Utc;
 use conduit::db::{
-    event_subscriptions, executions, process_groups, jobs, orgs, process_definitions, process_instances,
-    tasks, variables,
+    event_subscriptions, executions, jobs, orgs, process_definitions, process_groups,
+    process_instances, tasks, variables,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -16,11 +16,13 @@ fn unique_key(prefix: &str) -> String {
 
 async fn create_org(pool: &sqlx::PgPool) -> (Uuid, Vec<Uuid>) {
     let slug = format!("schema-org-{}", Uuid::new_v4());
-    let org = orgs::insert(pool, "Schema Test Org", &slug)
+    let org = orgs::insert(pool, "Schema Test Org", &slug).await.unwrap();
+    let f1 = process_groups::insert(pool, org.id, "Primary")
         .await
         .unwrap();
-    let f1 = process_groups::insert(pool, org.id, "Primary").await.unwrap();
-    let f2 = process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    let f2 = process_groups::insert(pool, org.id, "Secondary")
+        .await
+        .unwrap();
     (org.id, vec![f1.id, f2.id])
 }
 
@@ -198,11 +200,7 @@ async fn process_definitions_are_isolated_by_process_group() {
     let key_a1 = unique_key("a1");
     let key_a2 = unique_key("a2");
     let key_b = unique_key("b");
-    for (group, key) in [
-        (group_a, &key_a1),
-        (group_a, &key_a2),
-        (group_b, &key_b),
-    ] {
+    for (group, key) in [(group_a, &key_a1), (group_a, &key_a2), (group_b, &key_b)] {
         process_definitions::insert(
             pool,
             org_id,
@@ -221,8 +219,14 @@ async fn process_definitions_are_isolated_by_process_group() {
     let all = process_definitions::list_by_org(pool, org_id)
         .await
         .unwrap();
-    let in_a: Vec<_> = all.iter().filter(|d| d.process_group_id == group_a).collect();
-    let in_b: Vec<_> = all.iter().filter(|d| d.process_group_id == group_b).collect();
+    let in_a: Vec<_> = all
+        .iter()
+        .filter(|d| d.process_group_id == group_a)
+        .collect();
+    let in_b: Vec<_> = all
+        .iter()
+        .filter(|d| d.process_group_id == group_b)
+        .collect();
 
     assert_eq!(in_a.len(), 2, "group A should hold two definitions");
     assert_eq!(in_b.len(), 1, "group B should hold one definition");

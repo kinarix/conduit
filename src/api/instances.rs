@@ -38,8 +38,14 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/process-instances/{id}", get(get_instance))
         .route("/api/v1/process-instances/{id}", delete(delete_instance))
         .route("/api/v1/process-instances/{id}/pause", post(pause_instance))
-        .route("/api/v1/process-instances/{id}/resume", post(resume_instance))
-        .route("/api/v1/process-instances/{id}/cancel", post(cancel_instance))
+        .route(
+            "/api/v1/process-instances/{id}/resume",
+            post(resume_instance),
+        )
+        .route(
+            "/api/v1/process-instances/{id}/cancel",
+            post(cancel_instance),
+        )
         .route("/api/v1/process-instances/{id}/history", get(list_history))
         .route("/api/v1/process-instances/{id}/events", get(list_events))
         .route("/api/v1/process-instances/{id}/jobs", get(list_jobs))

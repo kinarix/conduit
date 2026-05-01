@@ -31,6 +31,11 @@ pub struct Config {
     pub job_executor_poll_ms: u64,
     pub job_executor_batch_size: i64,
     pub job_lock_duration_secs: i64,
+
+    // Secrets encryption (Phase 16: HTTP connector). 32 raw bytes used as the
+    // ChaCha20-Poly1305 master key. Loaded eagerly so a misconfigured
+    // deployment fails at startup, not on first secret read.
+    pub secrets_key: [u8; 32],
 }
 
 impl Config {
@@ -77,8 +82,30 @@ impl Config {
             job_lock_duration_secs: optional_env("JOB_LOCK_DURATION_SECS", "30")
                 .parse()
                 .map_err(|_| anyhow::anyhow!("JOB_LOCK_DURATION_SECS must be an integer"))?,
+
+            secrets_key: load_secrets_key()?,
         })
     }
+}
+
+/// Decode the master encryption key for the `secrets` table from
+/// `CONDUIT_SECRETS_KEY` (base64, 32 raw bytes). Generate one in dev with:
+///     `openssl rand -base64 32`
+fn load_secrets_key() -> anyhow::Result<[u8; 32]> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let raw = require_env("CONDUIT_SECRETS_KEY")?;
+    let bytes = STANDARD
+        .decode(raw.trim())
+        .map_err(|e| anyhow::anyhow!("CONDUIT_SECRETS_KEY is not valid base64: {e}"))?;
+    if bytes.len() != 32 {
+        return Err(anyhow::anyhow!(
+            "CONDUIT_SECRETS_KEY must decode to 32 bytes, got {}",
+            bytes.len()
+        ));
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&bytes);
+    Ok(key)
 }
 
 fn require_env(key: &str) -> anyhow::Result<String> {
@@ -97,19 +124,51 @@ mod tests {
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+    /// 32 zero bytes, base64-encoded. Suitable for tests; never use in prod.
+    const TEST_KEY_B64: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+
     #[test]
     fn config_fails_without_database_url() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("DATABASE_URL");
+        std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
         let result = Config::from_env();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("DATABASE_URL"));
+        std::env::remove_var("CONDUIT_SECRETS_KEY");
+    }
+
+    #[test]
+    fn config_fails_without_secrets_key() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("DATABASE_URL", "postgres://test");
+        std::env::remove_var("CONDUIT_SECRETS_KEY");
+        let result = Config::from_env();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("CONDUIT_SECRETS_KEY"));
+        std::env::remove_var("DATABASE_URL");
+    }
+
+    #[test]
+    fn config_rejects_short_secrets_key() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("DATABASE_URL", "postgres://test");
+        std::env::set_var("CONDUIT_SECRETS_KEY", "dG9vc2hvcnQ="); // "tooshort"
+        let result = Config::from_env();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("32 bytes"));
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("CONDUIT_SECRETS_KEY");
     }
 
     #[test]
     fn config_uses_defaults_for_optional_vars() {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("DATABASE_URL", "postgres://test");
+        std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
         std::env::remove_var("SERVER_PORT");
         std::env::remove_var("LOG_LEVEL");
 
@@ -118,5 +177,6 @@ mod tests {
         assert_eq!(config.log_level, "info");
 
         std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("CONDUIT_SECRETS_KEY");
     }
 }

@@ -1,5 +1,12 @@
 import type { Node, Edge } from '@xyflow/react';
-import type { BpmnNodeData, BpmnEdgeData, BpmnElementType } from './bpmnTypes';
+import type {
+  BpmnNodeData,
+  BpmnEdgeData,
+  BpmnElementType,
+  HttpAuthType,
+  HttpConnectorConfig,
+  HttpRetryConfig,
+} from './bpmnTypes';
 import { NODE_DIMENSIONS } from './bpmnTypes';
 
 const BPMN_NS    = 'http://www.omg.org/spec/BPMN/20100524/MODEL';
@@ -109,10 +116,20 @@ export function toXml(
 
     const children: string[] = [];
 
+    // Build a single <extensionElements> block holding all extension children
+    // for this node — schema, http config, and any future additions. BPMN
+    // allows at most one such block per element.
+    const extLines: string[] = [];
     if (d.schema?.trim()) {
+      extLines.push(`        <conduit:inputSchema>${esc(d.schema.trim())}</conduit:inputSchema>`);
+    }
+    if (d.bpmnType === 'serviceTask' && d.http && hasMeaningfulHttpConfig(d.http)) {
+      extLines.push(serializeHttpConfig(d.http));
+    }
+    if (extLines.length > 0) {
       children.push(
         `      <extensionElements>` +
-        `\n        <conduit:inputSchema>${esc(d.schema.trim())}</conduit:inputSchema>` +
+        `\n${extLines.join('\n')}` +
         `\n      </extensionElements>`,
       );
     }
@@ -344,6 +361,8 @@ export function fromXml(xml: string): ParsedBpmn {
       if (bpmnType === 'serviceTask') {
         data.topic = child.getAttribute('topic') ?? undefined;
         data.url   = child.getAttribute('url') ?? undefined;
+        const http = extractHttpConfig(child);
+        if (http) data.http = http;
       }
 
       if (bpmnType === 'businessRuleTask') {
@@ -508,6 +527,122 @@ function extractTimerData(timerDef: Element, data: BpmnNodeData): void {
   if (timeCycle)    { data.timerType = 'cycle';    data.timerExpression = timeCycle.textContent?.trim()    || undefined; }
   else if (timeDate)     { data.timerType = 'date';     data.timerExpression = timeDate.textContent?.trim()     || undefined; }
   else if (timeDuration) { data.timerType = 'duration'; data.timerExpression = timeDuration.textContent?.trim() || undefined; }
+}
+
+const xmlEsc = (s: string) =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function hasMeaningfulHttpConfig(h: HttpConnectorConfig): boolean {
+  // An empty/all-defaults config shouldn't be serialized — keeps the XML
+  // clean for service tasks that don't actually use the connector.
+  return !!(
+    (h.method && h.method !== 'POST') ||
+    h.timeoutMs !== undefined ||
+    (h.authType && h.authType !== 'none') ||
+    h.secretRef ||
+    h.apiKeyHeader ||
+    (h.requestTransform && h.requestTransform.trim()) ||
+    (h.responseTransform && h.responseTransform.trim()) ||
+    (h.retry && Object.keys(h.retry).length > 0)
+  );
+}
+
+function serializeHttpConfig(h: HttpConnectorConfig): string {
+  const attrs: string[] = [];
+  attrs.push(`method="${xmlEsc(h.method ?? 'POST')}"`);
+  if (h.timeoutMs !== undefined) attrs.push(`timeoutMs="${h.timeoutMs}"`);
+  if (h.authType && h.authType !== 'none') attrs.push(`authType="${xmlEsc(h.authType)}"`);
+  if (h.secretRef) attrs.push(`secretRef="${xmlEsc(h.secretRef)}"`);
+  if (h.apiKeyHeader) attrs.push(`headerName="${xmlEsc(h.apiKeyHeader)}"`);
+
+  const inner: string[] = [];
+  if (h.requestTransform?.trim()) {
+    inner.push(
+      `          <conduit:requestTransform><![CDATA[\n${h.requestTransform.trim()}\n          ]]></conduit:requestTransform>`,
+    );
+  }
+  if (h.responseTransform?.trim()) {
+    inner.push(
+      `          <conduit:responseTransform><![CDATA[\n${h.responseTransform.trim()}\n          ]]></conduit:responseTransform>`,
+    );
+  }
+  if (h.retry) {
+    const r = h.retry;
+    const ra: string[] = [];
+    if (r.max !== undefined) ra.push(`max="${r.max}"`);
+    if (r.backoffMs !== undefined) ra.push(`backoffMs="${r.backoffMs}"`);
+    if (r.multiplier !== undefined) ra.push(`multiplier="${r.multiplier}"`);
+    if (r.retryOn) ra.push(`retryOn="${xmlEsc(r.retryOn)}"`);
+    if (ra.length > 0) inner.push(`          <conduit:retry ${ra.join(' ')}/>`);
+  }
+
+  if (inner.length === 0) {
+    return `        <conduit:http ${attrs.join(' ')}/>`;
+  }
+  return (
+    `        <conduit:http ${attrs.join(' ')}>` +
+    `\n${inner.join('\n')}` +
+    `\n        </conduit:http>`
+  );
+}
+
+function extractHttpConfig(el: Element): HttpConnectorConfig | undefined {
+  for (const child of Array.from(el.children)) {
+    if (child.localName !== 'extensionElements') continue;
+    for (const inner of Array.from(child.children)) {
+      const ns = inner.namespaceURI ?? '';
+      if (inner.localName !== 'http' || ns !== CONDUIT_NS) continue;
+
+      const cfg: HttpConnectorConfig = {};
+      const method = inner.getAttribute('method');
+      if (method) cfg.method = method;
+      const t = inner.getAttribute('timeoutMs');
+      if (t) {
+        const n = parseInt(t, 10);
+        if (!isNaN(n)) cfg.timeoutMs = n;
+      }
+      const auth = inner.getAttribute('authType') as HttpAuthType | null;
+      if (auth) cfg.authType = auth;
+      const ref = inner.getAttribute('secretRef');
+      if (ref) cfg.secretRef = ref;
+      const apiKeyHeader = inner.getAttribute('headerName');
+      if (apiKeyHeader) cfg.apiKeyHeader = apiKeyHeader;
+
+      for (const sub of Array.from(inner.children)) {
+        const sns = sub.namespaceURI ?? '';
+        if (sns !== CONDUIT_NS) continue;
+        if (sub.localName === 'requestTransform') {
+          const text = sub.textContent?.trim();
+          if (text) cfg.requestTransform = text;
+        } else if (sub.localName === 'responseTransform') {
+          const text = sub.textContent?.trim();
+          if (text) cfg.responseTransform = text;
+        } else if (sub.localName === 'retry') {
+          const retry: HttpRetryConfig = {};
+          const max = sub.getAttribute('max');
+          if (max) {
+            const n = parseInt(max, 10);
+            if (!isNaN(n)) retry.max = n;
+          }
+          const backoff = sub.getAttribute('backoffMs');
+          if (backoff) {
+            const n = parseInt(backoff, 10);
+            if (!isNaN(n)) retry.backoffMs = n;
+          }
+          const mult = sub.getAttribute('multiplier');
+          if (mult) {
+            const n = parseFloat(mult);
+            if (!isNaN(n)) retry.multiplier = n;
+          }
+          const retryOn = sub.getAttribute('retryOn');
+          if (retryOn) retry.retryOn = retryOn;
+          if (Object.keys(retry).length > 0) cfg.retry = retry;
+        }
+      }
+      return cfg;
+    }
+  }
+  return undefined;
 }
 
 function extractSchemaText(el: Element): string | undefined {

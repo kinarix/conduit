@@ -1,5 +1,5 @@
 use conduit::error::EngineError;
-use conduit::parser::{self, FlowNodeKind};
+use conduit::parser::{self, types::HttpAuth, FlowNodeKind};
 
 fn fixture(name: &str) -> String {
     std::fs::read_to_string(format!("tests/fixtures/bpmn/{name}.bpmn"))
@@ -209,4 +209,79 @@ fn service_task_without_topic_is_valid() {
         &svc.kind,
         FlowNodeKind::ServiceTask { topic: None, .. }
     ));
+}
+
+#[test]
+fn parse_http_connector_extension() {
+    let xml = fixture("http_connector");
+    let graph = parser::parse(&xml).expect("parse should succeed");
+    let svc = graph.nodes.get("charge").expect("charge node missing");
+    let FlowNodeKind::ServiceTask { url, http, .. } = &svc.kind else {
+        panic!("expected ServiceTask, got {:?}", svc.kind);
+    };
+    assert_eq!(url.as_deref(), Some("https://api.stripe.com/v1/charges"));
+    let http = http.as_ref().expect("http config should be populated");
+    assert_eq!(http.method, "POST");
+    assert_eq!(http.timeout_ms, Some(5000));
+    assert!(matches!(http.auth, HttpAuth::Bearer));
+    assert_eq!(http.secret_ref.as_deref(), Some("stripe_key"));
+    assert!(http
+        .request_transform
+        .as_deref()
+        .unwrap()
+        .contains(".vars.amount"));
+    assert!(http
+        .response_transform
+        .as_deref()
+        .unwrap()
+        .contains(".body.id"));
+    assert_eq!(http.retry.max, 3);
+    assert_eq!(http.retry.backoff_ms, 500);
+    assert!((http.retry.multiplier - 2.5).abs() < f64::EPSILON);
+    assert_eq!(
+        http.retry.retry_on,
+        vec!["5xx".to_string(), "timeout".into()]
+    );
+}
+
+#[test]
+fn parse_url_only_service_task_has_no_http_config() {
+    let xml = fixture("http_connector_minimal");
+    let graph = parser::parse(&xml).expect("parse should succeed");
+    let svc = graph.nodes.get("ping").expect("ping node missing");
+    let FlowNodeKind::ServiceTask { url, http, .. } = &svc.kind else {
+        panic!("expected ServiceTask");
+    };
+    assert_eq!(url.as_deref(), Some("https://example.com/ping"));
+    assert!(http.is_none(), "no <conduit:http> means http: None");
+}
+
+#[test]
+fn parse_http_connector_invalid_auth_rejected() {
+    let xml = fixture("http_connector_invalid_auth");
+    let err = parser::parse(&xml).expect_err("bearer auth without secretRef must fail");
+    assert!(matches!(err, EngineError::Parse(_)), "got {err:?}");
+}
+
+#[test]
+fn http_config_round_trips_through_json() {
+    use conduit::parser::types::{HttpConfig, RetryPolicy};
+    let original = HttpConfig {
+        method: "PATCH".into(),
+        timeout_ms: Some(2500),
+        auth: HttpAuth::ApiKey,
+        secret_ref: Some("api_key".into()),
+        api_key_header: Some("X-API-Key".into()),
+        request_transform: Some(".vars".into()),
+        response_transform: Some("{x: .body}".into()),
+        retry: RetryPolicy {
+            max: 5,
+            backoff_ms: 250,
+            multiplier: 1.5,
+            retry_on: vec!["5xx".into()],
+        },
+    };
+    let v = serde_json::to_value(&original).unwrap();
+    let back: HttpConfig = serde_json::from_value(v).unwrap();
+    assert_eq!(back, original);
 }

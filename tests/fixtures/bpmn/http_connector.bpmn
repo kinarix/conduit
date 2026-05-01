@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             id="Definitions_http_conn"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="http_connector_proc" name="HTTP Connector" isExecutable="true">
+    <startEvent id="start_1"/>
+    <serviceTask id="charge" name="Charge Card" url="https://api.stripe.com/v1/charges">
+      <extensionElements>
+        <conduit:http method="POST" timeoutMs="5000" secretRef="stripe_key" authType="bearer">
+          <conduit:requestTransform><![CDATA[
+            { body: { amount: .vars.amount, currency: "usd" } }
+          ]]></conduit:requestTransform>
+          <conduit:responseTransform><![CDATA[
+            { charge_id: .body.id, charge_status: .body.status }
+          ]]></conduit:responseTransform>
+          <conduit:retry max="3" backoffMs="500" multiplier="2.5" retryOn="5xx,timeout"/>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+    <endEvent id="end_1"/>
+    <sequenceFlow id="f1" sourceRef="start_1" targetRef="charge"/>
+    <sequenceFlow id="f2" sourceRef="charge" targetRef="end_1"/>
+  </process>
+</definitions>

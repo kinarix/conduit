@@ -50,11 +50,10 @@ async fn ensure_process_group_in_org(
     process_group_id: Uuid,
     org_id: Uuid,
 ) -> Result<()> {
-    let row: Option<(Uuid,)> =
-        sqlx::query_as("SELECT org_id FROM process_groups WHERE id = $1")
-            .bind(process_group_id)
-            .fetch_optional(pool)
-            .await?;
+    let row: Option<(Uuid,)> = sqlx::query_as("SELECT org_id FROM process_groups WHERE id = $1")
+        .bind(process_group_id)
+        .fetch_optional(pool)
+        .await?;
     match row {
         None => Err(EngineError::Validation(format!(
             "Process group {process_group_id} does not exist"
@@ -265,7 +264,9 @@ async fn promote_draft(
     // Fetch the draft XML to parse and cache before promoting
     let draft = process_definitions::get_by_id(&state.pool, id).await?;
     if draft.status != "draft" {
-        return Err(EngineError::Validation(format!("Definition {id} is not a draft")));
+        return Err(EngineError::Validation(format!(
+            "Definition {id} is not a draft"
+        )));
     }
 
     let graph = Arc::new(parser::parse(&draft.bpmn_xml)?);

@@ -21,7 +21,7 @@ Decision tables can be deployed separately from BPMN and evaluated synchronously
 | Hit policies | UNIQUE (default, error if >1 match), FIRST (first match wins), COLLECT (all matching rows as list), RULE_ORDER (matching rows in declaration order) |
 | Input conditions (FEEL subset) | `-`, literals, unary comparisons, ranges, comma-separated OR |
 | Output entries | Scalar literals only (string, number, boolean, null) |
-| BPMN integration | `BusinessRuleTask` with `camunda:decisionRef` attribute |
+| BPMN integration | `BusinessRuleTask` with `conduit:decisionRef` attribute |
 | Deployment | `POST /api/v1/decisions` — raw DMN XML body |
 | Versioning | Auto-increment per `(org_id, decision_key)`; engine always uses latest version |
 | Multi-decision files | One DMN file may contain multiple `<decision>` elements; each stored as a separate row |
@@ -217,11 +217,11 @@ List latest version of every deployed decision for the org.
 ```xml
 <businessRuleTask id="task_risk"
                   name="Assess Risk"
-                  camunda:decisionRef="risk-check" />
+                  conduit:decisionRef="risk-check" />
 ```
 
 Parser: add `BusinessRuleTask { decision_ref: String }` to `FlowNodeKind`. Extract
-`decision_ref` from `camunda:decisionRef` attribute (same Camunda namespace already in parser).
+`decision_ref` from the `conduit:decisionRef` attribute (Conduit extension namespace).
 Remove `"businessRuleTask"` from the unsupported-elements rejection list.
 
 ---
@@ -304,7 +304,7 @@ Process: start → BusinessRuleTask(risk-check) → end.
 | `engine_runs_business_rule_task` | Full integration: deploy DMN + BPMN, start instance, engine evaluates BusinessRuleTask, output variable written |
 | `engine_decision_not_found` | BusinessRuleTask with unknown ref → instance in error state |
 | `engine_dmn_no_match_error` | Inputs match no rule with UNIQUE policy → instance in error state |
-| `parser_accepts_business_rule_task` | BPMN parser extracts `decision_ref` from `camunda:decisionRef` |
+| `parser_accepts_business_rule_task` | BPMN parser extracts `decision_ref` from `conduit:decisionRef` |
 
 ---
 

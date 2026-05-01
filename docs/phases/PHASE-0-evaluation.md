@@ -48,11 +48,10 @@ spikes/sqlx_eval/
 ```
 spikes/xml_eval/
 ```
-- Download a real BPMN file from:
-  https://github.com/camunda/camunda-bpm-examples
+- Use a representative BPMN 2.0 fixture (e.g. one from `tests/fixtures/bpmn/`)
 - Parse with roxmltree
 - Extract and print: all element IDs, types, incoming/outgoing flows
-- Extract camunda-namespaced attributes
+- Extract Conduit-namespaced extension attributes (`conduit:topic`, `conduit:assignee`, etc.)
 - Measure parse time
 
 ### Spike 0.5 — Rhai

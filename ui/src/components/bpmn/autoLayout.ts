@@ -11,6 +11,63 @@ interface BoundaryInfo {
   side: 'top' | 'bottom';
 }
 
+const GATEWAY_TYPES = new Set([
+  'exclusiveGateway', 'inclusiveGateway', 'parallelGateway',
+]);
+
+const SOURCE_HANDLE_PRIORITY = [
+  'right-source',
+  'bottom-source',
+  'top-source',
+  'left-source',
+] as const;
+
+const TARGET_HANDLE_FOR_SOURCE: Record<string, string> = {
+  'right-source':  'left-target',
+  'bottom-source': 'top-target',
+  'top-source':    'bottom-target',
+  'left-source':   'right-target',
+};
+
+/**
+ * Spread a gateway's outgoing flows across its 4 source handles in priority
+ * order (right → bottom → top → left). Each handle hosts at most one flow
+ * until all 4 are used; further flows pile back on the highest-priority
+ * available handle. Mutates `edges` in place by setting sourceHandle/targetHandle.
+ */
+export function spreadGatewayHandles(nodes: Node[], edges: Edge[]): Edge[] {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+  const gatewayIds = new Set(
+    nodes
+      .filter(n => GATEWAY_TYPES.has((n.data as BpmnNodeData).bpmnType))
+      .map(n => n.id),
+  );
+
+  const outgoingByGateway = new Map<string, Edge[]>();
+  for (const edge of edges) {
+    if ((edge.data as BpmnEdgeData | undefined)?.kind === 'attachment') continue;
+    if (!gatewayIds.has(edge.source)) continue;
+    const list = outgoingByGateway.get(edge.source) ?? [];
+    list.push(edge);
+    outgoingByGateway.set(edge.source, list);
+  }
+
+  return edges.map(edge => {
+    if ((edge.data as BpmnEdgeData | undefined)?.kind === 'attachment') return edge;
+    if (!gatewayIds.has(edge.source)) return edge;
+    const siblings = outgoingByGateway.get(edge.source) ?? [];
+    const idx = siblings.indexOf(edge);
+    if (idx < 0) return edge;
+    const sourceHandle = SOURCE_HANDLE_PRIORITY[idx % SOURCE_HANDLE_PRIORITY.length];
+    const targetHandle = TARGET_HANDLE_FOR_SOURCE[sourceHandle];
+    // Only override the target handle when the target node is a non-gateway
+    // BPMN node we control; otherwise leave whatever was there.
+    const targetNode = nodeById.get(edge.target);
+    const useTargetHandle = targetNode ? targetHandle : edge.targetHandle;
+    return { ...edge, sourceHandle, targetHandle: useTargetHandle };
+  });
+}
+
 export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
@@ -24,7 +81,10 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
 
   for (const ae of attachmentEdges) {
     boundaryToHost.set(ae.source, ae.target);
-    const side: 'top' | 'bottom' = ae.targetHandle === 'target-top' ? 'top' : 'bottom';
+    const side: 'top' | 'bottom' =
+      ae.targetHandle === 'top-target' || ae.targetHandle === 'target-top'
+        ? 'top'
+        : 'bottom';
     const list = hostToBoundaries.get(ae.target) ?? [];
     list.push({ nodeId: ae.source, side });
     hostToBoundaries.set(ae.target, list);

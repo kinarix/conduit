@@ -25,7 +25,9 @@ pub async fn delete(pool: &PgPool, id: uuid::Uuid) -> Result<()> {
         .execute(pool)
         .await?;
     if res.rows_affected() == 0 {
-        return Err(crate::error::EngineError::NotFound(format!("org {id} not found")));
+        return Err(crate::error::EngineError::NotFound(format!(
+            "org {id} not found"
+        )));
     }
     Ok(())
 }

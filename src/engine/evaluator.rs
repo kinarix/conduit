@@ -1,36 +1,82 @@
-use std::collections::HashMap;
+//! Boolean expression evaluator for sequence-flow conditions on
+//! ExclusiveGateway / InclusiveGateway nodes.
+//!
+//! Language: FEEL (Friendly Enough Expression Language) — the boolean
+//! expression language defined by the DMN 1.5 specification, evaluated via
+//! `dsntk-feel-evaluator`. This unifies gateway conditions with DMN cells
+//! and aligns Conduit with the BPMN/DMN family that Camunda 8 / Zeebe also use.
+//!
+//! Process variables (loaded as JSON from the `variables` table) are converted
+//! into FEEL values; the expression is parsed and evaluated against a scope
+//! containing those variables. Undefined variables and type mismatches surface
+//! as `Err`, never as silent `false` — gateway routing is strict.
 
-use rhai::{Engine as RhaiEngine, Scope};
+use std::collections::HashMap;
+use std::str::FromStr;
+
+use dsntk_feel::context::FeelContext;
+use dsntk_feel::values::Value as FeelValue;
+use dsntk_feel::{FeelNumber, FeelScope, Name};
+use dsntk_feel_evaluator::evaluate as feel_evaluate;
+use dsntk_feel_parser::parse_textual_expression;
 use serde_json::Value as JsonValue;
 
 use crate::error::{EngineError, Result};
 
 pub fn evaluate_condition(expr: &str, variables: &HashMap<String, JsonValue>) -> Result<bool> {
-    let engine = RhaiEngine::new();
-    let mut scope = Scope::new();
-
+    let mut root_ctx = FeelContext::default();
     for (name, value) in variables {
-        match value {
-            JsonValue::Bool(b) => {
-                scope.push(name.as_str(), *b);
-            }
-            JsonValue::Number(n) => {
-                if let Some(i) = n.as_i64() {
-                    scope.push(name.as_str(), i);
-                } else if let Some(f) = n.as_f64() {
-                    scope.push(name.as_str(), f);
-                }
-            }
-            JsonValue::String(s) => {
-                scope.push(name.as_str(), s.clone());
-            }
-            _ => {}
-        }
+        root_ctx.set_entry(&Name::from(name.as_str()), json_to_feel(value));
     }
 
-    engine
-        .eval_expression_with_scope::<bool>(&mut scope, expr)
-        .map_err(|e| EngineError::Expression(format!("Condition '{expr}': {e}")))
+    let scope = FeelScope::default();
+    scope.push(root_ctx);
+
+    let ast = parse_textual_expression(&scope, expr, false)
+        .map_err(|e| EngineError::Expression(format!("FEEL parse '{expr}': {e:?}")))?;
+
+    match feel_evaluate(&scope, &ast) {
+        FeelValue::Boolean(b) => Ok(b),
+        FeelValue::Null(reason) => Err(EngineError::Expression(format!(
+            "FEEL '{expr}' evaluated to null{}",
+            reason.map(|r| format!(": {r}")).unwrap_or_default()
+        ))),
+        other => Err(EngineError::Expression(format!(
+            "FEEL '{expr}' did not produce a boolean (got {other:?})"
+        ))),
+    }
+}
+
+fn json_to_feel(value: &JsonValue) -> FeelValue {
+    match value {
+        JsonValue::Null => FeelValue::Null(None),
+        JsonValue::Bool(b) => FeelValue::Boolean(*b),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                FeelValue::Number(FeelNumber::from(i))
+            } else if let Some(f) = n.as_f64() {
+                // FeelNumber has no From<f64>; round-trip via string.
+                match FeelNumber::from_str(&f.to_string()) {
+                    Ok(fn_) => FeelValue::Number(fn_),
+                    Err(_) => FeelValue::Null(None),
+                }
+            } else {
+                FeelValue::Null(None)
+            }
+        }
+        JsonValue::String(s) => FeelValue::String(s.clone()),
+        JsonValue::Array(items) => {
+            let values: Vec<FeelValue> = items.iter().map(json_to_feel).collect();
+            FeelValue::List(values.into())
+        }
+        JsonValue::Object(map) => {
+            let mut ctx = FeelContext::default();
+            for (k, v) in map {
+                ctx.set_entry(&Name::from(k.as_str()), json_to_feel(v));
+            }
+            FeelValue::Context(ctx)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -40,7 +86,10 @@ mod tests {
     use std::collections::HashMap;
 
     fn vars(pairs: &[(&str, Value)]) -> HashMap<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     #[test]
@@ -54,8 +103,9 @@ mod tests {
     }
 
     #[test]
-    fn integer_eq() {
-        assert!(evaluate_condition("x == 42", &vars(&[("x", json!(42))])).unwrap());
+    fn integer_eq_uses_single_equals() {
+        // FEEL uses `=` for equality, not `==`.
+        assert!(evaluate_condition("x = 42", &vars(&[("x", json!(42))])).unwrap());
     }
 
     #[test]
@@ -75,18 +125,33 @@ mod tests {
 
     #[test]
     fn string_equality() {
-        assert!(evaluate_condition(r#"name == "alice""#, &vars(&[("name", json!("alice"))])).unwrap());
+        assert!(
+            evaluate_condition(r#"name = "alice""#, &vars(&[("name", json!("alice"))])).unwrap()
+        );
     }
 
     #[test]
     fn string_inequality() {
-        assert!(evaluate_condition(r#"name != "bob""#, &vars(&[("name", json!("alice"))])).unwrap());
+        assert!(
+            evaluate_condition(r#"name != "bob""#, &vars(&[("name", json!("alice"))])).unwrap()
+        );
     }
 
     #[test]
     fn compound_and_condition() {
         let v = vars(&[("x", json!(10)), ("y", json!(20))]);
-        assert!(evaluate_condition("x < y && x > 5", &v).unwrap());
+        assert!(evaluate_condition("x < y and x > 5", &v).unwrap());
+    }
+
+    #[test]
+    fn compound_or_condition() {
+        let v = vars(&[("status", json!("pending"))]);
+        assert!(evaluate_condition(r#"status = "approved" or status = "pending""#, &v).unwrap());
+    }
+
+    #[test]
+    fn negation_with_not() {
+        assert!(evaluate_condition("not(flag)", &vars(&[("flag", json!(false))])).unwrap());
     }
 
     #[test]
@@ -110,11 +175,44 @@ mod tests {
     }
 
     #[test]
-    fn null_and_array_variables_ignored() {
-        // null/array JSON values are not pushed into scope, so the expression
-        // must not panic — it will produce an error if the variable is referenced
-        let v = vars(&[("x", json!(null)), ("arr", json!([1, 2]))]);
-        // fall back to literal true without referencing the null/array vars
-        assert!(evaluate_condition("true", &v).unwrap());
+    fn undefined_variable_errors_not_silent_false() {
+        // Undefined names produce FEEL Null, surfaced as Err — never silent false.
+        let v = vars(&[("y", json!(1))]);
+        assert!(evaluate_condition("x > 5", &v).is_err());
+    }
+
+    #[test]
+    fn array_count_via_builtin() {
+        // FEEL: count(list), not list.len().
+        let v = vars(&[("items", json!([1, 2, 3]))]);
+        assert!(evaluate_condition("count(items) > 0", &v).unwrap());
+        assert!(evaluate_condition("count(items) = 3", &v).unwrap());
+    }
+
+    #[test]
+    fn empty_array_count() {
+        let v = vars(&[("items", json!([]))]);
+        assert!(!evaluate_condition("count(items) > 0", &v).unwrap());
+    }
+
+    #[test]
+    fn object_field_access() {
+        let v = vars(&[("user", json!({"tier": "gold", "age": 30}))]);
+        assert!(evaluate_condition(r#"user.tier = "gold""#, &v).unwrap());
+        assert!(evaluate_condition("user.age >= 18", &v).unwrap());
+    }
+
+    #[test]
+    fn nested_object_access() {
+        let v = vars(&[("ctx", json!({"user": {"role": "admin"}}))]);
+        assert!(evaluate_condition(r#"ctx.user.role = "admin""#, &v).unwrap());
+    }
+
+    #[test]
+    fn array_indexing_one_based() {
+        // FEEL list indices start at 1.
+        let v = vars(&[("scores", json!([85, 92, 71]))]);
+        assert!(evaluate_condition("scores[1] = 85", &v).unwrap());
+        assert!(evaluate_condition("scores[2] > 90", &v).unwrap());
     }
 }

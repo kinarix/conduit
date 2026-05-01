@@ -23,7 +23,7 @@ async fn setup() -> (PgPool, Engine) {
         .expect("Failed to run migrations");
 
     let cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
-    let engine = Engine::new(pool.clone(), cache);
+    let engine = Engine::new(pool.clone(), cache, [0xA5u8; 32]);
     (pool, engine)
 }
 
@@ -32,8 +32,12 @@ async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let org = db::orgs::insert(pool, "Timer Test Org", &slug)
         .await
         .unwrap();
-    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
-    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary")
+        .await
+        .unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary")
+        .await
+        .unwrap();
     (org.id, vec![f1.id, f2.id])
 }
 
@@ -95,7 +99,9 @@ fn parse_intermediate_timer_catch_event() {
     let timer_node = graph.nodes.get("timer1").unwrap();
     assert_eq!(timer_node.name.as_deref(), Some("Wait"));
     match &timer_node.kind {
-        FlowNodeKind::IntermediateTimerCatchEvent { timer: TimerSpec::Duration(d) } => {
+        FlowNodeKind::IntermediateTimerCatchEvent {
+            timer: TimerSpec::Duration(d),
+        } => {
             assert_eq!(d, "PT1H");
         }
         _ => panic!(
@@ -130,7 +136,10 @@ fn parse_boundary_timer_event() {
             assert_eq!(attached_to, "task1");
             assert!(*cancelling);
         }
-        _ => panic!("expected BoundaryTimerEvent(Duration), got {:?}", boundary.kind),
+        _ => panic!(
+            "expected BoundaryTimerEvent(Duration), got {:?}",
+            boundary.kind
+        ),
     }
     // outgoing from boundary → end_escalated
     assert_eq!(graph.outgoing["timer-boundary"], vec!["end_escalated"]);
@@ -416,7 +425,7 @@ async fn fire_timer_job_cold_cache() {
     .unwrap();
 
     let warm_cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
-    let warm_engine = Engine::new(pool.clone(), warm_cache);
+    let warm_engine = Engine::new(pool.clone(), warm_cache, [0xA5u8; 32]);
     let instance = warm_engine
         .start_instance(def.id, org_id, &json!({}), &[])
         .await
@@ -428,7 +437,7 @@ async fn fire_timer_job_cold_cache() {
 
     // Cold engine — no cached graph
     let cold_cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
-    let cold_engine = Engine::new(pool.clone(), cold_cache);
+    let cold_engine = Engine::new(pool.clone(), cold_cache, [0xA5u8; 32]);
     cold_engine.fire_timer_job(job_id).await.unwrap();
 
     let refreshed = db::process_instances::get_by_id(&pool, instance.id)
@@ -558,7 +567,7 @@ async fn fire_due_timer_jobs_concurrent_executors_dont_double_fire() {
         .unwrap();
 
     let cache2: GraphCache = Arc::new(RwLock::new(HashMap::new()));
-    let engine2 = Engine::new(pool.clone(), cache2);
+    let engine2 = Engine::new(pool.clone(), cache2, [0xA5u8; 32]);
 
     // Race both executors. Due to parallel test execution they may each pick up
     // jobs from other concurrent tests, but each individual job must only fire once.

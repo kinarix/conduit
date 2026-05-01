@@ -57,7 +57,9 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
         .execute(pool)
         .await?;
     if res.rows_affected() == 0 {
-        return Err(EngineError::NotFound(format!("process group {id} not found")));
+        return Err(EngineError::NotFound(format!(
+            "process group {id} not found"
+        )));
     }
     Ok(())
 }
@@ -67,13 +69,11 @@ pub async fn assign_definition(
     definition_id: Uuid,
     process_group_id: Uuid,
 ) -> Result<()> {
-    let res = sqlx::query(
-        "UPDATE process_definitions SET process_group_id = $1 WHERE id = $2",
-    )
-    .bind(process_group_id)
-    .bind(definition_id)
-    .execute(pool)
-    .await?;
+    let res = sqlx::query("UPDATE process_definitions SET process_group_id = $1 WHERE id = $2")
+        .bind(process_group_id)
+        .bind(definition_id)
+        .execute(pool)
+        .await?;
     if res.rows_affected() == 0 {
         return Err(EngineError::NotFound(format!(
             "process definition {definition_id} not found"

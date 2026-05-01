@@ -21,6 +21,30 @@ export type BpmnElementType =
 
 export type RuntimeStatus = 'pending' | 'active' | 'completed' | 'error' | 'cancelled';
 
+export type HttpAuthType = 'none' | 'basic' | 'bearer' | 'apiKey';
+
+export interface HttpRetryConfig {
+  max?: number;
+  backoffMs?: number;
+  multiplier?: number;
+  retryOn?: string;
+}
+
+/** Phase 16 — declarative HTTP connector config attached to a service task. */
+export interface HttpConnectorConfig {
+  method?: string;
+  timeoutMs?: number;
+  authType?: HttpAuthType;
+  secretRef?: string;
+  /** Header name used when authType=apiKey. */
+  apiKeyHeader?: string;
+  /** Raw jq filter. Input: { instance_id, execution_id, vars }. Output: { body?, headers?, query?, path? } */
+  requestTransform?: string;
+  /** Raw jq filter. Input: { status, headers, body }. Output: flat { var: value, ... } */
+  responseTransform?: string;
+  retry?: HttpRetryConfig;
+}
+
 export interface BpmnNodeData extends Record<string, unknown> {
   bpmnType: BpmnElementType;
   label: string;
@@ -35,6 +59,8 @@ export interface BpmnNodeData extends Record<string, unknown> {
   errorCode?: string;
   cancelling?: boolean;
   decisionRef?: string;
+  /** Phase 16: HTTP connector config for service tasks. */
+  http?: HttpConnectorConfig;
   /** When set, the node is rendered in viewer mode with this runtime overlay. */
   runtimeStatus?: RuntimeStatus;
 }

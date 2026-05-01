@@ -151,7 +151,13 @@ async fn bpmn_error(
 ) -> Result<StatusCode> {
     state
         .engine
-        .throw_bpmn_error(id, &req.worker_id, &req.error_code, &req.error_message, &req.variables)
+        .throw_bpmn_error(
+            id,
+            &req.worker_id,
+            &req.error_code,
+            &req.error_message,
+            &req.variables,
+        )
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

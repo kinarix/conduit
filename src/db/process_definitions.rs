@@ -229,7 +229,11 @@ pub async fn get_latest_by_key(pool: &PgPool, process_key: &str) -> Result<Proce
     .bind(process_key)
     .fetch_optional(pool)
     .await?
-    .ok_or_else(|| EngineError::NotFound(format!("No deployed definition found for key '{process_key}'")))
+    .ok_or_else(|| {
+        EngineError::NotFound(format!(
+            "No deployed definition found for key '{process_key}'"
+        ))
+    })
 }
 
 pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessDefinition>> {
@@ -262,7 +266,9 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
         .execute(pool)
         .await?;
     if res.rows_affected() == 0 {
-        return Err(EngineError::NotFound(format!("process definition {id} not found")));
+        return Err(EngineError::NotFound(format!(
+            "process definition {id} not found"
+        )));
     }
     Ok(())
 }

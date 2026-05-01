@@ -14,12 +14,11 @@ pub async fn record_state_change(
     event_type: &str,
     metadata: JsonValue,
 ) -> Result<()> {
-    let row: Option<(Uuid, Uuid, String)> = sqlx::query_as(
-        "SELECT instance_id, execution_id, job_type FROM jobs WHERE id = $1",
-    )
-    .bind(job_id)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let row: Option<(Uuid, Uuid, String)> =
+        sqlx::query_as("SELECT instance_id, execution_id, job_type FROM jobs WHERE id = $1")
+            .bind(job_id)
+            .fetch_optional(&mut **tx)
+            .await?;
     let Some((instance_id, execution_id, job_type)) = row else {
         return Ok(()); // Job already gone — skip audit
     };

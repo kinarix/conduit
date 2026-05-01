@@ -1,4 +1,9 @@
-use axum::{extract::{Path, State}, http::StatusCode, routing::{delete, get, post}, Json, Router};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    routing::{delete, get, post},
+    Json, Router,
+};
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -21,9 +26,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/orgs/{id}", delete(delete_org))
 }
 
-async fn list_orgs(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<Org>>> {
+async fn list_orgs(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Org>>> {
     let orgs = orgs::list_all(&state.pool).await?;
     Ok(Json(orgs))
 }

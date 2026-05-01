@@ -1,5 +1,86 @@
 use std::collections::HashMap;
 
+/// Phase 16 — declarative HTTP connector config attached to a `<serviceTask>`
+/// via `<extensionElements><conduit:http>`. Round-trips through `jobs.config`
+/// (JSONB) so re-deploying a definition cannot mutate in-flight calls.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HttpConfig {
+    /// HTTP method. Default: `POST`.
+    #[serde(default = "default_method")]
+    pub method: String,
+    /// Per-task timeout. `None` falls back to the global reqwest default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    /// Authentication strategy. Default: `none`.
+    #[serde(default)]
+    pub auth: HttpAuth,
+    /// Name of an org-scoped secret to attach as the credential. Required for
+    /// `basic`/`bearer`/`api_key` auth, ignored for `none`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_ref: Option<String>,
+    /// For `api_key` auth: which header to set (e.g. `X-API-Key`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key_header: Option<String>,
+    /// jq filter source. Input doc: `{instance_id, execution_id, vars}`.
+    /// Output doc: `{body?, headers?, query?, path?}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_transform: Option<String>,
+    /// jq filter source. Input doc: `{status, headers, body}`.
+    /// Output doc: flat `{var_name: value, ...}` to upsert into instance vars.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_transform: Option<String>,
+    /// Retry policy. Defaults to no retries.
+    #[serde(default)]
+    pub retry: RetryPolicy,
+}
+
+fn default_method() -> String {
+    "POST".to_string()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HttpAuth {
+    #[default]
+    None,
+    Basic,
+    Bearer,
+    ApiKey,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RetryPolicy {
+    #[serde(default)]
+    pub max: u32,
+    #[serde(default = "default_backoff_ms")]
+    pub backoff_ms: u64,
+    #[serde(default = "default_multiplier")]
+    pub multiplier: f64,
+    /// Comma-free list of conditions: any of `4xx`, `5xx`, `timeout`, `network`.
+    /// Empty = retry on `5xx` + `timeout` + `network` (the safe defaults).
+    #[serde(default)]
+    pub retry_on: Vec<String>,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max: 0,
+            backoff_ms: default_backoff_ms(),
+            multiplier: default_multiplier(),
+            retry_on: Vec::new(),
+        }
+    }
+}
+
+fn default_backoff_ms() -> u64 {
+    1000
+}
+
+fn default_multiplier() -> f64 {
+    2.0
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TimerSpec {
     Duration(String),
@@ -21,6 +102,10 @@ pub enum FlowNodeKind {
     ServiceTask {
         topic: Option<String>,
         url: Option<String>,
+        /// Phase 16: full HTTP connector config sourced from
+        /// `<extensionElements><conduit:http>...</conduit:http></extensionElements>`.
+        /// `None` for legacy URL-only tasks and external-worker tasks.
+        http: Option<HttpConfig>,
     },
     ExclusiveGateway {
         default_flow: Option<String>,

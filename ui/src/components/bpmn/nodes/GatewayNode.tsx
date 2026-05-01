@@ -44,8 +44,10 @@ export default function GatewayNode({ id, data, selected }: NodeProps) {
           {warnings.length}
         </div>
       )}
-      <Handle id="target-left" type="target" position={Position.Left} style={handleStyle()} />
-      <Handle id="target-top"  type="target" position={Position.Top}  style={handleStyle()} />
+      <Handle id="left-target"   type="target" position={Position.Left}   style={handleStyle()} />
+      <Handle id="left-source"   type="source" position={Position.Left}   style={handleStyle()} />
+      <Handle id="top-target"    type="target" position={Position.Top}    style={handleStyle()} />
+      <Handle id="top-source"    type="source" position={Position.Top}    style={handleStyle()} />
 
       <svg width={30} height={30}>
         <rect
@@ -81,8 +83,10 @@ export default function GatewayNode({ id, data, selected }: NodeProps) {
         </div>
       )}
 
-      <Handle id="source-right"  type="source" position={Position.Right}  style={handleStyle()} />
-      <Handle id="source-bottom" type="source" position={Position.Bottom} style={handleStyle()} />
+      <Handle id="right-target"  type="target" position={Position.Right}  style={handleStyle()} />
+      <Handle id="right-source"  type="source" position={Position.Right}  style={handleStyle()} />
+      <Handle id="bottom-target" type="target" position={Position.Bottom} style={handleStyle()} />
+      <Handle id="bottom-source" type="source" position={Position.Bottom} style={handleStyle()} />
     </div>
   );
 }

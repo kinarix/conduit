@@ -1,18 +1,21 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { type LogicalProcess } from '../../api/deployments'
+import { useOrg, type Org } from '../../App'
 import { ProcessIcon, TrashIcon } from './SidebarIcons'
 import styles from './Sidebar.module.css'
 
 interface Props {
   proc: LogicalProcess
+  org: Org
   onConfirmDelete: (proc: LogicalProcess) => void
 }
 
 const DRAG_MIME = 'application/x-conduit-process-def-id'
 
-export default function ProcessRow({ proc, onConfirmDelete }: Props) {
+export default function ProcessRow({ proc, org, onConfirmDelete }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { setOrg } = useOrg()
 
   const editingThis = proc.versions.some(
     v =>
@@ -24,6 +27,7 @@ export default function ProcessRow({ proc, onConfirmDelete }: Props) {
   const active = editingThis || onDashboard
 
   const handleClick = () => {
+    setOrg(org)
     navigate(`/groups/${proc.groupId}/processes/${encodeURIComponent(proc.key)}`)
   }
 

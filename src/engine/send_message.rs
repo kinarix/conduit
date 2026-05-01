@@ -30,7 +30,9 @@ impl Engine {
         let message_name = job
             .topic
             .as_deref()
-            .ok_or_else(|| EngineError::Internal(format!("send_message job {job_id} has no topic")))?
+            .ok_or_else(|| {
+                EngineError::Internal(format!("send_message job {job_id} has no topic"))
+            })?
             .to_string();
 
         let def_row: (Uuid, Uuid) =
@@ -53,7 +55,10 @@ impl Engine {
             })?;
 
         // Best-effort delivery — drop message if no subscriber found.
-        match self.correlate_message(&message_name, None, &[], def_row.1).await {
+        match self
+            .correlate_message(&message_name, None, &[], def_row.1)
+            .await
+        {
             Ok(_) => {
                 info!(job_id = %job_id, message = %message_name, "send task delivered message");
             }

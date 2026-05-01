@@ -39,7 +39,12 @@ async fn deploy_single_decision() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 201, "expected 201, body: {}", resp.text().await.unwrap());
+    assert_eq!(
+        resp.status(),
+        201,
+        "expected 201, body: {}",
+        resp.text().await.unwrap()
+    );
     let body: serde_json::Value = resp.json().await.unwrap();
 
     let deployed = body["deployed"].as_array().unwrap();
@@ -102,7 +107,8 @@ async fn deploy_multi_decision_file() {
     let deployed = body["deployed"].as_array().unwrap();
     assert_eq!(deployed.len(), 2);
 
-    let keys: Vec<&str> = deployed.iter()
+    let keys: Vec<&str> = deployed
+        .iter()
         .map(|d| d["decision_key"].as_str().unwrap())
         .collect();
     assert!(keys.contains(&"decision-a"));
@@ -140,7 +146,8 @@ async fn list_decisions_returns_latest_versions() {
     let list = body.as_array().unwrap();
 
     // Only one entry for risk-check (latest version = 2)
-    let risk_check: Vec<&serde_json::Value> = list.iter()
+    let risk_check: Vec<&serde_json::Value> = list
+        .iter()
         .filter(|d| d["decision_key"] == "risk-check")
         .collect();
     assert_eq!(risk_check.len(), 1);
@@ -262,7 +269,9 @@ async fn engine_runs_business_rule_task() {
     .await
     .unwrap();
 
-    let risk_level = vars.iter().find(|(n, _, _)| n == "risk_level")
+    let risk_level = vars
+        .iter()
+        .find(|(n, _, _)| n == "risk_level")
         .expect("risk_level variable should be set after BusinessRuleTask");
     assert_eq!(risk_level.2, serde_json::json!("low"));
 }
@@ -309,11 +318,17 @@ async fn engine_decision_not_found_errors_instance() {
     // Instance should be in a failed state
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/api/v1/process-instances/{}", app.address, instance_id))
+        .get(format!(
+            "{}/api/v1/process-instances/{}",
+            app.address, instance_id
+        ))
         .send()
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["state"], "error", "instance should be in error state when decision not found");
+    assert_eq!(
+        body["state"], "error",
+        "instance should be in error state when decision not found"
+    );
 }

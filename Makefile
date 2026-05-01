@@ -1,5 +1,8 @@
 DATABASE_URL      ?= postgres://conduit:conduit_secret@localhost/conduit
 TEST_DATABASE_URL ?= postgres://conduit:conduit_secret@localhost/conduit_test
+# Dev-only AEAD key for the secrets table. Override in production with
+# `openssl rand -base64 32`. 32-byte base64-decoded value.
+CONDUIT_SECRETS_KEY ?= AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
 
 .PHONY: help db db-stop db-reset migrate migrate-test clean-db clean-test-db test test-watch check fmt lint build run clean
 
@@ -51,7 +54,7 @@ build: ## Build the project
 	cargo build
 
 run: db migrate ## Start the dev server
-	DATABASE_URL=$(DATABASE_URL) LOG_LEVEL=info cargo run
+	DATABASE_URL=$(DATABASE_URL) CONDUIT_SECRETS_KEY=$(CONDUIT_SECRETS_KEY) LOG_LEVEL=info cargo run
 
 clean: ## Remove build artifacts
 	cargo clean

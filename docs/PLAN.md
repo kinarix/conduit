@@ -34,6 +34,9 @@ Every phase follows this pattern:
 | 14 | DMN Integration | ✅ Complete | Decision tables |
 | 15 | Clustering + Observability | — | Multi-node, metrics |
 | 16 | Table Partitioning + Archival | — | Partitioned schema, retention policy |
+| 17 | External Task Long-Polling | — | LISTEN/NOTIFY-driven fetch-and-lock |
+| 18 | Element Documentation + Attachments | — | Per-element rich-text docs and file attachments (PDF/DOC/XLS/PPT) |
+| 19 | Instance Notes + Attachments | — | User-authored notes and attachments on running instances and steps |
 
 ---
 
@@ -270,17 +273,19 @@ All resources are org-scoped. Labels round-trip through the API. Schema is ready
 
 ---
 
-## Phase 6 — Exclusive Gateway
+## Phase 6 — Exclusive Gateway ✓
 
 **Goal:** Processes can branch based on variable conditions.
 
 ### Tasks
-- [ ] Variable passing on task completion — `POST /tasks/:id/complete` accepts `{ "variables": [...] }` body; writes to `variables` table before advancing
-- [ ] ExclusiveGateway in parser; read `conditionExpression` from sequence flows; mark default flow
-- [ ] Rhai expression evaluator — sandboxed, variables injected into scope
-- [ ] Condition evaluation on sequence flows — first-true-wins routing
-- [ ] Default flow support
-- [ ] Error on no matching condition (no default) — instance marked `error`
+- [x] Variable passing on task completion — `POST /tasks/:id/complete` accepts `{ "variables": [...] }` body; writes to `variables` table before advancing
+- [x] ExclusiveGateway in parser; read `conditionExpression` from sequence flows; mark default flow
+- [x] FEEL expression evaluator (Phase 6.1, replaced Rhai) — sandboxed, variables injected into scope (full JSON type coverage: arrays, objects, nested)
+- [x] Condition evaluation on sequence flows — first-true-wins routing
+- [x] Default flow support
+- [x] Error on no matching condition (no default) — instance marked `error`
+- [x] Strict eval-error semantics — typo'd condition marks instance `error` (not silent default fallback)
+- [x] Validator: gateways must have ≥1 outgoing flow; default flow ID must originate from the gateway
 
 ### Tests
 - Variable round-trip: complete task with variables → variables in DB
@@ -562,6 +567,423 @@ PostgreSQL declarative partitioning requires the partition key to be part of eve
 
 ### Deliverable
 Schema handles 10M+ instances with sub-10ms p99 on all hot-path queries.
+
+---
+
+## Phase 17 — External Task Long-Polling
+
+**Goal:** Replace short-poll worker traffic with long-polling on `fetch-and-lock`. Workers wait inside a single open HTTP request until a job for their topic appears (or the timeout elapses), eliminating the 500ms poll-per-worker tax without changing the worker contract.
+
+**Prerequisite:** Phase 7. Independent of Phases 15 and 16.
+
+### Background
+
+Today `POST /api/v1/external-tasks/fetch-and-lock` is a short poll: workers loop on the endpoint, the SQL `FOR UPDATE SKIP LOCKED` returns whatever is ready, and the request returns immediately even when the queue is empty (`src/api/external_tasks.rs:57`, `src/db/jobs.rs::fetch_and_lock_many`). With N workers polling every K ms across M topics, idle traffic scales as `N · M / K`.
+
+The Camunda 7 model — long-polling with a server-side `async_response_timeout` — keeps the worker contract intact (same endpoint, same JSON, same locking semantics) but parks the request on the server. The server is woken by Postgres `LISTEN/NOTIFY` whenever a row that could match becomes available: a new external_task job is inserted, an existing job's lock expires, or a job is unlocked after a `failure`.
+
+### Tasks
+
+- [ ] `migrations/0NN_external_task_notify.sql` — `LISTEN/NOTIFY` setup. Add a trigger on `jobs` for `INSERT` and `UPDATE OF locked_until, retry_count, type` that emits `pg_notify('external_task_ready', topic)` when `type = 'external_task'` and the row is fetchable (`locked_until IS NULL OR locked_until <= now()`). Trigger function must be `SECURITY INVOKER` and cheap (no heavy joins).
+- [ ] `src/db/jobs.rs` — extend `fetch_and_lock_many` callers, or add a sibling `fetch_and_lock_many_long_poll(pool, worker_id, lock_secs, topic, max_jobs, wait_secs)` that:
+  1. Tries `fetch_and_lock_many` once.
+  2. If empty and `wait_secs > 0`, acquires a dedicated `PgConnection` from the pool, issues `LISTEN external_task_ready`, then `tokio::select!`s between `connection.notifications().recv()` filtered by topic and a `tokio::time::sleep(wait_secs)`.
+  3. On wake, retries the fetch once (any payload — there may be contention, an empty result is fine).
+  4. Always `UNLISTEN` and return the connection to the pool.
+- [ ] `src/api/external_tasks.rs::FetchAndLockRequest` — add `async_response_timeout_secs: Option<i64>` (clamped to `[0, 60]`, default `0` to preserve current short-poll behaviour). Route to long-poll path when `> 0`.
+- [ ] Engine wake-ups for re-fetchable rows. Audit every site that makes a job fetchable and ensure the trigger fires:
+  - Insert (already covered by trigger on INSERT)
+  - `fail_external_task` decrements retries and clears lock — covered by UPDATE trigger
+  - Lock-expiry sweep (background unlock job, if any) — covered by UPDATE trigger
+- [ ] `src/state.rs` — confirm `PgPool` size is sufficient. Long-pollers hold a connection for up to `wait_secs` each; document the relationship `max_long_pollers + ambient_query_load ≤ pool_size`. Consider exposing `EXTERNAL_TASK_LONG_POLL_MAX_WAIT_SECS` as a config bound (default 30, hard cap 60).
+- [ ] Graceful shutdown — on `SIGTERM`, signal in-flight long-pollers to return early (200 with empty array) so workers reconnect against the next replica.
+- [ ] Metrics (defer to Phase 15 if not yet built): counters for `long_poll_woken_by_notify`, `long_poll_timed_out`, `long_poll_woken_but_lost_race` (notified but no row claimed on retry).
+
+### Tests
+
+- [ ] Long-poll returns immediately when a job already exists (no waiting).
+- [ ] Long-poll with empty queue + `wait_secs=2` returns empty array after ~2s.
+- [ ] Long-poll waiting on topic `A` is woken when a job for topic `A` is inserted; returns within ~100ms.
+- [ ] Long-poll waiting on topic `A` is **not** woken (and times out) when a job for topic `B` is inserted.
+- [ ] Two long-pollers on the same topic — one job inserted — exactly one returns the job, the other waits or times out (no double-delivery, no panic).
+- [ ] Long-poll wakes when an existing job's lock expires past `now()` (simulate by updating `locked_until`).
+- [ ] Long-poll wakes when a `failure` call decrements retries and clears the lock.
+- [ ] `async_response_timeout_secs = 0` preserves Phase 7 behaviour byte-for-byte.
+- [ ] `async_response_timeout_secs > 60` clamped to 60 (no silent multi-minute holds).
+- [ ] Pool exhaustion test: long-pollers ≥ pool size — handler returns 503 or short-polls instead of deadlocking other queries.
+- [ ] Graceful shutdown drains in-flight long-pollers within shutdown grace period.
+
+### Non-goals
+
+- Replacing REST with WebSockets, SSE, or gRPC streaming. Workers stay HTTP/JSON.
+- Server-side push of variable updates. Only job-availability notifications.
+- Cross-engine notification routing — `LISTEN/NOTIFY` is per-Postgres-cluster, which is exactly the boundary we want.
+
+### Deliverable
+
+Workers configured with `async_response_timeout_secs > 0` see job latency drop from `≤ poll_interval` to `≤ NOTIFY round-trip` (~tens of ms) while idle DB load drops to near zero. Existing workers continue to short-poll without code changes.
+
+---
+
+## Phase 18 — Element Documentation + Attachments
+
+**Goal:** Every BPMN element that supports `<bpmn:documentation>` (and every DMN decision) can carry a rich-text description and file attachments, edited via a modal in the UI modeller. Documentation round-trips through BPMN XML so processes stay portable; attachments are a Conduit-side store keyed by `(definition_id, element_id)`.
+
+**Prerequisite:** Phase 5 + existing UI modeller. Independent of Phases 15–17.
+
+### Background
+
+Today an element's only metadata in the modeller is its `id`, `name`, and a few extension attributes. There's nowhere to capture *why* a step exists, link to a runbook, or attach the spec PDF a business analyst handed over. BPMN 2.0 reserves `<documentation>` as an optional child on virtually every flow element — supporting it is table-stakes for a modeller. Attachments are not part of BPMN; they live in Conduit's own store and are linked by element ID.
+
+### Scope
+
+#### Documented elements (anywhere `<bpmn:documentation>` is permitted in BPMN 2.0)
+- `Process`, `SubProcess`
+- All events: `StartEvent`, `EndEvent`, `IntermediateCatchEvent`, `IntermediateThrowEvent`, `BoundaryEvent`
+- All tasks: `UserTask`, `ServiceTask`, `ReceiveTask`, `BusinessRuleTask`, `SendTask`, `ScriptTask`, `ManualTask`
+- All gateways: `Exclusive`, `Parallel`, `Inclusive`, `Event`, `Complex`
+- `SequenceFlow`, `MessageFlow`, `DataObject`, `Lane`, `Participant`
+- DMN: `Decision` (separate API surface; same UX)
+
+#### Out of scope
+- Per-revision documentation history (latest wins per definition version)
+- Inline images embedded as base64 in the rich text body — must be uploaded as attachments
+- Comments/threading on documentation
+- Cross-element linking (Phase 19+ if needed)
+- External-store backends (S3, MinIO) — deferred; bytea only for now
+
+### Data Model
+
+#### `element_documentation` (new table)
+
+```sql
+CREATE TABLE element_documentation (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    definition_id   UUID NOT NULL,            -- references process_definitions or decision_definitions
+    definition_kind TEXT NOT NULL CHECK (definition_kind IN ('process', 'decision')),
+    element_id      TEXT NOT NULL,            -- BPMN/DMN element ID (string, not UUID)
+    body_html       TEXT NOT NULL DEFAULT '', -- sanitized HTML
+    body_text       TEXT NOT NULL DEFAULT '', -- plain-text projection for search
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by      UUID REFERENCES users(id),
+    UNIQUE (definition_id, definition_kind, element_id)
+);
+CREATE INDEX idx_element_documentation_def
+    ON element_documentation (definition_id, definition_kind);
+```
+
+#### `element_attachments` (new table)
+
+```sql
+CREATE TABLE element_attachments (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    definition_id   UUID NOT NULL,
+    definition_kind TEXT NOT NULL CHECK (definition_kind IN ('process', 'decision')),
+    element_id      TEXT NOT NULL,
+    filename        TEXT NOT NULL,
+    mime_type       TEXT NOT NULL,
+    size_bytes      BIGINT NOT NULL,
+    sha256          BYTEA NOT NULL,           -- dedup key
+    content         BYTEA NOT NULL,           -- raw bytes; bytea storage for now
+    uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    uploaded_by     UUID REFERENCES users(id)
+);
+CREATE INDEX idx_element_attachments_element
+    ON element_attachments (definition_id, definition_kind, element_id);
+CREATE INDEX idx_element_attachments_sha
+    ON element_attachments (sha256);
+```
+
+Notes:
+- `definition_id` is intentionally **not** a foreign key — `process_definitions` and `decision_definitions` are separate tables; the `definition_kind` discriminator is checked by the API layer.
+- Cascade behaviour on definition delete: on hard-delete of a definition, attachments and documentation are deleted in the same transaction (handled in `db::process_definitions::delete`).
+- Element-rename behaviour: when a deployment overwrites a definition (new version), documentation/attachments are **not** auto-migrated. They're keyed to the version. Optional migration tool can copy from previous version on deploy if `inherit_docs=true` is passed.
+
+### Configuration (env)
+
+```
+ATTACHMENT_MAX_SIZE_BYTES=26214400        # 25 MiB default
+ATTACHMENT_MAX_TOTAL_PER_ELEMENT_BYTES=104857600  # 100 MiB total per element
+ATTACHMENT_ALLOWED_MIME=application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/markdown,image/png,image/jpeg,image/gif
+```
+
+MIME type is validated server-side from sniffed content (via `infer` crate or magic bytes), not just the request header — uploaded files are not trusted.
+
+### API
+
+```
+GET    /api/v1/{kind}/{definition_id}/elements/{element_id}/documentation
+PUT    /api/v1/{kind}/{definition_id}/elements/{element_id}/documentation
+DELETE /api/v1/{kind}/{definition_id}/elements/{element_id}/documentation
+
+GET    /api/v1/{kind}/{definition_id}/elements/{element_id}/attachments
+POST   /api/v1/{kind}/{definition_id}/elements/{element_id}/attachments     (multipart)
+GET    /api/v1/attachments/{attachment_id}                                   (download stream)
+DELETE /api/v1/attachments/{attachment_id}
+```
+
+Where `{kind}` ∈ `processes` | `decisions`.
+
+`PUT` documentation accepts:
+```json
+{ "body_html": "<p>…</p>", "body_text": "…" }
+```
+Server sanitizes `body_html` (`ammonia` crate, allowlist: standard formatting + safe inline elements; no `<script>`, no `on*` handlers, no `style` attributes, no inline data: URIs except for the small image case). `body_text` is recomputed server-side from sanitized HTML — the client value is advisory.
+
+`POST` attachment accepts `multipart/form-data` with a single `file` part. Server response includes `id`, `filename`, `mime_type`, `size_bytes`, `download_url`. Deduplication: if `sha256` already exists for this element, return the existing row (idempotent re-upload).
+
+`GET /api/v1/attachments/{id}` streams bytes with `Content-Disposition: attachment; filename="…"` and the original MIME type. Range requests supported for large files (PDFs in browser viewer).
+
+### BPMN XML round-trip
+
+On deployment (`POST /api/v1/deployments`):
+1. Parser walks the XML and harvests every `<bpmn:documentation>` child it finds (one per element).
+2. For each, upsert into `element_documentation` with `body_text = documentation text content` and `body_html = wrapped <p> of the same`.
+3. On `GET /api/v1/deployments/{id}/xml`, the engine re-emits XML with `<bpmn:documentation>` populated from `body_text` (HTML stripped to plain text — round-trip is plain text, rich content is Conduit-only).
+
+This means: BPMN XML carries plain text only (portable). Rich HTML and attachments are Conduit additions, lost on export but preserved on Conduit-internal redeploy if `inherit_docs=true`.
+
+### UI
+
+#### Component layout
+- `ui/src/components/bpmn/DocumentationModal.tsx` — new modal component
+- `ui/src/components/bpmn/BpmnProperties.tsx` — add a "Documentation" button next to id/name fields that opens the modal for the currently selected element
+- `ui/src/api/documentation.ts` — fetch wrappers for the four documentation/attachment endpoints
+
+#### Editor library
+TipTap (`@tiptap/react` + `@tiptap/starter-kit` + `@tiptap/extension-link` + `@tiptap/extension-image`). Headless, MIT, ProseMirror under the hood, ~80kb gzip with the kit. Output: HTML.
+
+Toolbar: bold, italic, underline, strike, h1/h2/h3, bullet list, ordered list, blockquote, code block, inline code, link, undo/redo. Image insertion goes through the attachment upload flow (uploaded image → embed via `download_url`).
+
+#### Modal UX
+- Two-pane layout: editor on top, attachment list below (drag-and-drop drop zone or "+ Add file" button).
+- Attachment row: filename, size, type icon (PDF/DOC/XLS/PPT/IMG/TXT), upload date, download button, delete button (confirm).
+- Save button persists both the editor body and any pending attachment uploads in one shot.
+- Cancel discards in-memory edits — no autosave.
+- Loading and error states for upload (progress bar per file).
+- Max-size feedback before upload (client-side check against `ATTACHMENT_MAX_SIZE_BYTES` exposed via `/api/v1/config`).
+
+### Tests
+
+#### Backend
+- [ ] `documentation_round_trip` — PUT body_html, GET returns sanitized body_html and recomputed body_text.
+- [ ] `documentation_html_sanitization` — `<script>alert(1)</script>` stripped; `<p onclick="…">` attributes stripped; `<a href="javascript:…">` neutralised; safe formatting (`<b>`, `<a href="https://…">`, `<ul>`, `<code>`) preserved.
+- [ ] `documentation_extracted_on_deploy` — BPMN with `<bpmn:documentation>foo</bpmn:documentation>` on a userTask → row in `element_documentation` after deploy.
+- [ ] `documentation_export_round_trips` — Deploy BPMN, edit doc via API, re-export XML → `<bpmn:documentation>` contains plain text from `body_text`.
+- [ ] `attachment_upload_pdf` — POST 1 MiB PDF, GET attachment list returns the row, GET attachment stream returns bytes with correct Content-Type.
+- [ ] `attachment_rejects_oversized` — Upload > `ATTACHMENT_MAX_SIZE_BYTES` → 413.
+- [ ] `attachment_rejects_disallowed_mime` — Upload `.exe` (or content-sniff says `application/x-msdownload`) → 415.
+- [ ] `attachment_dedup_by_sha256` — Same file uploaded twice for same element → second call returns first row's ID, only one row in DB.
+- [ ] `attachment_cascade_on_definition_delete` — Hard-delete definition → attachment rows removed.
+- [ ] `attachment_per_element_total_cap` — Uploads exceeding `ATTACHMENT_MAX_TOTAL_PER_ELEMENT_BYTES` rejected with 413.
+- [ ] `unknown_element_id_404` — Documentation/attachment ops against an element ID not present in any deployed version of that definition → 404.
+
+#### UI (component tests via Vitest + React Testing Library)
+- [ ] Modal opens with current documentation pre-filled.
+- [ ] Editing body and saving fires PUT with sanitized HTML.
+- [ ] Drag-and-drop a PDF into the drop zone → upload progress → row appears.
+- [ ] Attempting to drop an `.exe` shows "file type not allowed" inline error.
+- [ ] Delete attachment requires confirm; on confirm, row removed and DELETE called.
+- [ ] Cancel discards unsaved body and pending uploads.
+
+### Deliverable
+
+Every BPMN element (and DMN decision) has a "Documentation" button in the modeller. Clicking opens a modal with a TipTap rich-text editor and an attachment panel. Process designers can write specs, embed images, and link spec PDFs / Word docs / Excel sheets / PowerPoint decks directly to the elements they describe. Documentation round-trips through BPMN XML as plain text; rich content and attachments persist in Conduit's database.
+
+---
+
+## Phase 19 — Instance Notes + Attachments (User-Driven)
+
+**Goal:** End users (task assignees, supervisors, observers) can attach rich-text notes and files to a running process instance — either to the instance as a whole or to a specific step (element or task). Unlike Phase 18 (design-time, one body per definition), Phase 19 is a runtime, append-only timeline scoped to one execution.
+
+**Prerequisite:** Phase 5 + Phase 5.5. Reuses the editor, sanitizer, MIME allowlist, and size caps from Phase 18.
+
+### Why this is separate from Phase 18
+
+| | Phase 18 — Element Documentation | Phase 19 — Instance Notes |
+|---|---|---|
+| Author | Process designer | End user (task worker, supervisor) |
+| Scope | `(definition, element_id)` | `(instance, optional element_id, optional task_id)` |
+| Cardinality | One body per element, updated in place | Many notes per instance, append-only timeline |
+| Lifetime | Survives across instances; lost on definition delete | Tied to the instance; lost on instance archival |
+| Purpose | "What this step *should* do" | "What happened in *this* run" |
+| Visibility | Modeller | Task UI + instance detail UI |
+
+The two should be visually distinct in the UI: design-time docs are the "spec" panel (read-only for end users), instance notes are the "activity" panel (writeable by users with task access).
+
+### Scope
+
+#### Captured note targets
+- Whole instance: `(instance_id, element_id=NULL, task_id=NULL)` — e.g. "escalated to manager"
+- Specific element across the instance lifetime: `(instance_id, element_id='task_review', task_id=NULL)` — survives even after the task closes
+- Specific task occurrence: `(instance_id, element_id='task_review', task_id=<task_uuid>)` — bound to one specific execution of that user task (matters for loops and re-entry)
+
+The UI presents a single timeline; the discriminators are filters/badges, not separate surfaces.
+
+#### Out of scope
+- Threaded replies / mentions (flat timeline only)
+- Edit history (notes are append-only; an author can soft-delete their own note within a configurable grace window, otherwise it stays)
+- Real-time collaborative editing
+- Cross-instance search (deferred to a search-indexing phase)
+- @-notifications / email digests (deferred — needs a notifier phase)
+
+### Data Model
+
+#### `instance_notes` (new table)
+
+```sql
+CREATE TABLE instance_notes (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    instance_id     UUID NOT NULL REFERENCES process_instances(id) ON DELETE CASCADE,
+    element_id      TEXT,
+    task_id         UUID REFERENCES tasks(id) ON DELETE SET NULL,
+    body_html       TEXT NOT NULL,
+    body_text       TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_by      UUID NOT NULL REFERENCES users(id),
+    deleted_at      TIMESTAMPTZ,                          -- soft-delete by author within grace window
+    pinned          BOOLEAN NOT NULL DEFAULT FALSE        -- pinned notes float to top of timeline
+);
+CREATE INDEX idx_instance_notes_instance       ON instance_notes (instance_id, created_at DESC);
+CREATE INDEX idx_instance_notes_instance_elem  ON instance_notes (instance_id, element_id) WHERE element_id IS NOT NULL;
+CREATE INDEX idx_instance_notes_task           ON instance_notes (task_id) WHERE task_id IS NOT NULL;
+```
+
+#### `instance_attachments` (new table)
+
+```sql
+CREATE TABLE instance_attachments (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    instance_id     UUID NOT NULL REFERENCES process_instances(id) ON DELETE CASCADE,
+    element_id      TEXT,
+    task_id         UUID REFERENCES tasks(id) ON DELETE SET NULL,
+    note_id         UUID REFERENCES instance_notes(id) ON DELETE SET NULL,  -- optional: attachment authored alongside a note
+    filename        TEXT NOT NULL,
+    mime_type       TEXT NOT NULL,
+    size_bytes      BIGINT NOT NULL,
+    sha256          BYTEA NOT NULL,
+    content         BYTEA NOT NULL,
+    uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    uploaded_by     UUID NOT NULL REFERENCES users(id)
+);
+CREATE INDEX idx_instance_attachments_instance ON instance_attachments (instance_id, uploaded_at DESC);
+CREATE INDEX idx_instance_attachments_task     ON instance_attachments (task_id) WHERE task_id IS NOT NULL;
+CREATE INDEX idx_instance_attachments_note     ON instance_attachments (note_id) WHERE note_id IS NOT NULL;
+```
+
+Notes:
+- `ON DELETE CASCADE` from `process_instances` — when an instance is hard-deleted (archival/GDPR), notes and attachments go with it. History service should snapshot before delete.
+- `ON DELETE SET NULL` from `tasks` — task rows are deleted when the task closes, but the note about that task should remain attached to the instance (with `task_id` becoming NULL). The UI shows "task <element_id> (closed)" once `task_id` is NULL.
+- Soft-delete grace window: configurable env `NOTE_EDIT_GRACE_SECONDS=300` — author can soft-delete within 5 minutes; after that, notes are immutable.
+
+### Configuration (env)
+
+Reuses Phase 18's MIME allowlist and per-file size cap. Adds:
+
+```
+NOTE_EDIT_GRACE_SECONDS=300
+INSTANCE_ATTACHMENT_MAX_TOTAL_BYTES=524288000      # 500 MiB total per instance
+```
+
+### API
+
+```
+GET    /api/v1/process-instances/{instance_id}/notes
+       ?element_id=<elem>&task_id=<uuid>           # optional filters
+POST   /api/v1/process-instances/{instance_id}/notes
+DELETE /api/v1/notes/{note_id}                     # author-only, within grace window
+
+GET    /api/v1/process-instances/{instance_id}/attachments
+       ?element_id=<elem>&task_id=<uuid>
+POST   /api/v1/process-instances/{instance_id}/attachments     (multipart)
+GET    /api/v1/instance-attachments/{attachment_id}            (download stream)
+DELETE /api/v1/instance-attachments/{attachment_id}            (uploader-only)
+
+POST   /api/v1/tasks/{task_id}/notes                # convenience: scopes element_id + task_id automatically
+POST   /api/v1/tasks/{task_id}/attachments
+```
+
+`POST .../notes` body:
+```json
+{
+  "body_html": "<p>…</p>",
+  "body_text": "…",
+  "element_id": "task_review",       // optional
+  "task_id": "<uuid>",               // optional
+  "pinned": false,                   // optional
+  "attachment_ids": ["<uuid>", "..."] // optional: link existing instance attachments to this note
+}
+```
+
+`POST /api/v1/tasks/{task_id}/complete` is **extended** to optionally include:
+```json
+{
+  "variables": [...],
+  "completion_note": { "body_html": "...", "body_text": "..." },
+  "attachment_ids": ["<uuid>", ...]
+}
+```
+The completion_note becomes a pinned note for `(instance_id, element_id, task_id)` so the task's outcome rationale is captured at the moment of completion. Attachments uploaded earlier in the session can be linked here.
+
+Sanitization, MIME sniffing, dedup-by-sha256 — same rules as Phase 18.
+
+### Authorization
+
+- Read: any user in the instance's org with read access to the instance.
+- Write: any user in the instance's org. Where task RBAC is enforced (later phase), users restricted to their assigned tasks see only notes/attachments tied to their tasks.
+- Delete: only the original author, only within `NOTE_EDIT_GRACE_SECONDS`.
+- Pin/unpin: any user with write access (audit-logged).
+
+(Auth enforcement scaffolding is whatever exists at the time Phase 19 lands — Phase 19 doesn't introduce new auth machinery.)
+
+### Audit Trail Integration
+
+Every note creation, deletion, pin/unpin, and attachment upload writes a row into `execution_history` with `event_type` ∈ `note_created`, `note_deleted`, `note_pinned`, `attachment_uploaded`, `attachment_deleted`. Payload includes the `note_id` / `attachment_id`, `created_by`, and `element_id` / `task_id` so the timeline reconstructs from history alone if notes are soft-deleted.
+
+### UI
+
+#### Components
+- `ui/src/components/instance/InstanceTimeline.tsx` — append-only timeline component, used on instance detail page; ordered by `created_at DESC`, pinned notes float to top.
+- `ui/src/components/instance/NoteComposer.tsx` — TipTap editor + drop zone + "post" button.
+- `ui/src/components/task/TaskNotesPanel.tsx` — embedded in task detail UI; pre-scopes `element_id` + `task_id` so notes are bound to the right context.
+- `ui/src/components/instance/AttachmentList.tsx` — shared between instance and task panels; same UX as Phase 18.
+- `ui/src/api/instanceNotes.ts` + `ui/src/api/instanceAttachments.ts` — fetch wrappers.
+
+#### Behaviour
+- Drag-and-drop on the timeline drops uncategorised attachments at the instance level.
+- Drag-and-drop on a task panel scopes attachments to that task.
+- Note composer accepts in-line attachment uploads (paste a PDF, drop an image): file is uploaded immediately, returned attachment ID is stashed, then linked via `attachment_ids` when the note is posted.
+- Soft-deleted notes render as "[deleted by author]" with the timestamp; admin/audit view can show the original body sourced from `execution_history`.
+- "Add completion note" prompt appears on task complete dialog (skippable).
+
+### Tests
+
+#### Backend
+- [ ] `note_create_round_trip` — POST note, GET timeline returns it with sanitized HTML.
+- [ ] `note_filtered_by_element` — POST 3 notes (instance-level, element A, element B); GET with `element_id=A` returns only the element-A note plus instance-level? **Decision:** filter is exact-match — instance-level notes only returned when no `element_id` filter passed.
+- [ ] `note_filtered_by_task` — same, with `task_id`.
+- [ ] `note_soft_delete_within_grace` — author DELETE within grace window → row marked deleted, timeline returns "[deleted]" placeholder.
+- [ ] `note_soft_delete_after_grace` — DELETE after `NOTE_EDIT_GRACE_SECONDS` → 403.
+- [ ] `note_soft_delete_other_user` — non-author DELETE → 403.
+- [ ] `note_html_sanitized` — same allowlist as Phase 18.
+- [ ] `attachment_uploaded_to_instance` — POST 1 MiB PDF, listed in attachments.
+- [ ] `attachment_linked_to_note` — POST attachment, then POST note with `attachment_ids=[…]` → note response includes attachment metadata.
+- [ ] `attachment_dedup_within_instance` — same SHA twice on same instance → idempotent.
+- [ ] `attachment_per_instance_total_cap` — uploads exceeding `INSTANCE_ATTACHMENT_MAX_TOTAL_BYTES` rejected with 413.
+- [ ] `task_complete_with_note` — POST `/tasks/:id/complete` with `completion_note` → task advances and pinned note exists for that task.
+- [ ] `task_close_preserves_notes` — task completed → tasks row deleted → notes still queryable, `task_id` is NULL.
+- [ ] `instance_delete_cascades` — hard-delete instance → notes + attachments removed; `execution_history` rows preserved as audit fallback.
+- [ ] `audit_history_records_note_lifecycle` — note_created / note_deleted / attachment_uploaded events all land in `execution_history`.
+
+#### UI
+- [ ] Timeline renders newest-first with pinned items pinned.
+- [ ] Composer attaches in-line file upload before submit; failed upload prevents submit.
+- [ ] Soft-delete button visible only to author and only within grace window.
+- [ ] Task complete dialog shows optional "completion note" field that posts on confirm.
+
+### Deliverable
+
+Every running process instance carries a user-authored timeline. Workers can drop notes and attachments on the instance, on a step, or on a specific task; supervisors can pin critical context to the top; the task completion dialog captures rationale at the moment of decision. Together with Phase 18, the modeller's "what this should do" and the operator's "what actually happened" sit side-by-side in the UI.
 
 ---
 

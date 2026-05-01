@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { renameProcessGroup, assignProcessGroup, type ProcessGroup } from '../../api/processGroups'
 import { groupByProcessKey, type ProcessDefinition, type LogicalProcess } from '../../api/deployments'
+import { useOrg, type Org } from '../../App'
 import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon } from './SidebarIcons'
 import ProcessRow, { PROCESS_DRAG_MIME } from './ProcessRow'
 import InlineNameInput from './InlineNameInput'
@@ -10,7 +11,7 @@ import styles from './Sidebar.module.css'
 
 interface Props {
   group: ProcessGroup
-  orgId: string
+  org: Org
   defs: ProcessDefinition[]
   expanded: boolean
   onToggle: () => void
@@ -20,7 +21,7 @@ interface Props {
 
 export default function GroupRow({
   group,
-  orgId,
+  org,
   defs,
   expanded,
   onToggle,
@@ -30,8 +31,10 @@ export default function GroupRow({
   const navigate = useNavigate()
   const location = useLocation()
   const qc = useQueryClient()
+  const { setOrg } = useOrg()
   const [editing, setEditing] = useState(false)
   const [dropping, setDropping] = useState(false)
+  const orgId = org.id
 
   const renameMut = useMutation({
     mutationFn: (name: string) => renameProcessGroup(group.id, name),
@@ -57,6 +60,7 @@ export default function GroupRow({
         className={`${styles.row} ${styles.indent1} ${groupActive ? styles.selected : ''} ${dropping ? styles.dropTarget : ''}`}
         onClick={() => {
           if (!editing) {
+            setOrg(org)
             onToggle()
             navigate(`/process-groups/${group.id}`)
           }
@@ -135,6 +139,7 @@ export default function GroupRow({
             <ProcessRow
               key={`${proc.groupId}::${proc.key}`}
               proc={proc}
+              org={org}
               onConfirmDelete={onConfirmDeleteProcess}
             />
           ))

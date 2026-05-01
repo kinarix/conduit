@@ -48,7 +48,7 @@ import BpmnProperties from './BpmnProperties';
 import { toXml, fromXml } from './bpmnXml';
 import type { BpmnNodeData, BpmnEdgeData, BpmnElementType } from './bpmnTypes';
 import { NODE_DIMENSIONS } from './bpmnTypes';
-import { applyAutoLayout } from './autoLayout';
+import { applyAutoLayout, spreadGatewayHandles } from './autoLayout';
 
 function ZoomDisplay() {
   const { zoom } = useViewport();
@@ -345,8 +345,9 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
 
   const onAutoLayout = useCallback(() => {
     setNodes(ns => applyAutoLayout(ns, edges));
+    setEdges(es => spreadGatewayHandles(nodes, es));
     setTimeout(() => reactFlow.fitView({ padding: 0.15, duration: 300 }), 50);
-  }, [edges, setNodes, reactFlow]);
+  }, [edges, nodes, setNodes, setEdges, reactFlow]);
 
   const onEdgeChange = useCallback((id: string, patch: Partial<BpmnEdgeData>) => {
     setEdges(es =>

@@ -101,17 +101,19 @@ pub(super) fn parse_cycle(s: &str) -> Result<(Option<i32>, Duration)> {
         return Err(EngineError::Parse(format!("Invalid timeCycle: '{s}'")));
     }
     let rest = &s[1..];
-    let slash = rest.find('/').ok_or_else(|| {
-        EngineError::Parse(format!("Invalid timeCycle (no /): '{s}'"))
-    })?;
+    let slash = rest
+        .find('/')
+        .ok_or_else(|| EngineError::Parse(format!("Invalid timeCycle (no /): '{s}'")))?;
     let count_str = &rest[..slash];
     let duration_str = &rest[slash + 1..];
     let repetitions = if count_str.is_empty() || count_str == "0" {
         None
     } else {
-        Some(count_str.parse::<i32>().map_err(|_| {
-            EngineError::Parse(format!("Invalid cycle count: '{count_str}'"))
-        })?)
+        Some(
+            count_str
+                .parse::<i32>()
+                .map_err(|_| EngineError::Parse(format!("Invalid cycle count: '{count_str}'")))?,
+        )
     };
     Ok((repetitions, parse_duration(duration_str)?))
 }
@@ -250,7 +252,10 @@ mod tests {
 
     #[test]
     fn duration_days_and_hours() {
-        assert_eq!(parse_duration("P2DT3H").unwrap().num_seconds(), 2 * 86_400 + 3 * 3_600);
+        assert_eq!(
+            parse_duration("P2DT3H").unwrap().num_seconds(),
+            2 * 86_400 + 3 * 3_600
+        );
     }
 
     #[test]
@@ -330,7 +335,8 @@ mod tests {
     #[test]
     fn schedule_duration_is_in_future() {
         let before = Utc::now();
-        let (due, expr, reps) = timer_spec_schedule(&TimerSpec::Duration("PT1H".to_string())).unwrap();
+        let (due, expr, reps) =
+            timer_spec_schedule(&TimerSpec::Duration("PT1H".to_string())).unwrap();
         assert!(due > before);
         assert!(expr.is_none());
         assert!(reps.is_none());
@@ -338,7 +344,8 @@ mod tests {
 
     #[test]
     fn schedule_cycle_returns_expr_and_reps() {
-        let (due, expr, reps) = timer_spec_schedule(&TimerSpec::Cycle("R3/PT5M".to_string())).unwrap();
+        let (due, expr, reps) =
+            timer_spec_schedule(&TimerSpec::Cycle("R3/PT5M".to_string())).unwrap();
         let before = Utc::now();
         assert!(due < before + chrono::Duration::hours(1));
         assert_eq!(expr.as_deref(), Some("R3/PT5M"));
@@ -347,7 +354,8 @@ mod tests {
 
     #[test]
     fn schedule_date_returns_parsed_instant() {
-        let (due, expr, reps) = timer_spec_schedule(&TimerSpec::Date("2040-01-01T00:00:00Z".to_string())).unwrap();
+        let (due, expr, reps) =
+            timer_spec_schedule(&TimerSpec::Date("2040-01-01T00:00:00Z".to_string())).unwrap();
         assert_eq!(due.format("%Y").to_string(), "2040");
         assert!(expr.is_some());
         assert_eq!(reps, Some(1));
@@ -357,19 +365,52 @@ mod tests {
 
     #[test]
     fn element_type_str_spot_check() {
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::StartEvent), "startEvent");
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::EndEvent), "endEvent");
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::UserTask), "userTask");
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::ParallelGateway), "parallelGateway");
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::ServiceTask { topic: None, url: None }), "serviceTask");
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::SubProcess { sub_graph: Box::new(empty_graph("sub")) }), "subProcess");
-        assert_eq!(Engine::element_type_str(&FlowNodeKind::TimerStartEvent { timer: TimerSpec::Duration("PT1S".to_string()) }), "startEvent");
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::StartEvent),
+            "startEvent"
+        );
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::EndEvent),
+            "endEvent"
+        );
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::UserTask),
+            "userTask"
+        );
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::ParallelGateway),
+            "parallelGateway"
+        );
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::ServiceTask {
+                topic: None,
+                url: None,
+                http: None
+            }),
+            "serviceTask"
+        );
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::SubProcess {
+                sub_graph: Box::new(empty_graph("sub"))
+            }),
+            "subProcess"
+        );
+        assert_eq!(
+            Engine::element_type_str(&FlowNodeKind::TimerStartEvent {
+                timer: TimerSpec::Duration("PT1S".to_string())
+            }),
+            "startEvent"
+        );
     }
 
     // ── Engine::find_element_graph ────────────────────────────────────────────
 
     fn node(id: &str) -> FlowNode {
-        FlowNode { id: id.to_string(), name: None, kind: FlowNodeKind::UserTask }
+        FlowNode {
+            id: id.to_string(),
+            name: None,
+            kind: FlowNodeKind::UserTask,
+        }
     }
 
     fn empty_graph(id: &str) -> ProcessGraph {
@@ -390,7 +431,16 @@ mod tests {
         for &nid in node_ids {
             nodes.insert(nid.to_string(), node(nid));
         }
-        ProcessGraph { process_id: id.to_string(), process_name: None, nodes, flows: vec![], outgoing: HashMap::new(), incoming: HashMap::new(), attached_to: HashMap::new(), input_schema: None }
+        ProcessGraph {
+            process_id: id.to_string(),
+            process_name: None,
+            nodes,
+            flows: vec![],
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            attached_to: HashMap::new(),
+            input_schema: None,
+        }
     }
 
     #[test]
@@ -417,7 +467,9 @@ mod tests {
             FlowNode {
                 id: "sub1".to_string(),
                 name: None,
-                kind: FlowNodeKind::SubProcess { sub_graph: Box::new(inner) },
+                kind: FlowNodeKind::SubProcess {
+                    sub_graph: Box::new(inner),
+                },
             },
         );
         let outer = ProcessGraph {

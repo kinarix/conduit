@@ -25,7 +25,10 @@ pub async fn spawn_test_app() -> TestApp {
         .await
         .expect("Failed to run migrations");
 
-    let state = Arc::new(AppState::new(pool.clone()));
+    // Fixed test key — deterministic so tests are reproducible. Real
+    // deployments load this from CONDUIT_SECRETS_KEY env.
+    let test_secrets_key = [0xA5u8; 32];
+    let state = Arc::new(AppState::new(pool.clone(), test_secrets_key));
 
     let app = Router::new()
         .merge(conduit::api::health::routes())
@@ -37,6 +40,7 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::tasks::routes())
         .merge(conduit::api::external_tasks::routes())
         .merge(conduit::api::decisions::routes())
+        .merge(conduit::api::secrets::routes())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -79,7 +83,12 @@ pub async fn create_test_process_group(app: &TestApp, org_id: Uuid, name: &str) 
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 201, "create_test_process_group failed: {:?}", resp.text().await);
+    assert_eq!(
+        resp.status(),
+        201,
+        "create_test_process_group failed: {:?}",
+        resp.text().await
+    );
     let body: serde_json::Value = resp.json().await.unwrap();
     Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
 }

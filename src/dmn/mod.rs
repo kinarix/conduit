@@ -43,8 +43,7 @@ pub struct Rule {
 
 /// Parse a DMN XML string into one or more `DecisionTable` structs.
 pub fn parse(xml: &str) -> Result<Vec<DecisionTable>, EngineError> {
-    let doc = roxmltree::Document::parse(xml)
-        .map_err(|e| EngineError::DmnParse(e.to_string()))?;
+    let doc = roxmltree::Document::parse(xml).map_err(|e| EngineError::DmnParse(e.to_string()))?;
 
     let definitions = doc.root_element();
     if definitions.tag_name().name() != "definitions" {
@@ -377,10 +376,7 @@ mod tests {
 
     #[test]
     fn parse_no_decisions_is_err() {
-        let xml = format!(
-            r#"<?xml version="1.0"?><definitions xmlns="{}"/>"#,
-            DMN_NS
-        );
+        let xml = format!(r#"<?xml version="1.0"?><definitions xmlns="{}"/>"#, DMN_NS);
         assert!(parse(&xml).is_err());
     }
 

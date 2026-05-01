@@ -40,7 +40,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/process-groups", post(create_process_group))
         .route("/api/v1/process-groups/{id}", put(rename_process_group))
         .route("/api/v1/process-groups/{id}", delete(delete_process_group))
-        .route("/api/v1/deployments/{id}/process-group", put(assign_process_group))
+        .route(
+            "/api/v1/deployments/{id}/process-group",
+            put(assign_process_group),
+        )
 }
 
 async fn list_process_groups(
@@ -56,7 +59,9 @@ async fn create_process_group(
     Json(req): Json<CreateProcessGroupRequest>,
 ) -> Result<(StatusCode, Json<ProcessGroup>)> {
     if req.name.trim().is_empty() {
-        return Err(EngineError::Validation("name must not be empty".to_string()));
+        return Err(EngineError::Validation(
+            "name must not be empty".to_string(),
+        ));
     }
     let group = process_groups::insert(&state.pool, req.org_id, req.name.trim()).await?;
     Ok((StatusCode::CREATED, Json(group)))
@@ -68,7 +73,9 @@ async fn rename_process_group(
     Json(req): Json<RenameProcessGroupRequest>,
 ) -> Result<Json<ProcessGroup>> {
     if req.name.trim().is_empty() {
-        return Err(EngineError::Validation("name must not be empty".to_string()));
+        return Err(EngineError::Validation(
+            "name must not be empty".to_string(),
+        ));
     }
     let group = process_groups::rename(&state.pool, id, req.name.trim()).await?;
     Ok(Json(group))

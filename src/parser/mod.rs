@@ -1,6 +1,6 @@
 mod extract;
-mod validate;
 pub mod types;
+mod validate;
 
 pub use types::{FlowNode, FlowNodeKind, ProcessGraph, SequenceFlow, TimerSpec};
 
@@ -9,9 +9,9 @@ use std::collections::HashMap;
 
 use crate::error::{EngineError, Result};
 use extract::{
-    extract_condition, extract_correlation_key, extract_error_code, extract_input_schema,
-    extract_message_name, extract_signal_name, extract_timer_spec, extract_topic, extract_url,
-    require_id,
+    extract_condition, extract_correlation_key, extract_error_code, extract_http_config,
+    extract_input_schema, extract_message_name, extract_signal_name, extract_timer_spec,
+    extract_topic, extract_url, require_id,
 };
 use validate::validate;
 
@@ -78,7 +78,13 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
 
     validate(&process_id, &nodes, &flows)?;
 
-    Ok(build_graph(process_id, process_name, nodes, flows, input_schema))
+    Ok(build_graph(
+        process_id,
+        process_name,
+        nodes,
+        flows,
+        input_schema,
+    ))
 }
 
 fn parse_children(
@@ -154,12 +160,13 @@ fn parse_children(
                 let name = child.attribute("name").map(|s| s.to_string());
                 let topic = extract_topic(&child, CAMUNDA_NS);
                 let url = extract_url(&child, CAMUNDA_NS);
+                let http = extract_http_config(&child, CONDUIT_NS)?;
                 nodes.insert(
                     id.clone(),
                     FlowNode {
                         id,
                         name,
-                        kind: FlowNodeKind::ServiceTask { topic, url },
+                        kind: FlowNodeKind::ServiceTask { topic, url, http },
                     },
                 );
             }
@@ -461,7 +468,9 @@ mod tests {
 </definitions>"#;
         let g = parse(xml).unwrap();
         let svc = &g.nodes["svc"];
-        assert!(matches!(&svc.kind, FlowNodeKind::ServiceTask { topic: Some(t), .. } if t == "my-topic"));
+        assert!(
+            matches!(&svc.kind, FlowNodeKind::ServiceTask { topic: Some(t), .. } if t == "my-topic")
+        );
     }
 
     #[test]
@@ -480,7 +489,9 @@ mod tests {
 </definitions>"#;
         let g = parse(xml).unwrap();
         let gw = &g.nodes["gw"];
-        assert!(matches!(&gw.kind, FlowNodeKind::ExclusiveGateway { default_flow: Some(f) } if f == "f3"));
+        assert!(
+            matches!(&gw.kind, FlowNodeKind::ExclusiveGateway { default_flow: Some(f) } if f == "f3")
+        );
         let flow_with_cond = g.flows.iter().find(|f| f.id == "f2").unwrap();
         assert_eq!(flow_with_cond.condition.as_deref(), Some("x > 0"));
     }
@@ -505,7 +516,10 @@ mod tests {
   </process>
 </definitions>"#;
         let g = parse(xml).unwrap();
-        assert!(matches!(g.nodes["fork"].kind, FlowNodeKind::ParallelGateway));
+        assert!(matches!(
+            g.nodes["fork"].kind,
+            FlowNodeKind::ParallelGateway
+        ));
     }
 
     #[test]
@@ -522,7 +536,9 @@ mod tests {
   </process>
 </definitions>"#;
         let g = parse(xml).unwrap();
-        assert!(matches!(&g.nodes["start"].kind, FlowNodeKind::MessageStartEvent { message_name: n } if n == "OrderReceived"));
+        assert!(
+            matches!(&g.nodes["start"].kind, FlowNodeKind::MessageStartEvent { message_name: n } if n == "OrderReceived")
+        );
     }
 
     #[test]
@@ -540,7 +556,10 @@ mod tests {
   </process>
 </definitions>"#;
         let g = parse(xml).unwrap();
-        assert!(matches!(&g.nodes["timer"].kind, FlowNodeKind::IntermediateTimerCatchEvent { .. }));
+        assert!(matches!(
+            &g.nodes["timer"].kind,
+            FlowNodeKind::IntermediateTimerCatchEvent { .. }
+        ));
     }
 
     #[test]
@@ -561,7 +580,9 @@ mod tests {
   </process>
 </definitions>"#;
         let g = parse(xml).unwrap();
-        assert!(matches!(&g.nodes["bt"].kind, FlowNodeKind::BoundaryTimerEvent { attached_to, .. } if attached_to == "task"));
+        assert!(
+            matches!(&g.nodes["bt"].kind, FlowNodeKind::BoundaryTimerEvent { attached_to, .. } if attached_to == "task")
+        );
         assert_eq!(g.attached_to["task"], vec!["bt"]);
     }
 

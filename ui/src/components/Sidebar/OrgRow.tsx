@@ -118,7 +118,7 @@ export default function OrgRow({
             <GroupRow
               key={group.id}
               group={group}
-              orgId={org.id}
+              org={org}
               defs={defs.filter(d => d.process_group_id === group.id)}
               expanded={groupsExp.expanded.has(group.id)}
               onToggle={() => groupsExp.toggle(group.id)}

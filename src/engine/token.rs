@@ -9,8 +9,8 @@ use crate::db::models::{DecisionDefinition, Execution, Variable};
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph};
 
-use super::Engine;
 use super::evaluator;
+use super::Engine;
 
 impl Engine {
     /// Advance tokens starting from `start_element_id` until all active paths reach
@@ -268,7 +268,7 @@ impl Engine {
                     // Stop — task is waiting for human input.
                 }
 
-                FlowNodeKind::ServiceTask { topic, url } => {
+                FlowNodeKind::ServiceTask { topic, url, http } => {
                     crate::db::execution_history::record_entry(
                         tx,
                         instance_id,
@@ -279,22 +279,57 @@ impl Engine {
                     )
                     .await?;
 
-                    let (job_type, stored_topic) = if let Some(u) = url {
-                        ("http_task", Some(u.as_str()))
+                    // Routing rules:
+                    //   url present (with or without <conduit:http>) → http_task
+                    //   <conduit:http> alone (no url) → http_task with URL inside config (future)
+                    //   topic present, no url → external_task (worker pattern)
+                    // The job carries:
+                    //   - `topic` column: legacy URL for http_task without HttpConfig (backwards compat)
+                    //                     OR worker topic for external_task
+                    //   - `config` column (JSONB): HttpConfig snapshot when http is Some
+                    let (job_type, stored_topic, config_json): (
+                        &str,
+                        Option<&str>,
+                        Option<serde_json::Value>,
+                    ) = if let Some(u) = url {
+                        // Snapshot the URL inside config so the engine has a single
+                        // source of truth once C3 lands. For now, also write to
+                        // `topic` column so the existing fire_http_task read path
+                        // (which reads URL from `topic`) keeps working.
+                        let cfg = http.as_ref().map(|h| {
+                            let mut v = serde_json::to_value(h)
+                                .expect("HttpConfig serialization is infallible");
+                            v["url"] = serde_json::Value::String(u.clone());
+                            v
+                        });
+                        ("http_task", Some(u.as_str()), cfg)
+                    } else if http.is_some() {
+                        // <conduit:http> without a url attribute is currently a
+                        // parse-time error path — we don't reach here in practice,
+                        // but be defensive.
+                        (
+                            "http_task",
+                            None,
+                            http.as_ref().map(|h| {
+                                serde_json::to_value(h)
+                                    .expect("HttpConfig serialization is infallible")
+                            }),
+                        )
                     } else {
-                        ("external_task", topic.as_deref())
+                        ("external_task", topic.as_deref(), None)
                     };
 
                     let job_id: Uuid = sqlx::query_scalar(
                         "INSERT INTO jobs \
-                         (instance_id, execution_id, job_type, topic, due_date, retries, state) \
-                         VALUES ($1, $2, $3, $4, NOW(), 3, 'pending') \
+                         (instance_id, execution_id, job_type, topic, config, due_date, retries, state) \
+                         VALUES ($1, $2, $3, $4, $5, NOW(), 3, 'pending') \
                          RETURNING id",
                     )
                     .bind(instance_id)
                     .bind(execution.id)
                     .bind(job_type)
                     .bind(stored_topic)
+                    .bind(&config_json)
                     .fetch_one(&mut **tx)
                     .await?;
                     crate::db::process_events::record_job(
@@ -544,12 +579,11 @@ impl Engine {
                     )
                     .await?;
 
-                    let org_id: Uuid = sqlx::query_scalar(
-                        "SELECT org_id FROM process_instances WHERE id = $1",
-                    )
-                    .bind(instance_id)
-                    .fetch_one(&mut **tx)
-                    .await?;
+                    let org_id: Uuid =
+                        sqlx::query_scalar("SELECT org_id FROM process_instances WHERE id = $1")
+                            .bind(instance_id)
+                            .fetch_one(&mut **tx)
+                            .await?;
 
                     let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
                         "SELECT * FROM variables WHERE instance_id = $1",
@@ -759,6 +793,9 @@ impl Engine {
                         .execute(&mut **tx)
                         .await?;
 
+                    // Scope: instance_id (not execution_id) so a gateway inside a
+                    // subprocess sees variables written at the parent/instance level. BPMN
+                    // visibility lets nested scopes read enclosing-scope variables.
                     let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
                         "SELECT * FROM variables WHERE instance_id = $1",
                     )
@@ -776,7 +813,9 @@ impl Engine {
                         .collect();
 
                     let mut chosen: Option<String> = None;
+                    let mut chosen_flow_id: Option<String> = None;
                     let mut default_target: Option<String> = None;
+                    let mut eval_failure: Option<(String, String, String)> = None;
 
                     for flow in &outgoing_flows {
                         if default_flow.as_deref() == Some(flow.id.as_str()) {
@@ -784,14 +823,42 @@ impl Engine {
                             continue;
                         }
                         if let Some(expr) = &flow.condition {
-                            if evaluator::evaluate_condition(expr, &var_map).unwrap_or(false) {
-                                chosen = Some(flow.target_ref.clone());
-                                break;
+                            match evaluator::evaluate_condition(expr, &var_map) {
+                                Ok(true) => {
+                                    chosen = Some(flow.target_ref.clone());
+                                    chosen_flow_id = Some(flow.id.clone());
+                                    break;
+                                }
+                                Ok(false) => continue,
+                                Err(e) => {
+                                    eval_failure =
+                                        Some((flow.id.clone(), expr.clone(), e.to_string()));
+                                    break;
+                                }
                             }
                         }
                     }
 
-                    debug!(instance_id = %instance_id, element_id = %node.id, chosen = chosen.as_deref(), "exclusive gateway routing");
+                    if let Some((flow_id, expr, err)) = eval_failure {
+                        tracing::error!(
+                            instance_id = %instance_id,
+                            element_id = %node.id,
+                            flow_id = %flow_id,
+                            condition = %expr,
+                            error = %err,
+                            "exclusive gateway condition evaluation failed; marking instance error"
+                        );
+                        sqlx::query(
+                            "UPDATE process_instances \
+                             SET state = 'error', ended_at = NOW() WHERE id = $1",
+                        )
+                        .bind(instance_id)
+                        .execute(&mut **tx)
+                        .await?;
+                        continue;
+                    }
+
+                    debug!(instance_id = %instance_id, element_id = %node.id, chosen_flow = chosen_flow_id.as_deref(), "exclusive gateway routing");
                     match chosen.or(default_target) {
                         Some(target) => stack.push((target, scope)),
                         None => {
@@ -930,6 +997,7 @@ impl Engine {
 
                         let mut matched: Vec<String> = Vec::new();
                         let mut default_target: Option<String> = None;
+                        let mut eval_failure: Option<(String, String, String)> = None;
 
                         for flow in &outgoing_flows {
                             if default_flow.as_deref() == Some(flow.id.as_str()) {
@@ -937,13 +1005,38 @@ impl Engine {
                                 continue;
                             }
                             if let Some(expr) = &flow.condition {
-                                if evaluator::evaluate_condition(expr, &var_map).unwrap_or(false) {
-                                    matched.push(flow.target_ref.clone());
+                                match evaluator::evaluate_condition(expr, &var_map) {
+                                    Ok(true) => matched.push(flow.target_ref.clone()),
+                                    Ok(false) => {}
+                                    Err(e) => {
+                                        eval_failure =
+                                            Some((flow.id.clone(), expr.clone(), e.to_string()));
+                                        break;
+                                    }
                                 }
                             } else {
                                 // Unconditional outgoing (no condition expression) — always taken.
                                 matched.push(flow.target_ref.clone());
                             }
+                        }
+
+                        if let Some((flow_id, expr, err)) = eval_failure {
+                            tracing::error!(
+                                instance_id = %instance_id,
+                                element_id = %node.id,
+                                flow_id = %flow_id,
+                                condition = %expr,
+                                error = %err,
+                                "inclusive gateway condition evaluation failed; marking instance error"
+                            );
+                            sqlx::query(
+                                "UPDATE process_instances \
+                                 SET state = 'error', ended_at = NOW() WHERE id = $1",
+                            )
+                            .bind(instance_id)
+                            .execute(&mut **tx)
+                            .await?;
+                            continue;
                         }
 
                         if matched.is_empty() {

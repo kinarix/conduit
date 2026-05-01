@@ -63,9 +63,9 @@ The engine is being built incrementally. Each phase is working and deployable be
 | `startEvent` | Phase 3 |
 | `endEvent` | Phase 3 |
 | `userTask` | Phase 3 |
-| `serviceTask` (with `topic` / `camunda:topic` for external workers) | Phase 3 |
+| `serviceTask` (with `topic` / `conduit:topic` for external workers) | Phase 3 |
 | `sequenceFlow` | Phase 3 |
-| `exclusiveGateway` (with Rhai condition expressions, default flow) | Phase 6 |
+| `exclusiveGateway` (with FEEL condition expressions, default flow) | Phase 6 |
 | `intermediateCatchEvent` — timer (`timeDuration` ISO 8601) | Phase 8 |
 | `boundaryEvent` — interrupting timer on tasks | Phase 8 |
 | `parallelGateway` (fork + join) | Phase 9 |
@@ -77,9 +77,9 @@ The engine is being built incrementally. Each phase is working and deployable be
 | `startEvent` — signal start | Phase 11 |
 | `subProcess` (embedded, nested) | Phase 12 |
 | `inclusiveGateway` (OR routing with selective join) | Phase 13 |
-| `businessRuleTask` (with `camunda:decisionRef`) | Phase 14 |
+| `businessRuleTask` (with `conduit:decisionRef`) | Phase 14 |
 
-Both standard BPMN 2.0 and Camunda dialect (`bpmn:` namespace prefix, `camunda:` extension attributes) are supported.
+Standard BPMN 2.0 is supported, with `bpmn:` as the prefix and Conduit's own `conduit:` namespace (`http://conduit.io/bpmn`) for extension attributes such as `conduit:topic`, `conduit:assignee`, and `conduit:decisionRef`.
 
 ## Getting Started
 
@@ -162,7 +162,7 @@ cargo test --test parser_test
 | Web framework | Axum |
 | Database | SQLx (compile-time checked queries) |
 | XML parsing | roxmltree |
-| Expressions | Rhai (Phase 6) |
+| Expressions | FEEL via `dsntk-feel-evaluator` (DMN 1.5) — Phase 6, migrated from Rhai in 6.1 |
 | Migrations | SQLx migrate |
 
 ## License

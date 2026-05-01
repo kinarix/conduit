@@ -92,7 +92,9 @@ fn eval_single_entry(cell: &str, value: &Value) -> Result<bool, EngineError> {
         return Ok(numeric_eq(value, n));
     }
 
-    Err(EngineError::DmnFeel(format!("Unrecognised FEEL cell: {cell:?}")))
+    Err(EngineError::DmnFeel(format!(
+        "Unrecognised FEEL cell: {cell:?}"
+    )))
 }
 
 fn try_range(cell: &str, value: &Value) -> Result<Option<bool>, EngineError> {
@@ -108,19 +110,19 @@ fn try_range(cell: &str, value: &Value) -> Result<Option<bool>, EngineError> {
     }
 
     let inner = &cell[1..cell.len() - 1];
-    let sep = inner.find("..").ok_or_else(|| {
-        EngineError::DmnFeel(format!("Malformed range: {cell:?}"))
-    })?;
+    let sep = inner
+        .find("..")
+        .ok_or_else(|| EngineError::DmnFeel(format!("Malformed range: {cell:?}")))?;
 
     let lo_str = inner[..sep].trim();
     let hi_str = inner[sep + 2..].trim();
 
-    let lo: f64 = lo_str.parse().map_err(|_| {
-        EngineError::DmnFeel(format!("Non-numeric range bound: {lo_str:?}"))
-    })?;
-    let hi: f64 = hi_str.parse().map_err(|_| {
-        EngineError::DmnFeel(format!("Non-numeric range bound: {hi_str:?}"))
-    })?;
+    let lo: f64 = lo_str
+        .parse()
+        .map_err(|_| EngineError::DmnFeel(format!("Non-numeric range bound: {lo_str:?}")))?;
+    let hi: f64 = hi_str
+        .parse()
+        .map_err(|_| EngineError::DmnFeel(format!("Non-numeric range bound: {hi_str:?}")))?;
 
     let v = match as_f64(value) {
         Some(n) => n,
@@ -161,7 +163,11 @@ fn compare_op(op: &str, rhs: &str, value: &Value) -> Result<bool, EngineError> {
         return Ok(match op {
             "=" => lhs == lit,
             "!=" => lhs != lit,
-            _ => return Err(EngineError::DmnFeel(format!("Operator {op} not valid for strings"))),
+            _ => {
+                return Err(EngineError::DmnFeel(format!(
+                    "Operator {op} not valid for strings"
+                )))
+            }
         });
     }
 
@@ -175,14 +181,18 @@ fn compare_op(op: &str, rhs: &str, value: &Value) -> Result<bool, EngineError> {
         return Ok(match op {
             "=" => lhs == rhs_bool,
             "!=" => lhs != rhs_bool,
-            _ => return Err(EngineError::DmnFeel(format!("Operator {op} not valid for booleans"))),
+            _ => {
+                return Err(EngineError::DmnFeel(format!(
+                    "Operator {op} not valid for booleans"
+                )))
+            }
         });
     }
 
     // Numeric RHS
-    let rhs_n: f64 = rhs.parse().map_err(|_| {
-        EngineError::DmnFeel(format!("Cannot parse RHS as number: {rhs:?}"))
-    })?;
+    let rhs_n: f64 = rhs
+        .parse()
+        .map_err(|_| EngineError::DmnFeel(format!("Cannot parse RHS as number: {rhs:?}")))?;
     let lhs_n = match as_f64(value) {
         Some(n) => n,
         None => return Ok(false),

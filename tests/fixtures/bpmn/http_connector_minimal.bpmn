@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A serviceTask with just a URL and no <conduit:http> block. Verifies the
+     legacy URL-only path still parses to ServiceTask{ http: None }. -->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             id="Definitions_http_minimal"
+             targetNamespace="http://conduit.io/schema/bpmn">
+  <process id="http_minimal" isExecutable="true">
+    <startEvent id="start_1"/>
+    <serviceTask id="ping" name="Ping" url="https://example.com/ping"/>
+    <endEvent id="end_1"/>
+    <sequenceFlow id="f1" sourceRef="start_1" targetRef="ping"/>
+    <sequenceFlow id="f2" sourceRef="ping" targetRef="end_1"/>
+  </process>
+</definitions>

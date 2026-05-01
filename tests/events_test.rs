@@ -51,7 +51,14 @@ async fn events_endpoint_records_lifecycle() {
     let process_group_id = groups[0];
     let client = reqwest::Client::new();
 
-    let def_id = deploy(&app, org_id, process_group_id, &unique_key("evt"), &user_task_bpmn()).await;
+    let def_id = deploy(
+        &app,
+        org_id,
+        process_group_id,
+        &unique_key("evt"),
+        &user_task_bpmn(),
+    )
+    .await;
 
     // Start instance with one variable
     let resp = client

@@ -22,7 +22,7 @@ async fn setup() -> (PgPool, Engine) {
         .expect("Failed to run migrations");
 
     let cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
-    let engine = Engine::new(pool.clone(), cache);
+    let engine = Engine::new(pool.clone(), cache, [0xA5u8; 32]);
     (pool, engine)
 }
 
@@ -31,8 +31,12 @@ async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let org = db::orgs::insert(pool, "Subprocess Test Org", &slug)
         .await
         .unwrap();
-    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
-    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary")
+        .await
+        .unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary")
+        .await
+        .unwrap();
     (org.id, vec![f1.id, f2.id])
 }
 
@@ -354,7 +358,7 @@ async fn subprocess_variables_visible_to_parent() {
     assert_eq!(var.unwrap().0, json!("done"));
 }
 
-/// Variable written before entering subprocess is readable by inner ExclusiveGateway condition.
+/// Parent (instance-scope) variable is visible to ExclusiveGateway conditions inside a subprocess.
 #[tokio::test]
 async fn parent_variables_visible_inside_subprocess() {
     let (pool, engine) = setup().await;
@@ -374,46 +378,20 @@ async fn parent_variables_visible_inside_subprocess() {
     .await
     .unwrap();
 
-    // Write variable x=10 before starting — use instance variables via start
     let instance = engine
-        .start_instance(def.id, org_id, &json!({}), &[])
+        .start_instance(
+            def.id,
+            org_id,
+            &json!({}),
+            &[VariableInput {
+                name: "x".to_string(),
+                value_type: "integer".to_string(),
+                value: json!(10),
+            }],
+        )
         .await
         .unwrap();
 
-    // Write the variable directly so the inner gateway can use it
-    sqlx::query(
-        "INSERT INTO variables (instance_id, execution_id, name, value_type, value) \
-         SELECT $1, id, 'x', 'integer', '10'::jsonb \
-         FROM executions WHERE instance_id = $1 ORDER BY created_at ASC LIMIT 1 \
-         ON CONFLICT (execution_id, name) DO UPDATE SET value = EXCLUDED.value",
-    )
-    .bind(instance.id)
-    .execute(&pool)
-    .await
-    .unwrap();
-
-    // Now start a NEW instance that has x=10 from the beginning — but since start_instance
-    // doesn't accept initial variables, let's use a different approach:
-    // Deploy again, start, and write variable, then the subprocess uses it.
-    // Actually the subprocess runs immediately at start_instance time if no wait states —
-    // So let's test: deploy the BPMN, start instance (it completes if x>5 path is chosen),
-    // verify inner-end-a is in history.
-
-    // For a fresh test: deploy a definition, start instance, inject x=10 before start
-    // completes — but start_instance is synchronous. Let's use a definition where we
-    // set x via initial variables injection (not yet supported in start_instance).
-    //
-    // Workaround: use the subprocess_with_user_task variant but set x before the subprocess runs.
-    // Actually since the subprocess runs immediately, we need x set BEFORE start_instance.
-    // The current API doesn't support initial variables in start_instance.
-    //
-    // So: insert the variable directly into the DB, then start a new instance...
-    // That won't work since the instance doesn't exist yet.
-    //
-    // Alternative: write a process where outer has a UserTask → SubProcess.
-    // User completes outer task setting x=10, then subprocess runs with that variable.
-
-    // For now, verify the simple case: no variable set → default path → inner-end-b
     let history: Vec<(String,)> =
         sqlx::query_as("SELECT element_id FROM execution_history WHERE instance_id = $1")
             .bind(instance.id)
@@ -421,14 +399,48 @@ async fn parent_variables_visible_inside_subprocess() {
             .await
             .unwrap();
     let visited: Vec<&str> = history.iter().map(|(id,)| id.as_str()).collect();
-    // Without x set, should take default path to inner-end-b
     assert!(
-        visited.contains(&"inner-end-b"),
-        "default path should lead to inner-end-b; got: {visited:?}"
+        visited.contains(&"inner-end-a"),
+        "x=10 → x>5 condition true → hot path inner-end-a; got: {visited:?}"
     );
     assert!(
-        !visited.contains(&"inner-end-a"),
-        "hot path should NOT be taken; got: {visited:?}"
+        !visited.contains(&"inner-end-b"),
+        "default path should NOT be taken when condition matches; got: {visited:?}"
+    );
+}
+
+/// Sibling check: when the gateway condition references an unset variable, the
+/// instance is marked error rather than silently routing to the default flow.
+#[tokio::test]
+async fn subprocess_gateway_with_undefined_variable_errors() {
+    let (pool, engine) = setup().await;
+    let (org_id, groups) = create_org(&pool).await;
+
+    let def = db::process_definitions::insert(
+        &pool,
+        org_id,
+        None,
+        groups[0],
+        &unique_key("sp"),
+        1,
+        None,
+        &subprocess_reads_parent_variable_bpmn(),
+        &json!({}),
+    )
+    .await
+    .unwrap();
+
+    let instance = engine
+        .start_instance(def.id, org_id, &json!({}), &[])
+        .await
+        .unwrap();
+
+    let refreshed = db::process_instances::get_by_id(&pool, instance.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        refreshed.state, "error",
+        "undefined variable in gateway condition must mark instance error, not silently default"
     );
 }
 

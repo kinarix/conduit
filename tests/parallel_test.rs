@@ -22,7 +22,7 @@ async fn setup() -> (PgPool, Engine) {
         .expect("Failed to run migrations");
 
     let cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
-    let engine = Engine::new(pool.clone(), cache);
+    let engine = Engine::new(pool.clone(), cache, [0xA5u8; 32]);
     (pool, engine)
 }
 
@@ -31,8 +31,12 @@ async fn create_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
     let org = db::orgs::insert(pool, "Parallel Test Org", &slug)
         .await
         .unwrap();
-    let f1 = db::process_groups::insert(pool, org.id, "Primary").await.unwrap();
-    let f2 = db::process_groups::insert(pool, org.id, "Secondary").await.unwrap();
+    let f1 = db::process_groups::insert(pool, org.id, "Primary")
+        .await
+        .unwrap();
+    let f2 = db::process_groups::insert(pool, org.id, "Secondary")
+        .await
+        .unwrap();
     (org.id, vec![f1.id, f2.id])
 }
 

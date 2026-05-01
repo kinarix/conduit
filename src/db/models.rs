@@ -107,6 +107,10 @@ pub struct Job {
     pub created_at: DateTime<Utc>,
     pub timer_expression: Option<String>,
     pub repetitions_remaining: Option<i32>,
+    /// Phase 16: HTTP connector config snapshot. `None` for non-http_task jobs
+    /// and for legacy http_task jobs deployed before the connector landed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<JsonValue>,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -178,4 +182,39 @@ pub struct EventSubscription {
     pub correlation_key: Option<String>,
     pub element_id: String,
     pub created_at: DateTime<Utc>,
+}
+
+/// Internal model for the `secrets` table. The encrypted value never leaves
+/// the DB layer — API responses use [`SecretMetadata`] instead.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SecretRow {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    pub value_encrypted: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Public-facing secret representation. Excludes ciphertext and plaintext.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretMetadata {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<SecretRow> for SecretMetadata {
+    fn from(r: SecretRow) -> Self {
+        Self {
+            id: r.id,
+            org_id: r.org_id,
+            name: r.name,
+            created_at: r.created_at,
+            updated_at: r.updated_at,
+        }
+    }
 }

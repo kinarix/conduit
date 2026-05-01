@@ -1,5 +1,5 @@
-use conduit::dmn::{self, HitPolicy};
 use conduit::dmn::feel;
+use conduit::dmn::{self, HitPolicy};
 use serde_json::json;
 
 fn fixture(name: &str) -> String {
@@ -197,8 +197,13 @@ fn feel_invalid_cell_returns_error() {
 
 // ── Decision table evaluation ─────────────────────────────────────────────────
 
-fn make_context(pairs: &[(&str, serde_json::Value)]) -> std::collections::HashMap<String, serde_json::Value> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+fn make_context(
+    pairs: &[(&str, serde_json::Value)],
+) -> std::collections::HashMap<String, serde_json::Value> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
 }
 
 #[test]
@@ -250,7 +255,10 @@ fn evaluate_unique_multiple_matches_error() {
     let tables = dmn::parse(xml).unwrap();
     let ctx = make_context(&[("x", json!(7))]);
     let result = dmn::evaluate(&tables[0], &ctx);
-    assert!(result.is_err(), "expected DmnMultipleMatches error for UNIQUE policy with two matching rules");
+    assert!(
+        result.is_err(),
+        "expected DmnMultipleMatches error for UNIQUE policy with two matching rules"
+    );
 }
 
 #[test]

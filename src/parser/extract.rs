@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::error::{EngineError, Result};
-use crate::parser::types::TimerSpec;
+use crate::parser::types::{HttpAuth, HttpConfig, RetryPolicy, TimerSpec};
 
 pub(super) fn require_id(node: &roxmltree::Node, element: &str) -> Result<String> {
     node.attribute("id")
@@ -74,6 +74,141 @@ pub(super) fn extract_url(node: &roxmltree::Node, camunda_ns: &str) -> Option<St
         return Some(u.to_string());
     }
     None
+}
+
+/// Phase 16 — extract `<extensionElements><conduit:http>...</conduit:http>` from a serviceTask.
+///
+/// Returns `Ok(None)` when the element is absent (legacy URL-only or external-worker tasks).
+/// Returns `Err` only when the element is present but malformed (e.g. unknown `authType`,
+/// `apiKey` missing `headerName`, non-numeric `timeoutMs`).
+pub(super) fn extract_http_config(
+    node: &roxmltree::Node,
+    conduit_ns: &str,
+) -> Result<Option<HttpConfig>> {
+    let Some(http) = node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
+        .flat_map(|ext| ext.children().filter(|n| n.is_element()))
+        .find(|inner| {
+            inner.tag_name().name() == "http"
+                && inner
+                    .tag_name()
+                    .namespace()
+                    .is_some_and(|ns| ns == conduit_ns)
+        })
+    else {
+        return Ok(None);
+    };
+
+    let method = http
+        .attribute("method")
+        .map(|s| s.to_uppercase())
+        .unwrap_or_else(|| "POST".to_string());
+
+    let timeout_ms = match http.attribute("timeoutMs") {
+        None => None,
+        Some(s) => Some(s.parse::<u64>().map_err(|_| {
+            EngineError::Parse(format!("conduit:http timeoutMs is not a u64: {s}"))
+        })?),
+    };
+
+    let auth = match http.attribute("authType").unwrap_or("none") {
+        "none" => HttpAuth::None,
+        "basic" => HttpAuth::Basic,
+        "bearer" => HttpAuth::Bearer,
+        "apiKey" | "api_key" => HttpAuth::ApiKey,
+        other => {
+            return Err(EngineError::Parse(format!(
+                "conduit:http authType '{other}' is not one of: none, basic, bearer, apiKey"
+            )));
+        }
+    };
+
+    let secret_ref = http.attribute("secretRef").map(|s| s.to_string());
+    let api_key_header = http.attribute("headerName").map(|s| s.to_string());
+
+    if matches!(auth, HttpAuth::Basic | HttpAuth::Bearer | HttpAuth::ApiKey) && secret_ref.is_none()
+    {
+        return Err(EngineError::Parse(format!(
+            "conduit:http authType requires a `secretRef` attribute"
+        )));
+    }
+    if matches!(auth, HttpAuth::ApiKey) && api_key_header.is_none() {
+        return Err(EngineError::Parse(
+            "conduit:http authType=\"apiKey\" requires a `headerName` attribute".into(),
+        ));
+    }
+
+    let request_transform = find_child_text(&http, conduit_ns, "requestTransform");
+    let response_transform = find_child_text(&http, conduit_ns, "responseTransform");
+
+    let retry = http
+        .children()
+        .find(|n| {
+            n.is_element()
+                && n.tag_name().name() == "retry"
+                && n.tag_name().namespace().is_some_and(|ns| ns == conduit_ns)
+        })
+        .map(|r| -> Result<RetryPolicy> {
+            let max = r
+                .attribute("max")
+                .map(|s| s.parse::<u32>())
+                .transpose()
+                .map_err(|e| EngineError::Parse(format!("conduit:retry max: {e}")))?
+                .unwrap_or(0);
+            let backoff_ms = r
+                .attribute("backoffMs")
+                .map(|s| s.parse::<u64>())
+                .transpose()
+                .map_err(|e| EngineError::Parse(format!("conduit:retry backoffMs: {e}")))?
+                .unwrap_or(1000);
+            let multiplier = r
+                .attribute("multiplier")
+                .map(|s| s.parse::<f64>())
+                .transpose()
+                .map_err(|e| EngineError::Parse(format!("conduit:retry multiplier: {e}")))?
+                .unwrap_or(2.0);
+            let retry_on = r
+                .attribute("retryOn")
+                .map(|s| {
+                    s.split(',')
+                        .map(|p| p.trim().to_string())
+                        .filter(|p| !p.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            Ok(RetryPolicy {
+                max,
+                backoff_ms,
+                multiplier,
+                retry_on,
+            })
+        })
+        .transpose()?
+        .unwrap_or_default();
+
+    Ok(Some(HttpConfig {
+        method,
+        timeout_ms,
+        auth,
+        secret_ref,
+        api_key_header,
+        request_transform,
+        response_transform,
+        retry,
+    }))
+}
+
+fn find_child_text(parent: &roxmltree::Node, conduit_ns: &str, local_name: &str) -> Option<String> {
+    parent
+        .children()
+        .find(|n| {
+            n.is_element()
+                && n.tag_name().name() == local_name
+                && n.tag_name().namespace().is_some_and(|ns| ns == conduit_ns)
+        })
+        .and_then(|n| n.text().map(|s| s.trim().to_string()))
+        .filter(|s| !s.is_empty())
 }
 
 pub(super) fn extract_timer_spec(node: &roxmltree::Node) -> Result<TimerSpec> {
@@ -196,7 +331,10 @@ pub(super) fn extract_error_code(
 
     if let Some(error_ref) = def.attribute("errorRef") {
         let bare_id = error_ref.split(':').next_back().unwrap_or(error_ref);
-        let code = error_defs.get(bare_id).map(|c| c.as_str()).unwrap_or(bare_id);
+        let code = error_defs
+            .get(bare_id)
+            .map(|c| c.as_str())
+            .unwrap_or(bare_id);
         if code.is_empty() {
             return Some(None);
         }

@@ -1,9 +1,28 @@
-import { useState } from 'react';
+import {
+  forwardRef,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
 import type { Node, Edge } from '@xyflow/react';
-import type { BpmnNodeData, BpmnEdgeData } from './bpmnTypes';
+import { useQuery } from '@tanstack/react-query';
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror';
+import { json } from '@codemirror/lang-json';
+import { autocompletion, type CompletionContext } from '@codemirror/autocomplete';
+import { EditorView } from '@codemirror/view';
+import type {
+  BpmnNodeData,
+  BpmnEdgeData,
+  HttpAuthType,
+  HttpConnectorConfig,
+} from './bpmnTypes';
 import { ELEMENT_COLORS } from './bpmnTypes';
 import BpmnSchemaBuilder from './BpmnSchemaBuilder';
 import { computeNodeWarnings } from './bpmnValidation';
+import { useOrg } from '../../App';
+import { fetchSecrets } from '../../api/secrets';
 
 interface Props {
   selected: Node | Edge | null;
@@ -302,10 +321,16 @@ const DOCS: Partial<Record<string, React.ReactNode>> = {
   exclusiveGateway: (
     <>
       <p>Routes to exactly one outgoing flow. Each flow can have a <strong>Condition</strong> expression. The first flow whose condition evaluates to <code>true</code> is taken; leave one flow without a condition as a default fallback.</p>
-      <p>Expressions use <a href="https://rhai.rs" target="_blank" rel="noreferrer">Rhai</a> syntax and can reference process variables:</p>
-      <pre><code>{`approved == true
+      <p>Conditions are <a href="https://www.omg.org/spec/DMN/" target="_blank" rel="noreferrer">FEEL</a> expressions (DMN 1.5) and can reference process variables:</p>
+      <pre><code>{`approved
 amount > 1000
-status == "pending"`}</code></pre>
+status = "pending"
+amount > 1000 and tier = "gold"
+count(items) >= 3
+customer.tier = "gold"`}</code></pre>
+      <p style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>
+        FEEL: equality is <code>=</code> (not <code>==</code>); booleans use <code>and</code>/<code>or</code>/<code>not(...)</code>; lists use <code>count(list)</code> and 1-based indexing <code>list[1]</code>.
+      </p>
     </>
   ),
   parallelGateway: (
@@ -316,14 +341,16 @@ status == "pending"`}</code></pre>
   inclusiveGateway: (
     <>
       <p>Fork: activates every outgoing flow whose condition is <code>true</code> (one or more).<br/>Join: waits for all <em>activated</em> branches to complete before continuing.</p>
+      <p>Conditions use the same FEEL syntax as the Exclusive Gateway.</p>
     </>
   ),
   sequenceFlow: (
     <>
       <p>A <strong>Condition</strong> is only evaluated when the source is an Exclusive or Inclusive Gateway. Leave blank for unconditional flow.</p>
-      <p>Rhai expression — references process variables by name:</p>
-      <pre><code>{`approved == true
-score >= 80`}</code></pre>
+      <p>FEEL expression — references process variables by name:</p>
+      <pre><code>{`approved
+score >= 80
+tier = "gold" and amount > 1000`}</code></pre>
     </>
   ),
 };
@@ -473,6 +500,7 @@ export default function BpmnProperties({
   processSchema,
   onProcessSchemaChange,
 }: Props) {
+  const [httpModalOpen, setHttpModalOpen] = useState(false);
   if (!selected) {
     return (
       <div style={panelStyle}>
@@ -589,22 +617,17 @@ export default function BpmnProperties({
                 <input
                   style={inputStyle}
                   value={d.topic ?? ''}
-                  placeholder="e.g. email-sender"
+                  placeholder="e.g. email-sender (external worker pattern)"
                   onChange={e => onNodeChange(selected.id, { topic: e.target.value || undefined })}
                   onFocus={e => (e.target.style.borderColor = accentColor)}
                   onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
                 />
               </Field>
-              <Field label="URL">
-                <input
-                  style={inputStyle}
-                  value={d.url ?? ''}
-                  placeholder="https://..."
-                  onChange={e => onNodeChange(selected.id, { url: e.target.value || undefined })}
-                  onFocus={e => (e.target.style.borderColor = accentColor)}
-                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-                />
-              </Field>
+              <HttpConnectorSummary
+                url={d.url}
+                http={d.http}
+                onOpen={() => setHttpModalOpen(true)}
+              />
             </>
           )}
 
@@ -795,9 +818,50 @@ export default function BpmnProperties({
               accentColor={accentColor}
             />
           )}
+
+          {(d.bpmnType === 'exclusiveGateway' || d.bpmnType === 'inclusiveGateway' || d.bpmnType === 'parallelGateway') && (() => {
+            const isAttachment = (e: typeof edges[number]) => (e.data as BpmnEdgeData | undefined)?.kind === 'attachment';
+            const outgoing = edges.filter(e => e.source === selected.id && !isAttachment(e));
+            const incoming = edges.filter(e => e.target === selected.id && !isAttachment(e));
+            const conditionable = d.bpmnType === 'exclusiveGateway' || d.bpmnType === 'inclusiveGateway';
+            const outgoingWithCondition = conditionable
+              ? outgoing.filter(e => ((e.data as BpmnEdgeData | undefined)?.condition ?? '').trim() !== '').length
+              : 0;
+            return (
+              <div style={{ marginTop: 8, padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                  Flows
+                </div>
+                <div style={{ display: 'flex', gap: 12, fontSize: 11, color: '#0f172a' }}>
+                  <span><strong>{incoming.length}</strong> in</span>
+                  <span><strong>{outgoing.length}</strong> out</span>
+                  {conditionable && (
+                    <span style={{ color: '#475569' }}>
+                      <strong>{outgoingWithCondition}</strong>/<strong>{outgoing.length}</strong> conditioned
+                    </span>
+                  )}
+                </div>
+                {conditionable && outgoing.length > 0 && outgoingWithCondition === 0 && (
+                  <div style={{ marginTop: 6, fontSize: 10, color: '#b45309' }}>
+                    No outgoing flow has a condition — every routing decision will fall through.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <DocsDrawer docKey={d.bpmnType} />
+
+        {httpModalOpen && d.bpmnType === 'serviceTask' && (
+          <HttpConnectorModal
+            url={d.url}
+            http={d.http}
+            onUrlChange={url => onNodeChange(selected.id, { url })}
+            onChange={cfg => onNodeChange(selected.id, { http: cfg })}
+            onClose={() => setHttpModalOpen(false)}
+          />
+        )}
       </div>
     );
   }
@@ -852,7 +916,7 @@ export default function BpmnProperties({
           <input
             style={inputStyle}
             value={d.condition ?? ''}
-            placeholder="e.g. approved == true"
+            placeholder='e.g. amount > 1000 and tier = "gold"'
             onChange={e => onEdgeChange(selected.id, { condition: e.target.value || undefined })}
             onFocus={e => (e.target.style.borderColor = '#6366f1')}
             onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
@@ -861,6 +925,1361 @@ export default function BpmnProperties({
       </div>
 
       <DocsDrawer docKey="sequenceFlow" />
+    </div>
+  );
+}
+
+// ─── HTTP connector ─────────────────────────────────────────────────────────
+
+const REQUEST_TRANSFORM_HINT =
+  '// input doc: { instance_id, execution_id, vars }\n// output: { body?, headers?, query?, path? }\n{\n  body: { amount: .vars.amount }\n}';
+
+const RESPONSE_TRANSFORM_HINT =
+  '// input doc: { status, headers, body }\n// output: flat { var_name: value, ... }\n// headers are lowercased: .headers["x-rate-limit"]\n{\n  result_id: .body.id\n}';
+
+function HttpConnectorSummary({
+  url,
+  http,
+  onOpen,
+}: {
+  url: string | undefined;
+  http: HttpConnectorConfig | undefined;
+  onOpen: () => void;
+}) {
+  const configured = !!url || !!http;
+  const summary = describeHttpConfig(url, http);
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div
+        style={{
+          padding: '8px 10px',
+          border: '1px solid #e2e8f0',
+          borderRadius: 6,
+          background: configured ? '#f0f9ff' : '#fafafa',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 6,
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 600,
+              color: '#475569',
+              fontSize: 10,
+              letterSpacing: 0.3,
+              textTransform: 'uppercase',
+            }}
+          >
+            HTTP connector
+          </div>
+          <button
+            type="button"
+            onClick={onOpen}
+            style={{
+              padding: '4px 10px',
+              fontSize: 11,
+              border: '1px solid #cbd5e1',
+              borderRadius: 4,
+              background: '#ffffff',
+              color: '#0f172a',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {configured ? 'Edit' : 'Configure'}
+          </button>
+        </div>
+        <div
+          style={{
+            color: configured ? '#0f172a' : '#94a3b8',
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: 11,
+            lineHeight: 1.5,
+            wordBreak: 'break-all',
+          }}
+        >
+          {summary}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function describeHttpConfig(
+  url: string | undefined,
+  http: HttpConnectorConfig | undefined,
+): React.ReactNode {
+  if (!url && !http) return 'Not configured';
+  const parts: string[] = [];
+  parts.push(http?.method ?? 'POST');
+  if (http?.authType && http.authType !== 'none') {
+    parts.push(
+      http.secretRef ? `${http.authType} via ${http.secretRef}` : http.authType,
+    );
+  }
+  if (http?.requestTransform?.trim()) parts.push('req transform');
+  if (http?.responseTransform?.trim()) parts.push('resp transform');
+  if (http?.retry?.max && http.retry.max > 0) parts.push(`retry ×${http.retry.max}`);
+  return (
+    <>
+      {url ? (
+        <div style={{ color: '#0f172a' }}>{url}</div>
+      ) : (
+        <div style={{ color: '#dc2626' }}>(URL not set)</div>
+      )}
+      <div style={{ color: '#475569', marginTop: 2 }}>{parts.join(' · ')}</div>
+    </>
+  );
+}
+
+function HttpConnectorModal({
+  url,
+  http,
+  onUrlChange,
+  onChange,
+  onClose,
+}: {
+  url: string | undefined;
+  http: HttpConnectorConfig | undefined;
+  onUrlChange: (url: string | undefined) => void;
+  onChange: (cfg: HttpConnectorConfig | undefined) => void;
+  onClose: () => void;
+}) {
+  const cfg = http ?? {};
+  const update = (patch: Partial<HttpConnectorConfig>) => {
+    const next = { ...cfg, ...patch };
+    // Drop the http config entirely once everything is at defaults so we don't
+    // emit an empty <conduit:http/> into the XML.
+    const empty =
+      (!next.method || next.method === 'POST') &&
+      next.timeoutMs === undefined &&
+      (!next.authType || next.authType === 'none') &&
+      !next.secretRef &&
+      !next.apiKeyHeader &&
+      !next.requestTransform?.trim() &&
+      !next.responseTransform?.trim() &&
+      (!next.retry || Object.keys(next.retry).length === 0);
+    onChange(empty ? undefined : next);
+  };
+
+  const updateRetry = (patch: Partial<NonNullable<HttpConnectorConfig['retry']>>) => {
+    update({ retry: { ...(cfg.retry ?? {}), ...patch } });
+  };
+
+  const [exampleFilter, setExampleFilter] = useState<SidePanelTab>('all');
+  const [showExamples, setShowExamples] = useState(false);
+  const requestEditorRef = useRef<JqEditorHandle>(null);
+  const responseEditorRef = useRef<JqEditorHandle>(null);
+
+  // Modal + side panel share a single height so they sit flush. Tall enough
+  // to give the transform editors real working room without spilling on
+  // smaller screens.
+  const sharedHeight = 'min(900px, 92vh)';
+
+  const openExamples = (kind: TransformKind) => {
+    if (showExamples && exampleFilter === kind) {
+      setShowExamples(false);
+    } else {
+      setExampleFilter(kind);
+      setShowExamples(true);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      {/* The relative wrapper holds the modal in the normal flow; the side
+          panel is absolutely positioned off its right edge so toggling the
+          panel never shifts the modal's position. */}
+      <div
+        style={{ position: 'relative' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div
+          className="modal"
+          style={{
+            maxWidth: 760,
+            width: 'min(760px, 95vw)',
+            height: sharedHeight,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: 0,
+          }}
+        >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            padding: '20px 24px 12px',
+            borderBottom: '1px solid var(--color-border)',
+            flex: '0 0 auto',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0 }}>HTTP connector</h3>
+            <p style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '4px 0 0' }}>
+              Edits apply live. Close when done.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              border: 'none',
+              background: 'transparent',
+              fontSize: 20,
+              color: 'var(--text-tertiary)',
+              cursor: 'pointer',
+              lineHeight: 1,
+            }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div style={{ overflow: 'auto', flex: 1, padding: '16px 24px 0' }}>
+
+        <Field label="URL">
+          <input
+            style={inputStyle}
+            value={url ?? ''}
+            placeholder="https://api.example.com/v1/things/:id"
+            onChange={e => onUrlChange(e.target.value || undefined)}
+            autoFocus
+          />
+        </Field>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '8px 16px',
+            marginTop: 8,
+          }}
+        >
+          <Field label="Method">
+            <select
+              style={selectStyle}
+              value={cfg.method ?? 'POST'}
+              onChange={e => update({ method: e.target.value })}
+            >
+              {['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map(m => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Timeout (ms)">
+            <input
+              style={inputStyle}
+              type="number"
+              min={1}
+              value={cfg.timeoutMs ?? ''}
+              placeholder="(client default)"
+              onChange={e =>
+                update({
+                  timeoutMs: e.target.value ? Number(e.target.value) : undefined,
+                })
+              }
+            />
+          </Field>
+
+          <Field label="Auth">
+            <select
+              style={selectStyle}
+              value={cfg.authType ?? 'none'}
+              onChange={e =>
+                update({ authType: e.target.value as HttpAuthType })
+              }
+            >
+              <option value="none">None</option>
+              <option value="basic">Basic (user:pass)</option>
+              <option value="bearer">Bearer token</option>
+              <option value="apiKey">API key (custom header)</option>
+            </select>
+          </Field>
+
+          {cfg.authType && cfg.authType !== 'none' ? (
+            <SecretRefField
+              value={cfg.secretRef}
+              onChange={ref => update({ secretRef: ref })}
+            />
+          ) : (
+            <div />
+          )}
+
+          {cfg.authType === 'apiKey' && (
+            <Field label="Header">
+              <input
+                style={inputStyle}
+                value={cfg.apiKeyHeader ?? ''}
+                placeholder="X-API-Key"
+                onChange={e =>
+                  update({ apiKeyHeader: e.target.value || undefined })
+                }
+              />
+            </Field>
+          )}
+        </div>
+
+        <TransformField
+          kind="request"
+          label="Request"
+          value={cfg.requestTransform}
+          placeholder={REQUEST_TRANSFORM_HINT}
+          onChange={v => update({ requestTransform: v })}
+          height={280}
+          examplesOpenForThisKind={showExamples && exampleFilter === 'request'}
+          onToggleExamples={() => openExamples('request')}
+          editorRef={requestEditorRef}
+        />
+
+        <TransformField
+          kind="response"
+          label="Response"
+          value={cfg.responseTransform}
+          placeholder={RESPONSE_TRANSFORM_HINT}
+          onChange={v => update({ responseTransform: v })}
+          height={280}
+          examplesOpenForThisKind={showExamples && exampleFilter === 'response'}
+          onToggleExamples={() => openExamples('response')}
+          editorRef={responseEditorRef}
+        />
+
+        <div style={{ marginTop: 14 }}>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#475569',
+              marginBottom: 6,
+            }}
+          >
+            Retry policy
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: '8px 12px',
+            }}
+          >
+            <Field label="Max">
+              <input
+                style={inputStyle}
+                type="number"
+                min={0}
+                value={cfg.retry?.max ?? ''}
+                placeholder="0"
+                onChange={e =>
+                  updateRetry({
+                    max: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+            </Field>
+            <Field label="Backoff (ms)">
+              <input
+                style={inputStyle}
+                type="number"
+                min={0}
+                value={cfg.retry?.backoffMs ?? ''}
+                placeholder="1000"
+                onChange={e =>
+                  updateRetry({
+                    backoffMs: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+            </Field>
+            <Field label="×">
+              <input
+                style={inputStyle}
+                type="number"
+                step={0.1}
+                min={1}
+                value={cfg.retry?.multiplier ?? ''}
+                placeholder="2"
+                onChange={e =>
+                  updateRetry({
+                    multiplier: e.target.value ? Number(e.target.value) : undefined,
+                  })
+                }
+              />
+            </Field>
+            <Field label="Retry on">
+              <input
+                style={inputStyle}
+                value={cfg.retry?.retryOn ?? ''}
+                placeholder="5xx,timeout,network"
+                onChange={e =>
+                  updateRetry({ retryOn: e.target.value || undefined })
+                }
+              />
+            </Field>
+          </div>
+        </div>
+
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            padding: '12px 24px',
+            borderTop: '1px solid var(--color-border)',
+            flex: '0 0 auto',
+          }}
+        >
+          <button className="btn-primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+
+        {showExamples && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 'calc(100% + 12px)',
+              height: '100%',
+            }}
+          >
+            <JqExamplesSidePanel
+              height={sharedHeight}
+              filter={exampleFilter}
+              onFilterChange={setExampleFilter}
+              onUseRequest={snippet =>
+                requestEditorRef.current?.appendAndFocus(snippet)
+              }
+              onUseResponse={snippet =>
+                responseEditorRef.current?.appendAndFocus(snippet)
+              }
+              onClose={() => setShowExamples(false)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SecretRefField({
+  value,
+  onChange,
+}: {
+  value: string | undefined;
+  onChange: (ref: string | undefined) => void;
+}) {
+  const { org } = useOrg();
+  const { data: secrets = [] } = useQuery({
+    queryKey: ['secrets', org?.id],
+    queryFn: () => fetchSecrets(org!.id),
+    enabled: !!org,
+  });
+
+  return (
+    <Field label="Secret">
+      <select
+        style={selectStyle}
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value || undefined)}
+      >
+        <option value="">(select secret)</option>
+        {secrets.map(s => (
+          <option key={s.id} value={s.name}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+}
+
+type TransformKind = 'request' | 'response';
+
+interface JqExample {
+  kind: TransformKind;
+  name: string;
+  description: string;
+  snippet: string;
+}
+
+const REQUEST_EXAMPLES: JqExample[] = [
+  {
+    kind: 'request',
+    name: 'POST body from vars',
+    description: 'Build a JSON body from instance variables',
+    snippet: `{
+  body: {
+    customer: .vars.customer_name,
+    amount: .vars.amount,
+    currency: "usd"
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Query params',
+    description: 'Append ?key=value to the URL (typical for GET / DELETE)',
+    snippet: `{
+  query: {
+    id: .vars.customer_id,
+    expand: "card"
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'URL :placeholders',
+    description: 'Substitute :name segments in the URL with var values',
+    snippet: `{
+  path: { id: .vars.charge_id }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Custom headers',
+    description: 'Set arbitrary request headers (auth headers always win on conflict)',
+    snippet: `{
+  headers: {
+    "X-Idempotency-Key": .instance_id,
+    "X-Source": "conduit"
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Everything together',
+    description: 'Combine body + query + path + headers in one filter',
+    snippet: `{
+  body:    { amount: .vars.amount, currency: "usd" },
+  query:   { idempotency_key: .instance_id },
+  path:    { customer_id: .vars.customer_id },
+  headers: { "X-Source": "conduit" }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Nested body',
+    description: 'Mix static values with dynamic ones at any depth',
+    snippet: `{
+  body: {
+    kind: "charge",
+    metadata: {
+      instance: .instance_id,
+      tier:     .vars.tier
+    },
+    amount: .vars.amount
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Array from a list var',
+    description: 'Map each element of an array variable into a request item',
+    snippet: `{
+  body: {
+    items: [
+      .vars.line_items[] | { id: .id, qty: .quantity }
+    ]
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Conditional field',
+    description: 'Only include a field when a condition is met',
+    snippet: `{
+  body: {
+    amount: .vars.amount,
+    notify: (if .vars.email_opt_in then true else null end)
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'String interpolation',
+    description: 'Use \\( … ) to compose strings from variables',
+    snippet: `{
+  body: {
+    description: "Charge for instance \\(.instance_id)"
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Pluck only id list',
+    description: 'Reduce a list of objects to an array of one field',
+    snippet: `{
+  body: {
+    ids: [.vars.items[].id]
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Sum a numeric list',
+    description: 'Compute the total of a numeric array variable',
+    snippet: `{
+  body: {
+    total: ([.vars.amounts[]] | add)
+  }
+}`,
+  },
+  {
+    kind: 'request',
+    name: 'Defensive defaults',
+    description: 'Use // to substitute a fallback when a var is missing',
+    snippet: `{
+  body: {
+    customer: (.vars.customer_id // "anonymous"),
+    amount:   (.vars.amount      // 0)
+  }
+}`,
+  },
+];
+
+const RESPONSE_EXAMPLES: JqExample[] = [
+  {
+    kind: 'response',
+    name: 'Extract one field',
+    description: 'Pull a single value from the response body into a variable',
+    snippet: `{
+  charge_id: .body.id
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Multiple fields',
+    description: 'Set several variables at once including the HTTP status code',
+    snippet: `{
+  charge_id:     .body.id,
+  charge_status: .body.status,
+  http_status:   .status
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Header value',
+    description: 'Read a response header — keys are always lowercased',
+    snippet: `{
+  rate_limit: (.headers["x-rate-limit-remaining"] | tonumber? // null)
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Defensive default',
+    description: 'Fall back to null when a field is missing — variable is left unset',
+    snippet: `{
+  result: (.body.result // null),
+  count:  (.body.items | length? // 0)
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Boolean derivation',
+    description: 'Compute a boolean variable from a comparison',
+    snippet: `{
+  approved: (.body.status == "succeeded"),
+  is_paid:  ((.body.amount_paid // 0) >= .body.amount_due)
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Array length',
+    description: 'Count items in a list returned by the API',
+    snippet: `{
+  item_count: (.body.items | length)
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'First / last item',
+    description: 'Pick the first or last element from a returned array',
+    snippet: `{
+  first_id: (.body.items[0].id // null),
+  last_id:  (.body.items[-1].id // null)
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Conditional value',
+    description: 'Branch on a numeric or string comparison',
+    snippet: `{
+  tier: (if .body.amount > 10000 then "high"
+         elif .body.amount > 1000 then "mid"
+         else "low" end)
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'String interpolation',
+    description: 'Compose a single human-readable summary variable',
+    snippet: `{
+  summary: "\\(.body.id) → \\(.body.status) (\\(.status))"
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Filter then collect',
+    description: 'Use select() to keep only matching items, then collect a field',
+    snippet: `{
+  active_ids: [.body.items[] | select(.active) | .id]
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Concat error messages',
+    description: 'Join an array of error strings into one variable',
+    snippet: `{
+  error_summary: ((.body.errors // []) | map(.message) | join("; "))
+}`,
+  },
+  {
+    kind: 'response',
+    name: 'Object → array of pairs',
+    description: 'Flatten an object response into a list-of-pairs variable',
+    snippet: `{
+  meta: (.body.metadata // {} | to_entries | map({ k: .key, v: .value }))
+}`,
+  },
+];
+
+const ALL_EXAMPLES: JqExample[] = [...REQUEST_EXAMPLES, ...RESPONSE_EXAMPLES];
+
+// jq builtin functions exposed via autocomplete. Not exhaustive — covers
+// the operators most users reach for in transform filters.
+const JQ_BUILTINS = [
+  'length', 'keys', 'keys_unsorted', 'values', 'has', 'in', 'inside', 'contains',
+  'type', 'tonumber', 'tostring', 'ascii_downcase', 'ascii_upcase',
+  'select', 'map', 'reduce', 'foreach',
+  'add', 'any', 'all', 'min', 'max', 'min_by', 'max_by',
+  'sort', 'sort_by', 'unique', 'unique_by', 'group_by', 'reverse', 'flatten',
+  'first', 'last', 'limit', 'range', 'recurse', 'walk',
+  'to_entries', 'from_entries', 'with_entries',
+  'startswith', 'endswith', 'split', 'join', 'ltrimstr', 'rtrimstr',
+  'test', 'match', 'capture', 'scan', 'sub', 'gsub', 'splits',
+  'fromjson', 'tojson', 'tojson', 'env', 'now', 'todate', 'fromdate',
+  'paths', 'leaf_paths', 'getpath', 'setpath', 'delpaths',
+  'empty', 'error', 'not', 'if', 'then', 'else', 'elif', 'end',
+];
+
+function jqCompletions(kind: TransformKind) {
+  // Top-level keys that exist on the input doc the engine hands the filter.
+  const inputKeys =
+    kind === 'request'
+      ? [
+          { label: '.instance_id', detail: 'string' },
+          { label: '.execution_id', detail: 'string' },
+          { label: '.vars', detail: 'object' },
+        ]
+      : [
+          { label: '.status', detail: 'integer (HTTP status)' },
+          { label: '.headers', detail: 'object (lowercased keys)' },
+          { label: '.body', detail: 'parsed JSON body' },
+        ];
+
+  // Output-shape keys the engine consumes from the request transform.
+  const outputKeys =
+    kind === 'request'
+      ? ['body', 'headers', 'query', 'path']
+      : [];
+
+  return (ctx: CompletionContext) => {
+    const word = ctx.matchBefore(/[\w.\-]+/);
+    if (!word || (word.from === word.to && !ctx.explicit)) return null;
+    return {
+      from: word.from,
+      options: [
+        ...inputKeys.map(k => ({
+          label: k.label,
+          detail: k.detail,
+          type: 'variable',
+          boost: 99,
+        })),
+        ...outputKeys.map(k => ({
+          label: k,
+          detail: 'output key',
+          type: 'property',
+          boost: 90,
+        })),
+        ...JQ_BUILTINS.map(label => ({
+          label,
+          type: 'function',
+        })),
+      ],
+    };
+  };
+}
+
+const editorBaseTheme = EditorView.theme({
+  '&': {
+    fontSize: '12px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    border: '1px solid #e2e8f0',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    background: '#ffffff',
+  },
+  '.cm-scroller': { lineHeight: '1.5' },
+  '.cm-gutters': {
+    background: '#f8fafc',
+    border: 'none',
+    color: '#94a3b8',
+  },
+  '.cm-activeLineGutter': { background: '#eef2ff' },
+  '.cm-activeLine': { background: '#fafafa' },
+  '&.cm-focused': { outline: '2px solid #6366f1', outlineOffset: '-2px' },
+});
+
+export interface JqEditorHandle {
+  /** Append text to the current document and focus the editor with caret at the end. */
+  appendAndFocus: (snippet: string) => void;
+  focus: () => void;
+}
+
+const JqEditor = forwardRef<
+  JqEditorHandle,
+  {
+    kind: TransformKind;
+    value: string | undefined;
+    placeholder: string;
+    onChange: (v: string | undefined) => void;
+    height: number;
+  }
+>(function JqEditor({ kind, value, placeholder, onChange, height }, ref) {
+  const cmRef = useRef<ReactCodeMirrorRef>(null);
+
+  useImperativeHandle(
+    ref,
+    (): JqEditorHandle => ({
+      focus: () => cmRef.current?.view?.focus(),
+      appendAndFocus: (snippet: string) => {
+        const view = cmRef.current?.view;
+        if (!view) return;
+        const current = view.state.doc.toString();
+        const insertText = current.trim() ? `\n\n${snippet}` : snippet;
+        const at = current.length;
+        view.dispatch({
+          changes: { from: at, to: at, insert: insertText },
+          selection: { anchor: at + insertText.length },
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
+    }),
+    [],
+  );
+
+  const extensions = useMemo(
+    () => [
+      json(),
+      autocompletion({ override: [jqCompletions(kind)] }),
+      editorBaseTheme,
+      EditorView.lineWrapping,
+    ],
+    [kind],
+  );
+
+  return (
+    <CodeMirror
+      ref={cmRef}
+      value={value ?? ''}
+      placeholder={placeholder}
+      height={`${height}px`}
+      extensions={extensions}
+      onChange={v => onChange(v || undefined)}
+      basicSetup={{
+        lineNumbers: true,
+        foldGutter: false,
+        bracketMatching: true,
+        closeBrackets: true,
+        autocompletion: true,
+        highlightActiveLine: true,
+        highlightSelectionMatches: false,
+        searchKeymap: false,
+      }}
+    />
+  );
+});
+
+function TransformField({
+  kind,
+  label,
+  value,
+  placeholder,
+  onChange,
+  height = 280,
+  examplesOpenForThisKind,
+  onToggleExamples,
+  editorRef,
+}: {
+  kind: TransformKind;
+  label: string;
+  value: string | undefined;
+  placeholder: string;
+  onChange: (v: string | undefined) => void;
+  height?: number;
+  examplesOpenForThisKind: boolean;
+  onToggleExamples: () => void;
+  editorRef?: Ref<JqEditorHandle>;
+}) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          marginBottom: 6,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: '#475569',
+          }}
+        >
+          {label} transform{' '}
+          <span style={{ color: '#94a3b8', fontWeight: 400 }}>(jq filter)</span>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleExamples}
+          style={{
+            padding: '3px 10px',
+            fontSize: 11,
+            border: '1px solid #cbd5e1',
+            borderRadius: 4,
+            background: examplesOpenForThisKind ? '#0f172a' : '#ffffff',
+            color: examplesOpenForThisKind ? '#ffffff' : '#0f172a',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {examplesOpenForThisKind ? 'Hide examples' : 'Show examples'}
+        </button>
+      </div>
+      <JqEditor
+        ref={editorRef}
+        kind={kind}
+        value={value}
+        placeholder={placeholder}
+        onChange={onChange}
+        height={height}
+      />
+    </div>
+  );
+}
+
+type SidePanelTab = 'all' | TransformKind | 'reference';
+
+function JqExamplesSidePanel({
+  height,
+  filter,
+  onFilterChange,
+  onUseRequest,
+  onUseResponse,
+  onClose,
+}: {
+  height: string;
+  filter: SidePanelTab;
+  onFilterChange: (f: SidePanelTab) => void;
+  onUseRequest: (snippet: string) => void;
+  onUseResponse: (snippet: string) => void;
+  onClose: () => void;
+}) {
+  const visible =
+    filter === 'all' || filter === 'reference'
+      ? ALL_EXAMPLES
+      : ALL_EXAMPLES.filter(e => e.kind === filter);
+
+  return (
+    <div
+      onClick={e => e.stopPropagation()}
+      style={{
+        width: 380,
+        height,
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius)',
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        style={{
+          padding: '14px 16px 10px',
+          borderBottom: '1px solid var(--color-border)',
+          flex: '0 0 auto',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 2 }}>
+              jq examples
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+              Click <em>Use</em> to drop a snippet into the matching transform field.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close examples"
+            style={{
+              border: 'none',
+              background: 'transparent',
+              fontSize: 18,
+              color: 'var(--text-tertiary)',
+              cursor: 'pointer',
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <div
+          style={{
+            display: 'inline-flex',
+            border: '1px solid #e2e8f0',
+            borderRadius: 4,
+            overflow: 'hidden',
+            fontSize: 11,
+          }}
+        >
+          {(['all', 'request', 'response', 'reference'] as const).map(f => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => onFilterChange(f)}
+              style={{
+                padding: '4px 10px',
+                border: 'none',
+                background: filter === f ? '#0f172a' : '#ffffff',
+                color: filter === f ? '#ffffff' : '#475569',
+                cursor: 'pointer',
+                textTransform: 'capitalize',
+              }}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ overflow: 'auto', flex: 1, padding: 10 }}>
+        {filter === 'reference' ? (
+          <JqReference />
+        ) : (
+          visible.map((ex, i) => (
+            <ExampleCard
+              key={`${ex.kind}-${ex.name}`}
+              example={ex}
+              isFirst={i === 0}
+              onUse={
+                ex.kind === 'request'
+                  ? () => onUseRequest(ex.snippet)
+                  : () => onUseResponse(ex.snippet)
+              }
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function JqReference() {
+  return (
+    <div style={{ padding: '4px 6px', fontSize: 12, lineHeight: 1.55, color: '#0f172a' }}>
+      <RefSection title="Request input doc">
+        <p>
+          What the <em>request</em> transform receives. Compose any of these
+          into your output object.
+        </p>
+        <RefCode>{`{
+  instance_id:  "<uuid>",          // current process instance
+  execution_id: "<uuid>",          // current token / execution
+  vars: {                          // every instance variable
+    <name>: <value>, ...
+  }
+}`}</RefCode>
+        <p>
+          Access vars by name: <code>.vars.amount</code>,{' '}
+          <code>.vars.customer.email</code>. Missing vars resolve to{' '}
+          <code>null</code>; pair with <code>// fallback</code> for safety.
+        </p>
+      </RefSection>
+
+      <RefSection title="Request output shape">
+        <p>
+          What the engine consumes from the filter. Every key is optional —
+          omit what you don't need.
+        </p>
+        <RefCode>{`{
+  body:    <any>,                  // JSON body (skipped for GET/HEAD/DELETE)
+  headers: { "<Name>": "<value>" },// merged with auth (auth wins on conflict)
+  query:   { "<key>": "<value>" }, // urlencoded ?k=v pairs
+  path:    { "<key>": "<value>" }  // substitutes :key in the URL
+}`}</RefCode>
+      </RefSection>
+
+      <RefSection title="Response input doc">
+        <p>What the <em>response</em> transform receives.</p>
+        <RefCode>{`{
+  status:  200,                    // HTTP status (integer)
+  headers: { "x-rate-limit": "59" },// keys ALWAYS lowercased
+  body:    <any>                   // parsed JSON, or raw string if non-JSON
+}`}</RefCode>
+      </RefSection>
+
+      <RefSection title="Response output shape">
+        <p>
+          A flat object whose keys become instance variables. <code>null</code>{' '}
+          values leave the variable unset rather than failing the task.
+        </p>
+        <RefCode>{`{
+  charge_id:   .body.id,
+  http_status: .status,
+  rate_limit:  (.headers["x-rate-limit"] | tonumber? // null)
+}`}</RefCode>
+        <p>
+          Variable types are inferred from JSON: strings → <code>string</code>,
+          ints → <code>integer</code>, bools → <code>boolean</code>, anything
+          else (floats, arrays, objects) → <code>json</code>.
+        </p>
+      </RefSection>
+
+      <RefSection title="jq cheat sheet">
+        <RefRow op=".field" desc="object field" />
+        <RefRow op=".items[]" desc="iterate array elements" />
+        <RefRow op=".items[0]" desc="index (negative ok: .items[-1])" />
+        <RefRow op="a | b" desc="pipe — feed a's output into b" />
+        <RefRow op="a // b" desc="default — b if a is null/false" />
+        <RefRow op=".x?" desc="optional — null instead of error if .x missing" />
+        <RefRow op={'"\\(.x)"'} desc="string interpolation" />
+        <RefRow op="[ … ]" desc="array constructor" />
+        <RefRow op="{ a: .x }" desc="object constructor" />
+        <RefRow
+          op="if c then a elif … else b end"
+          desc="conditional"
+        />
+      </RefSection>
+
+      <RefSection title="Common functions">
+        <RefRow op="length" desc="array/string/object size" />
+        <RefRow op="keys" desc="object keys (sorted)" />
+        <RefRow op="select(p)" desc="keep values where p is truthy" />
+        <RefRow op="map(f)" desc="apply f to each array element" />
+        <RefRow op="tonumber" desc="parse number (use ? to soft-fail)" />
+        <RefRow op="tostring" desc="coerce to string" />
+        <RefRow op="contains(x)" desc="substring/subset check" />
+        <RefRow op="to_entries" desc="object → [{ key, value }]" />
+        <RefRow op="from_entries" desc="reverse of to_entries" />
+        <RefRow op="add" desc="sum / concat / object-merge a list" />
+        <RefRow op="join(sep)" desc="join an array of strings" />
+        <RefRow op="now | todate" desc="current ISO 8601 timestamp" />
+      </RefSection>
+
+      <RefSection title="Behaviour notes">
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <li>
+            Auth headers (<code>Authorization</code>, API-key header) always
+            win on conflict — a transform-supplied <code>Authorization</code>{' '}
+            is silently overwritten.
+          </li>
+          <li>Response header keys are <strong>lowercased</strong> before the filter sees them.</li>
+          <li>
+            A response variable resolved to <code>null</code> leaves the
+            instance variable <em>unset</em>; it does not fail the task.
+          </li>
+          <li>
+            Filters that fail to compile reject the deployment. Runtime errors
+            (e.g. <code>tonumber</code> on a non-numeric string) fail the
+            HTTP task, not the whole engine.
+          </li>
+          <li>
+            Filter source is snapshotted onto the job at enqueue time, so
+            redeploying the definition does not mutate in-flight calls.
+          </li>
+        </ul>
+      </RefSection>
+    </div>
+  );
+}
+
+function RefSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          color: '#475569',
+          textTransform: 'uppercase',
+          letterSpacing: 0.4,
+          marginBottom: 6,
+        }}
+      >
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function RefCode({ children }: { children: string }) {
+  return (
+    <pre
+      style={{
+        margin: '6px 0',
+        padding: 8,
+        fontFamily: 'ui-monospace, monospace',
+        fontSize: 11,
+        lineHeight: 1.45,
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        borderRadius: 4,
+        color: '#0f172a',
+        overflow: 'auto',
+        whiteSpace: 'pre',
+      }}
+    >
+      {children}
+    </pre>
+  );
+}
+
+function RefRow({ op, desc }: { op: string; desc: string }) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '120px 1fr',
+        gap: 8,
+        padding: '2px 0',
+        fontSize: 11,
+      }}
+    >
+      <code
+        style={{
+          fontFamily: 'ui-monospace, monospace',
+          color: '#1e293b',
+          background: '#f1f5f9',
+          padding: '1px 6px',
+          borderRadius: 3,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+        }}
+      >
+        {op}
+      </code>
+      <span style={{ color: '#475569' }}>{desc}</span>
+    </div>
+  );
+}
+
+function ExampleCard({
+  example,
+  isFirst,
+  onUse,
+}: {
+  example: JqExample;
+  isFirst: boolean;
+  onUse: () => void;
+}) {
+  return (
+    <div
+      style={{
+        padding: '10px 4px',
+        borderTop: isFirst ? 'none' : '1px solid #f1f5f9',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          marginBottom: 4,
+          gap: 8,
+        }}
+      >
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: '#64748b',
+              marginBottom: 1,
+              textTransform: 'uppercase',
+              letterSpacing: 0.4,
+            }}
+          >
+            {example.kind}
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#0f172a' }}>
+            {example.name}
+          </div>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+            {example.description}
+          </div>
+        </div>
+        <button
+          type="button"
+          title={`Append to ${example.kind} transform`}
+          onClick={onUse}
+          style={{
+            padding: '3px 10px',
+            fontSize: 11,
+            border: '1px solid #cbd5e1',
+            borderRadius: 4,
+            background: '#ffffff',
+            color: '#0f172a',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Use
+        </button>
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          padding: 8,
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: 11,
+          lineHeight: 1.5,
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: 4,
+          color: '#0f172a',
+          overflow: 'auto',
+          whiteSpace: 'pre',
+        }}
+      >
+        {example.snippet}
+      </pre>
     </div>
   );
 }

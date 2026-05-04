@@ -3,6 +3,7 @@
      from separate tasks (not from a gateway — each task directly leads to its end). -->
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
              id="Definitions_4"
+             xmlns:conduit="http://conduit.io/ext"
              targetNamespace="http://conduit.io/schema/bpmn">
   <process id="order_fulfillment" name="Order Fulfillment" isExecutable="true">
     <documentation>Full order fulfillment workflow: intake → review → payment → fulfillment → dispatch → confirmation.</documentation>
@@ -10,10 +11,10 @@
     <startEvent id="start_1" name="Order Received"/>
 
     <userTask id="task_review"      name="Review Order Details"/>
-    <serviceTask id="task_payment"  name="Validate Payment"      topic="payment-validator"/>
+    <serviceTask id="task_payment"  name="Validate Payment"      conduit:topic="payment-validator"/>
     <userTask id="task_authorise"   name="Authorise Shipment"/>
-    <serviceTask id="task_pick"     name="Pick and Pack Items"   topic="warehouse-fulfillment"/>
-    <serviceTask id="task_dispatch" name="Dispatch to Carrier"   topic="logistics"/>
+    <serviceTask id="task_pick"     name="Pick and Pack Items"   conduit:topic="warehouse-fulfillment"/>
+    <serviceTask id="task_dispatch" name="Dispatch to Carrier"   conduit:topic="logistics"/>
     <userTask id="task_confirm"     name="Confirm Delivery"/>
 
     <endEvent id="end_success" name="Order Fulfilled"/>

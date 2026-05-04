@@ -48,7 +48,7 @@ import BpmnProperties from './BpmnProperties';
 import { toXml, fromXml } from './bpmnXml';
 import type { BpmnNodeData, BpmnEdgeData, BpmnElementType } from './bpmnTypes';
 import { NODE_DIMENSIONS } from './bpmnTypes';
-import { applyAutoLayout, spreadGatewayHandles } from './autoLayout';
+import { applyAutoLayout, recomputeAllEdgeHandles, spreadGatewayHandles } from './autoLayout';
 
 function ZoomDisplay() {
   const { zoom } = useViewport();
@@ -127,7 +127,7 @@ const BOUNDARY_TYPES = new Set<BpmnElementType>([
 ]);
 
 const TASK_TYPES = new Set<BpmnElementType>([
-  'userTask', 'serviceTask', 'businessRuleTask', 'subProcess', 'sendTask', 'receiveTask',
+  'userTask', 'serviceTask', 'scriptTask', 'businessRuleTask', 'subProcess', 'sendTask', 'receiveTask',
 ]);
 
 const START_EVENT_TYPES = new Set<BpmnElementType>([
@@ -141,7 +141,7 @@ function nodeTypeFor(t: BpmnElementType): string {
     'intermediateCatchTimerEvent', 'intermediateCatchMessageEvent', 'intermediateCatchSignalEvent',
   ];
   if (eventTypes.includes(t)) return 'bpmnEvent';
-  if (t === 'userTask' || t === 'serviceTask' || t === 'businessRuleTask' || t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask';
+  if (t === 'userTask' || t === 'serviceTask' || t === 'scriptTask' || t === 'businessRuleTask' || t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask';
   return 'bpmnGateway';
 }
 
@@ -179,6 +179,18 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
   const resizingRef = useRef(false);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
+
+  // Refs so getXml always reads the latest state, regardless of closure timing.
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const processIdRef = useRef(processId);
+  const processNameRef = useRef(processName);
+  const processSchemaRef = useRef(processSchema);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
+  processIdRef.current = processId;
+  processNameRef.current = processName;
+  processSchemaRef.current = processSchema;
 
   const warningsMap = useMemo(() => computeWarningsMap(nodes, edges), [nodes, edges]);
   const invalidEdgeIds = useMemo(() => computeInvalidEdgeIds(nodes, edges), [nodes, edges]);
@@ -241,7 +253,7 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
   }, [xml]);
 
   useImperativeHandle(ref, () => ({
-    getXml: async () => toXml(nodes, edges, processId, processName, processSchema),
+    getXml: async () => toXml(nodesRef.current, edgesRef.current, processIdRef.current, processNameRef.current, processSchemaRef.current),
   }));
 
   const onConnect: OnConnect = useCallback(
@@ -344,8 +356,11 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
   }, [setNodes]);
 
   const onAutoLayout = useCallback(() => {
-    setNodes(ns => applyAutoLayout(ns, edges));
-    setEdges(es => spreadGatewayHandles(nodes, es));
+    const newNodes = applyAutoLayout(nodes, edges);
+    const recomputed = recomputeAllEdgeHandles(newNodes, edges);
+    const newEdges = spreadGatewayHandles(newNodes, recomputed);
+    setNodes(newNodes);
+    setEdges(newEdges);
     setTimeout(() => reactFlow.fitView({ padding: 0.15, duration: 300 }), 50);
   }, [edges, nodes, setNodes, setEdges, reactFlow]);
 

@@ -68,6 +68,43 @@ export function spreadGatewayHandles(nodes: Node[], edges: Edge[]): Edge[] {
   });
 }
 
+/**
+ * Recompute sourceHandle / targetHandle for every non-attachment edge based
+ * on the actual direction vector between node centers. Call this after any
+ * operation that repositions nodes (auto-layout, paste, etc.).
+ */
+export function recomputeAllEdgeHandles(nodes: Node[], edges: Edge[]): Edge[] {
+  const nodeById = new Map(nodes.map(n => [n.id, n]));
+
+  return edges.map(edge => {
+    if ((edge.data as BpmnEdgeData | undefined)?.kind === 'attachment') return edge;
+
+    const srcNode = nodeById.get(edge.source);
+    const tgtNode = nodeById.get(edge.target);
+    if (!srcNode || !tgtNode) return edge;
+
+    const srcDim = NODE_DIMENSIONS[(srcNode.data as BpmnNodeData).bpmnType] ?? { width: 80, height: 40 };
+    const tgtDim = NODE_DIMENSIONS[(tgtNode.data as BpmnNodeData).bpmnType] ?? { width: 80, height: 40 };
+    const srcCX = srcNode.position.x + srcDim.width / 2;
+    const srcCY = srcNode.position.y + srcDim.height / 2;
+    const tgtCX = tgtNode.position.x + tgtDim.width / 2;
+    const tgtCY = tgtNode.position.y + tgtDim.height / 2;
+    const dx = tgtCX - srcCX;
+    const dy = tgtCY - srcCY;
+
+    let sourceHandle: string;
+    let targetHandle: string;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      sourceHandle = dx >= 0 ? 'right-source' : 'left-source';
+      targetHandle = dx >= 0 ? 'left-target' : 'right-target';
+    } else {
+      sourceHandle = dy >= 0 ? 'bottom-source' : 'top-source';
+      targetHandle = dy >= 0 ? 'top-target' : 'bottom-target';
+    }
+    return { ...edge, sourceHandle, targetHandle };
+  });
+}
+
 export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   if (nodes.length === 0) return nodes;
 
@@ -95,7 +132,7 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   // Dagre graph — boundary nodes excluded so they don't consume an extra rank
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
-  g.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 80, marginx: 40, marginy: 40 });
+  g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100, marginx: 40, marginy: 40, ranker: 'network-simplex' });
 
   for (const node of nodes) {
     if (boundaryNodeIds.has(node.id)) continue;
@@ -115,6 +152,42 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
   }
 
   dagre.layout(g);
+
+  // Preserve the user's original relative vertical ordering within each rank.
+  // Dagre assigns nodes to ranks (columns in LR mode) but freely reorders them
+  // vertically, which can swap nodes and introduce crossings in diagrams that
+  // were already clean. We keep dagre's Y-slot values (the vertical spacing it
+  // calculated) but re-assign them in the order the user originally arranged
+  // the nodes — lowest original Y keeps the lowest dagre Y slot, etc.
+  const rankGroups = new Map<number, string[]>();
+  for (const node of nodes) {
+    if (boundaryNodeIds.has(node.id)) continue;
+    const pos = g.node(node.id);
+    if (!pos) continue;
+    const list = rankGroups.get(pos.x) ?? [];
+    list.push(node.id);
+    rankGroups.set(pos.x, list);
+  }
+
+  const yOverride = new Map<string, number>(); // nodeId → corrected dagre-center Y
+  for (const nodeIds of rankGroups.values()) {
+    if (nodeIds.length <= 1) continue;
+
+    // dagre's Y slots for this rank, sorted ascending
+    const dagreSlots = nodeIds.map(id => g.node(id).y).sort((a, b) => a - b);
+
+    // nodes sorted by their original center-Y (top-to-bottom in the user's layout)
+    const byOriginalY = nodeIds
+      .map(id => {
+        const node = nodes.find(n => n.id === id)!;
+        const dim = NODE_DIMENSIONS[(node.data as BpmnNodeData).bpmnType] ?? { width: 80, height: 40 };
+        return { id, origCY: node.position.y + dim.height / 2 };
+      })
+      .sort((a, b) => a.origCY - b.origCY);
+
+    // assign slots in original order: topmost original node → smallest Y slot
+    byOriginalY.forEach(({ id }, i) => yOverride.set(id, dagreSlots[i]));
+  }
 
   // Position boundary events relative to their host after main layout is done.
   // They sit clearly above or below the host (no overlap), centered horizontally
@@ -167,11 +240,12 @@ export function applyAutoLayout(nodes: Node[], edges: Edge[]): Node[] {
     if (!pos) return node;
     const d   = node.data as BpmnNodeData;
     const dim = NODE_DIMENSIONS[d.bpmnType] ?? { width: 80, height: 40 };
+    const centerY = yOverride.get(node.id) ?? pos.y;
     return {
       ...node,
       position: {
         x: pos.x - dim.width / 2,
-        y: pos.y - dim.height / 2,
+        y: centerY - dim.height / 2,
       },
     };
   });

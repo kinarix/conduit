@@ -43,7 +43,15 @@ pub(super) fn extract_input_schema(
 }
 
 /// Extract the external-task topic from a serviceTask node.
-pub(super) fn extract_topic(node: &roxmltree::Node, camunda_ns: &str) -> Option<String> {
+/// Priority: conduit:topic → plain topic → camunda:topic → <extensionElements><topic>
+pub(super) fn extract_topic(
+    node: &roxmltree::Node,
+    conduit_ns: &str,
+    camunda_ns: &str,
+) -> Option<String> {
+    if let Some(t) = node.attribute((conduit_ns, "topic")) {
+        return Some(t.to_string());
+    }
     if let Some(t) = node.attribute("topic") {
         return Some(t.to_string());
     }
@@ -141,6 +149,7 @@ pub(super) fn extract_http_config(
 
     let request_transform = find_child_text(&http, conduit_ns, "requestTransform");
     let response_transform = find_child_text(&http, conduit_ns, "responseTransform");
+    let error_code_expression = find_child_text(&http, conduit_ns, "errorCodeExpression");
 
     let retry = http
         .children()
@@ -195,6 +204,7 @@ pub(super) fn extract_http_config(
         api_key_header,
         request_transform,
         response_transform,
+        error_code_expression,
         retry,
     }))
 }
@@ -232,6 +242,33 @@ pub(super) fn extract_timer_spec(node: &roxmltree::Node) -> Result<TimerSpec> {
     Err(EngineError::Parse(
         "Timer event missing timerEventDefinition with timeDuration/timeCycle/timeDate".to_string(),
     ))
+}
+
+pub(super) fn extract_result_variable(
+    node: &roxmltree::Node,
+    conduit_ns: &str,
+) -> Option<String> {
+    for ext in node
+        .children()
+        .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
+    {
+        for inner in ext.children().filter(|n| n.is_element()) {
+            let is_result_var = inner.tag_name().name() == "resultVariable"
+                && inner
+                    .tag_name()
+                    .namespace()
+                    .is_some_and(|ns| ns == conduit_ns);
+            if is_result_var {
+                if let Some(text) = inner.text() {
+                    let trimmed = text.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 pub(super) fn extract_condition(node: &roxmltree::Node) -> Option<String> {

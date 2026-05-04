@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use crate::error::{EngineError, Result};
 use extract::{
     extract_condition, extract_correlation_key, extract_error_code, extract_http_config,
-    extract_input_schema, extract_message_name, extract_signal_name, extract_timer_spec,
-    extract_topic, extract_url, require_id,
+    extract_input_schema, extract_message_name, extract_result_variable, extract_signal_name,
+    extract_timer_spec, extract_topic, extract_url, require_id,
 };
 use validate::validate;
 
@@ -158,7 +158,7 @@ fn parse_children(
             "serviceTask" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let topic = extract_topic(&child, CAMUNDA_NS);
+                let topic = extract_topic(&child, CONDUIT_NS, CAMUNDA_NS);
                 let url = extract_url(&child, CAMUNDA_NS);
                 let http = extract_http_config(&child, CONDUIT_NS)?;
                 nodes.insert(
@@ -385,6 +385,32 @@ fn parse_children(
                     },
                 );
             }
+            "scriptTask" => {
+                let id = require_id(&child, local)?;
+                let name = child.attribute("name").map(|s| s.to_string());
+                let script = child
+                    .children()
+                    .find(|n| n.is_element() && n.tag_name().name() == "script")
+                    .and_then(|n| n.text().map(|s| s.trim().to_string()))
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(|| {
+                        EngineError::Parse(format!(
+                            "scriptTask '{id}' missing <script> child element"
+                        ))
+                    })?;
+                let result_variable = extract_result_variable(&child, CONDUIT_NS);
+                nodes.insert(
+                    id.clone(),
+                    FlowNode {
+                        id,
+                        name,
+                        kind: FlowNodeKind::ScriptTask {
+                            script,
+                            result_variable,
+                        },
+                    },
+                );
+            }
 
             // Future-phase elements — reject explicitly
             "eventBasedGateway"
@@ -393,7 +419,6 @@ fn parse_children(
             | "transaction"
             | "adHocSubProcess"
             | "manualTask"
-            | "scriptTask"
             | "callActivity" => return Err(EngineError::UnsupportedElement(local.to_string())),
 
             // Non-semantic / presentation elements — safe to ignore

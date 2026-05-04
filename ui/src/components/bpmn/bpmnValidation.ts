@@ -15,6 +15,7 @@ const REQUIRED_FIELDS: Partial<Record<string, { field: keyof BpmnNodeData; msg: 
   intermediateCatchSignalEvent:  { field: 'signalName',      msg: 'Signal name is required' },
   boundaryTimerEvent:            { field: 'timerExpression', msg: 'Duration expression is required (e.g. PT30M)' },
   boundarySignalEvent:           { field: 'signalName',      msg: 'Signal name is required' },
+  scriptTask:                    { field: 'script',          msg: 'Script expression is required' },
   businessRuleTask:              { field: 'decisionRef',     msg: 'Decision ref is required' },
   sendTask:                      { field: 'messageName',     msg: 'Message name is required' },
   receiveTask:                   { field: 'messageName',     msg: 'Message name is required' },

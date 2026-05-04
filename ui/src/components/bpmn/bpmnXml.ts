@@ -26,6 +26,7 @@ const TAG_MAP: Record<BpmnElementType, string> = {
   endEvent:                      'endEvent',
   userTask:                      'userTask',
   serviceTask:                   'serviceTask',
+  scriptTask:                    'scriptTask',
   businessRuleTask:              'businessRuleTask',
   subProcess:                    'subProcess',
   sendTask:                      'sendTask',
@@ -81,6 +82,13 @@ export function toXml(
   const elementLines: string[] = [];
   const shapeLines: string[] = [];
 
+  // Build a map of sourceNodeId → defaultEdgeId for serializing gateway default attr
+  const defaultEdgeBySource = new Map<string, string>();
+  for (const e of edges) {
+    const ed = e.data as BpmnEdgeData | undefined;
+    if (ed?.isDefault) defaultEdgeBySource.set(e.source, e.id);
+  }
+
   if (inputSchema?.trim()) {
     elementLines.push(
       `    <extensionElements>` +
@@ -94,6 +102,10 @@ export function toXml(
     const tag = TAG_MAP[d.bpmnType];
     const attrs: string[] = [`id="${esc(n.id)}"`];
     if (d.label) attrs.push(`name="${esc(d.label)}"`);
+
+    if ((d.bpmnType === 'exclusiveGateway' || d.bpmnType === 'inclusiveGateway') && defaultEdgeBySource.has(n.id)) {
+      attrs.push(`default="${esc(defaultEdgeBySource.get(n.id)!)}"`);
+    }
 
     if (BOUNDARY_BPMN_TYPES.has(d.bpmnType)) {
       const hostId = attachedToMap.get(n.id);
@@ -125,6 +137,9 @@ export function toXml(
     }
     if (d.bpmnType === 'serviceTask' && d.http && hasMeaningfulHttpConfig(d.http)) {
       extLines.push(serializeHttpConfig(d.http));
+    }
+    if (d.bpmnType === 'scriptTask' && d.resultVariable) {
+      extLines.push(`        <conduit:resultVariable>${esc(d.resultVariable)}</conduit:resultVariable>`);
     }
     if (extLines.length > 0) {
       children.push(
@@ -188,6 +203,10 @@ export function toXml(
       children.push(`      <signalEventDefinition signalRef="${ref}"/>`);
     }
 
+    if (d.bpmnType === 'scriptTask' && d.script) {
+      children.push(`      <script>${esc(d.script)}</script>`);
+    }
+
     if (d.bpmnType === 'sendTask' || d.bpmnType === 'receiveTask') {
       const ref = d.messageName ? `msg_${esc(n.id)}` : '';
       children.push(`      <messageEventDefinition messageRef="${ref}"/>`);
@@ -220,6 +239,9 @@ export function toXml(
       `sourceRef="${esc(e.source)}"`,
       `targetRef="${esc(e.target)}"`,
     ];
+    if (e.sourceHandle) attrs.push(`sourceHandle="${esc(e.sourceHandle)}"`);
+    if (e.targetHandle) attrs.push(`targetHandle="${esc(e.targetHandle)}"`);
+
     if (d?.condition) {
       edgeLines.push(
         `    <sequenceFlow ${attrs.join(' ')}>` +
@@ -263,6 +285,7 @@ const REVERSE_TAG: Partial<Record<string, BpmnElementType>> = {
   endEvent:         'endEvent',
   userTask:         'userTask',
   serviceTask:      'serviceTask',
+  scriptTask:       'scriptTask',
   businessRuleTask: 'businessRuleTask',
   subProcess:       'subProcess',
   sendTask:         'sendTask',
@@ -339,6 +362,9 @@ export function fromXml(xml: string): ParsedBpmn {
   const edges: Edge[] = [];
   let autoX = 80;
 
+  // Collect gateway default flow refs for post-processing edges
+  const gatewayDefaultFlowIds = new Set<string>();
+
   for (const child of Array.from(processEl.children)) {
     const localName = child.localName;
     let bpmnType = REVERSE_TAG[localName];
@@ -358,6 +384,11 @@ export function fromXml(xml: string): ParsedBpmn {
       const label = child.getAttribute('name') ?? '';
       const data: BpmnNodeData = { bpmnType, label };
 
+      if (bpmnType === 'exclusiveGateway' || bpmnType === 'inclusiveGateway') {
+        const defaultFlowRef = child.getAttribute('default');
+        if (defaultFlowRef) gatewayDefaultFlowIds.add(defaultFlowRef);
+      }
+
       if (bpmnType === 'serviceTask') {
         data.topic = child.getAttribute('topic') ?? undefined;
         data.url   = child.getAttribute('url') ?? undefined;
@@ -369,6 +400,13 @@ export function fromXml(xml: string): ParsedBpmn {
         const ref = child.getAttributeNS(CAMUNDA_NS, 'decisionRef')
           ?? child.getAttribute('camunda:decisionRef');
         if (ref) data.decisionRef = ref;
+      }
+
+      if (bpmnType === 'scriptTask') {
+        const scriptEl = child.querySelector('script')
+          ?? child.getElementsByTagNameNS(BPMN_NS, 'script')[0];
+        if (scriptEl) data.script = scriptEl.textContent?.trim() || undefined;
+        data.resultVariable = extractResultVariable(child);
       }
 
       if (bpmnType === 'sendTask' || bpmnType === 'receiveTask') {
@@ -503,12 +541,39 @@ export function fromXml(xml: string): ParsedBpmn {
       nodes.push({ id, type: 'bpmnEvent', position: pos, data });
 
     } else if (localName === 'sequenceFlow') {
-      const id     = child.getAttribute('id') ?? `edge_${edges.length}`;
-      const source = child.getAttribute('sourceRef') ?? '';
-      const target = child.getAttribute('targetRef') ?? '';
+      const id           = child.getAttribute('id') ?? `edge_${edges.length}`;
+      const source       = child.getAttribute('sourceRef') ?? '';
+      const target       = child.getAttribute('targetRef') ?? '';
+      let sourceHandle: string | undefined = child.getAttribute('sourceHandle') ?? undefined;
+      let targetHandle: string | undefined = child.getAttribute('targetHandle') ?? undefined;
+
+      // For old XML without handle attributes, infer from node positions so edges
+      // don't all collapse to the default left-side handle.
+      if (!sourceHandle || !targetHandle) {
+        const srcPos = posMap.get(source);
+        const tgtPos = posMap.get(target);
+        if (srcPos && tgtPos) {
+          const dx = tgtPos.x - srcPos.x;
+          const dy = tgtPos.y - srcPos.y;
+          if (Math.abs(dx) >= Math.abs(dy)) {
+            if (!sourceHandle) sourceHandle = dx >= 0 ? 'right-source' : 'left-source';
+            if (!targetHandle) targetHandle = dx >= 0 ? 'left-target' : 'right-target';
+          } else {
+            if (!sourceHandle) sourceHandle = dy >= 0 ? 'bottom-source' : 'top-source';
+            if (!targetHandle) targetHandle = dy >= 0 ? 'top-target' : 'bottom-target';
+          }
+        }
+      }
+
       const condEl = child.querySelector('conditionExpression');
       const data: BpmnEdgeData = condEl ? { condition: condEl.textContent ?? '' } : {};
-      edges.push({ id, source, target, data, label: data.condition ?? undefined });
+      if (gatewayDefaultFlowIds.has(id)) data.isDefault = true;
+      edges.push({
+        id, source, target, data,
+        label: data.condition ?? undefined,
+        ...(sourceHandle && { sourceHandle }),
+        ...(targetHandle && { targetHandle }),
+      });
     }
   }
 
@@ -543,6 +608,7 @@ function hasMeaningfulHttpConfig(h: HttpConnectorConfig): boolean {
     h.apiKeyHeader ||
     (h.requestTransform && h.requestTransform.trim()) ||
     (h.responseTransform && h.responseTransform.trim()) ||
+    (h.errorCodeExpression && h.errorCodeExpression.trim()) ||
     (h.retry && Object.keys(h.retry).length > 0)
   );
 }
@@ -564,6 +630,11 @@ function serializeHttpConfig(h: HttpConnectorConfig): string {
   if (h.responseTransform?.trim()) {
     inner.push(
       `          <conduit:responseTransform><![CDATA[\n${h.responseTransform.trim()}\n          ]]></conduit:responseTransform>`,
+    );
+  }
+  if (h.errorCodeExpression?.trim()) {
+    inner.push(
+      `          <conduit:errorCodeExpression><![CDATA[\n${h.errorCodeExpression.trim()}\n          ]]></conduit:errorCodeExpression>`,
     );
   }
   if (h.retry) {
@@ -617,6 +688,9 @@ function extractHttpConfig(el: Element): HttpConnectorConfig | undefined {
         } else if (sub.localName === 'responseTransform') {
           const text = sub.textContent?.trim();
           if (text) cfg.responseTransform = text;
+        } else if (sub.localName === 'errorCodeExpression') {
+          const text = sub.textContent?.trim();
+          if (text) cfg.errorCodeExpression = text;
         } else if (sub.localName === 'retry') {
           const retry: HttpRetryConfig = {};
           const max = sub.getAttribute('max');
@@ -659,6 +733,20 @@ function extractSchemaText(el: Element): string | undefined {
   return undefined;
 }
 
+function extractResultVariable(el: Element): string | undefined {
+  for (const child of Array.from(el.children)) {
+    if (child.localName !== 'extensionElements') continue;
+    for (const inner of Array.from(child.children)) {
+      const ns = inner.namespaceURI ?? '';
+      if (inner.localName === 'resultVariable' && ns === CONDUIT_NS) {
+        const text = inner.textContent?.trim();
+        if (text) return text;
+      }
+    }
+  }
+  return undefined;
+}
+
 function nodeTypeFor(t: BpmnElementType): string {
   const eventTypes: BpmnElementType[] = [
     'startEvent', 'messageStartEvent', 'timerStartEvent', 'endEvent',
@@ -666,6 +754,6 @@ function nodeTypeFor(t: BpmnElementType): string {
     'intermediateCatchTimerEvent', 'intermediateCatchMessageEvent', 'intermediateCatchSignalEvent',
   ];
   if (eventTypes.includes(t)) return 'bpmnEvent';
-  if (t === 'userTask' || t === 'serviceTask' || t === 'businessRuleTask' || t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask';
+  if (t === 'userTask' || t === 'serviceTask' || t === 'scriptTask' || t === 'businessRuleTask' || t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask';
   return 'bpmnGateway';
 }

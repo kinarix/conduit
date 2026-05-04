@@ -14,6 +14,7 @@ use crate::db::models::ProcessDefinition;
 use crate::db::process_definitions;
 use crate::error::{EngineError, Result};
 use crate::parser;
+use crate::parser::FlowNodeKind;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
@@ -113,6 +114,45 @@ async fn deploy(
 
     // Parse first — fail fast before touching the DB
     let graph = Arc::new(parser::parse(&req.bpmn_xml)?);
+
+    // Warn if a gateway sits immediately after a start event and no input schema is defined.
+    // Without a schema, callers get no pre-flight 422 — missing variables silently produce
+    // a runtime instance with state='error' instead.
+    if graph.input_schema.is_none() {
+        let gateway_first = graph
+            .nodes
+            .values()
+            .filter(|n| {
+                matches!(
+                    n.kind,
+                    FlowNodeKind::StartEvent
+                        | FlowNodeKind::MessageStartEvent { .. }
+                        | FlowNodeKind::SignalStartEvent { .. }
+                )
+            })
+            .any(|start| {
+                graph
+                    .outgoing
+                    .get(&start.id)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tid| graph.nodes.get(tid))
+                    .any(|n| {
+                        matches!(
+                            n.kind,
+                            FlowNodeKind::ExclusiveGateway { .. }
+                                | FlowNodeKind::InclusiveGateway { .. }
+                        )
+                    })
+            });
+        if gateway_first {
+            tracing::warn!(
+                process_key = %req.key,
+                "process has a gateway immediately after start but no conduit:inputSchema — \
+                 missing variables will produce a runtime error instead of a clean 422"
+            );
+        }
+    }
 
     // Find any currently-deployed version so we can cancel its timer-start triggers.
     let prev_id: Option<Uuid> = sqlx::query_scalar(
@@ -270,6 +310,42 @@ async fn promote_draft(
     }
 
     let graph = Arc::new(parser::parse(&draft.bpmn_xml)?);
+
+    if graph.input_schema.is_none() {
+        let gateway_first = graph
+            .nodes
+            .values()
+            .filter(|n| {
+                matches!(
+                    n.kind,
+                    FlowNodeKind::StartEvent
+                        | FlowNodeKind::MessageStartEvent { .. }
+                        | FlowNodeKind::SignalStartEvent { .. }
+                )
+            })
+            .any(|start| {
+                graph
+                    .outgoing
+                    .get(&start.id)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|tid| graph.nodes.get(tid))
+                    .any(|n| {
+                        matches!(
+                            n.kind,
+                            FlowNodeKind::ExclusiveGateway { .. }
+                                | FlowNodeKind::InclusiveGateway { .. }
+                        )
+                    })
+            });
+        if gateway_first {
+            tracing::warn!(
+                process_key = %draft.process_key,
+                "process has a gateway immediately after start but no conduit:inputSchema — \
+                 missing variables will produce a runtime error instead of a clean 422"
+            );
+        }
+    }
 
     // Find any currently-deployed version so we can cancel its timer-start triggers.
     let prev_id: Option<Uuid> = sqlx::query_scalar(

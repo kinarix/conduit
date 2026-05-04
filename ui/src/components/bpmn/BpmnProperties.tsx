@@ -276,6 +276,18 @@ const DOCS: Partial<Record<string, React.ReactNode>> = {
       <p>Poll for tasks: <code>GET /api/v1/tasks?org_id=...</code><br/>Complete: <code>POST /api/v1/tasks/:id/complete</code> with a <code>variables</code> array.</p>
     </>
   ),
+  scriptTask: (
+    <>
+      <p>Evaluates an inline <a href="https://www.omg.org/spec/DMN/" target="_blank" rel="noreferrer">FEEL</a> expression and stores the result as process variables — no external worker needed.</p>
+      <p><strong>Context output</strong> — expression returns <code>{'{ key: value, ... }'}</code>; each key is stored as a separate variable:</p>
+      <pre><code>{`{ fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }`}</code></pre>
+      <p><strong>Scalar output</strong> — expression returns a single value; set <strong>Result Variable</strong> to name the variable where it is stored:</p>
+      <pre><code>{`amount + shipping`}</code></pre>
+      <p style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>
+        FEEL: equality is <code>=</code>; booleans use <code>and</code>/<code>or</code>; strings in double quotes; context literal uses <code>{'{ key: expr }'}</code>.
+      </p>
+    </>
+  ),
   businessRuleTask: (
     <>
       <p>Evaluates a DMN decision table and writes the outputs back as process variables.</p>
@@ -359,6 +371,7 @@ const DOCS_TITLES: Partial<Record<string, string>> = {
   timerStartEvent:               'Timer Start Event',
   messageStartEvent:             'Message Start Event',
   serviceTask:                   'Service Task',
+  scriptTask:                    'Script Task',
   userTask:                      'User Task',
   businessRuleTask:              'Business Rule Task',
   sendTask:                      'Send Task',
@@ -644,6 +657,30 @@ export default function BpmnProperties({
             </Field>
           )}
 
+          {d.bpmnType === 'scriptTask' && (
+            <>
+              <div style={{ marginBottom: 4, fontSize: 11, color: '#94a3b8' }}>Script (FEEL)</div>
+              <textarea
+                style={{ ...inputStyle, width: '100%', minHeight: 72, fontFamily: 'ui-monospace, monospace', resize: 'vertical', boxSizing: 'border-box' }}
+                value={d.script ?? ''}
+                placeholder={'{ fee: amount * 0.05 }'}
+                onChange={e => onNodeChange(selected.id, { script: e.target.value || undefined })}
+                onFocus={e => (e.target.style.borderColor = accentColor)}
+                onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+              />
+              <Field label="Result">
+                <input
+                  style={inputStyle}
+                  value={d.resultVariable ?? ''}
+                  placeholder="e.g. total (for scalar output)"
+                  onChange={e => onNodeChange(selected.id, { resultVariable: e.target.value || undefined })}
+                  onFocus={e => (e.target.style.borderColor = accentColor)}
+                  onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+                />
+              </Field>
+            </>
+          )}
+
           {d.bpmnType === 'sendTask' && (
             <>
               <Field label="Message">
@@ -868,6 +905,9 @@ export default function BpmnProperties({
 
   // Edge
   const d = (selected.data ?? {}) as BpmnEdgeData;
+  const sourceNode = nodes.find(n => n.id === (selected as Edge).source);
+  const sourceType = (sourceNode?.data as BpmnNodeData | undefined)?.bpmnType;
+  const isGatewayEdge = sourceType === 'exclusiveGateway' || sourceType === 'inclusiveGateway';
 
   if (d.kind === 'attachment') {
     return (
@@ -912,16 +952,43 @@ export default function BpmnProperties({
           <input style={readonlyStyle} value={selected.id} readOnly />
         </Field>
 
-        <Field label="Cond.">
-          <input
-            style={inputStyle}
-            value={d.condition ?? ''}
-            placeholder='e.g. amount > 1000 and tier = "gold"'
-            onChange={e => onEdgeChange(selected.id, { condition: e.target.value || undefined })}
-            onFocus={e => (e.target.style.borderColor = '#6366f1')}
-            onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-          />
-        </Field>
+        {isGatewayEdge && (
+          <Field label="Cond.">
+            <input
+              style={inputStyle}
+              value={d.condition ?? ''}
+              placeholder='e.g. amount > 1000 and tier = "gold"'
+              onChange={e => onEdgeChange(selected.id, { condition: e.target.value || undefined })}
+              onFocus={e => (e.target.style.borderColor = '#6366f1')}
+              onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
+            />
+          </Field>
+        )}
+
+        {isGatewayEdge && (
+          <Field label="Default">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={d.isDefault ?? false}
+                onChange={ev => {
+                  if (ev.target.checked) {
+                    // Clear isDefault from all other edges with same source
+                    edges
+                      .filter(e => e.id !== selected.id && e.source === (selected as Edge).source)
+                      .forEach(e => onEdgeChange(e.id, { isDefault: undefined }));
+                    onEdgeChange(selected.id, { isDefault: true });
+                  } else {
+                    onEdgeChange(selected.id, { isDefault: undefined });
+                  }
+                }}
+              />
+              <span style={{ fontSize: 11, color: '#475569' }}>
+                Take this flow when no condition matches
+              </span>
+            </label>
+          </Field>
+        )}
       </div>
 
       <DocsDrawer docKey="sequenceFlow" />
@@ -1063,6 +1130,7 @@ function HttpConnectorModal({
       !next.apiKeyHeader &&
       !next.requestTransform?.trim() &&
       !next.responseTransform?.trim() &&
+      !next.errorCodeExpression?.trim() &&
       (!next.retry || Object.keys(next.retry).length === 0);
     onChange(empty ? undefined : next);
   };
@@ -1075,6 +1143,7 @@ function HttpConnectorModal({
   const [showExamples, setShowExamples] = useState(false);
   const requestEditorRef = useRef<JqEditorHandle>(null);
   const responseEditorRef = useRef<JqEditorHandle>(null);
+  const errorCodeEditorRef = useRef<JqEditorHandle>(null);
 
   // Modal + side panel share a single height so they sit flush. Tall enough
   // to give the transform editors real working room without spilling on
@@ -1254,6 +1323,19 @@ function HttpConnectorModal({
           editorRef={responseEditorRef}
         />
 
+        <TransformField
+          kind="errorCode"
+          label="Error code"
+          suffix="expr"
+          value={cfg.errorCodeExpression}
+          placeholder='.body.errorCode // ""'
+          onChange={v => update({ errorCodeExpression: v })}
+          height={120}
+          examplesOpenForThisKind={showExamples && exampleFilter === 'errorCode'}
+          onToggleExamples={() => openExamples('errorCode')}
+          editorRef={errorCodeEditorRef}
+        />
+
         <div style={{ marginTop: 14 }}>
           <div
             style={{
@@ -1365,6 +1447,9 @@ function HttpConnectorModal({
               onUseResponse={snippet =>
                 responseEditorRef.current?.appendAndFocus(snippet)
               }
+              onUseErrorCode={snippet =>
+                errorCodeEditorRef.current?.appendAndFocus(snippet)
+              }
               onClose={() => setShowExamples(false)}
             />
           </div>
@@ -1406,7 +1491,7 @@ function SecretRefField({
   );
 }
 
-type TransformKind = 'request' | 'response';
+type TransformKind = 'request' | 'response' | 'errorCode';
 
 interface JqExample {
   kind: TransformKind;
@@ -1656,7 +1741,62 @@ const RESPONSE_EXAMPLES: JqExample[] = [
   },
 ];
 
-const ALL_EXAMPLES: JqExample[] = [...REQUEST_EXAMPLES, ...RESPONSE_EXAMPLES];
+const ERROR_CODE_EXAMPLES: JqExample[] = [
+  {
+    kind: 'errorCode',
+    name: 'Field from body',
+    description: 'Use a top-level error code field; empty string passes through normally',
+    snippet: `.body.errorCode // ""`,
+  },
+  {
+    kind: 'errorCode',
+    name: 'Nested field',
+    description: 'Drill into a nested error object',
+    snippet: `.body.error.code // ""`,
+  },
+  {
+    kind: 'errorCode',
+    name: '4xx/5xx → generic error',
+    description: 'Route any non-2xx response to an error boundary',
+    snippet: `if .status >= 400 then "HTTP_ERROR" else "" end`,
+  },
+  {
+    kind: 'errorCode',
+    name: '5xx only',
+    description: 'Only treat server errors as BPMN errors; 4xx passes through normally',
+    snippet: `if .status >= 500 then "SERVER_ERROR" else "" end`,
+  },
+  {
+    kind: 'errorCode',
+    name: 'Map status to code',
+    description: 'Return a named code per HTTP status',
+    snippet: `if .status == 401 then "UNAUTHORIZED"
+elif .status == 403 then "FORBIDDEN"
+elif .status == 404 then "NOT_FOUND"
+elif .status >= 500 then "SERVER_ERROR"
+else "" end`,
+  },
+  {
+    kind: 'errorCode',
+    name: 'Error flag in body',
+    description: 'Treat a boolean success flag as a routing signal',
+    snippet: `if .body.success == false then (.body.code // "FAILED") else "" end`,
+  },
+  {
+    kind: 'errorCode',
+    name: 'Header-based error',
+    description: 'Route based on a custom response header',
+    snippet: `if (.headers["x-error-code"] // "") != "" then .headers["x-error-code"] else "" end`,
+  },
+  {
+    kind: 'errorCode',
+    name: 'Always route to boundary',
+    description: 'Unconditionally send to a BoundaryErrorEvent (useful for testing)',
+    snippet: `"ALWAYS_ERROR"`,
+  },
+];
+
+const ALL_EXAMPLES: JqExample[] = [...REQUEST_EXAMPLES, ...RESPONSE_EXAMPLES, ...ERROR_CODE_EXAMPLES];
 
 // jq builtin functions exposed via autocomplete. Not exhaustive — covers
 // the operators most users reach for in transform filters.
@@ -1817,6 +1957,7 @@ const JqEditor = forwardRef<
 function TransformField({
   kind,
   label,
+  suffix = 'transform',
   value,
   placeholder,
   onChange,
@@ -1827,6 +1968,7 @@ function TransformField({
 }: {
   kind: TransformKind;
   label: string;
+  suffix?: string;
   value: string | undefined;
   placeholder: string;
   onChange: (v: string | undefined) => void;
@@ -1852,7 +1994,7 @@ function TransformField({
             color: '#475569',
           }}
         >
-          {label} transform{' '}
+          {label} {suffix}{' '}
           <span style={{ color: '#94a3b8', fontWeight: 400 }}>(jq filter)</span>
         </div>
         <button
@@ -1892,6 +2034,7 @@ function JqExamplesSidePanel({
   onFilterChange,
   onUseRequest,
   onUseResponse,
+  onUseErrorCode,
   onClose,
 }: {
   height: string;
@@ -1899,6 +2042,7 @@ function JqExamplesSidePanel({
   onFilterChange: (f: SidePanelTab) => void;
   onUseRequest: (snippet: string) => void;
   onUseResponse: (snippet: string) => void;
+  onUseErrorCode: (snippet: string) => void;
   onClose: () => void;
 }) {
   const visible =
@@ -1968,7 +2112,7 @@ function JqExamplesSidePanel({
             fontSize: 11,
           }}
         >
-          {(['all', 'request', 'response', 'reference'] as const).map(f => (
+          {(['all', 'request', 'response', 'errorCode', 'reference'] as const).map(f => (
             <button
               key={f}
               type="button"
@@ -1979,10 +2123,9 @@ function JqExamplesSidePanel({
                 background: filter === f ? '#0f172a' : '#ffffff',
                 color: filter === f ? '#ffffff' : '#475569',
                 cursor: 'pointer',
-                textTransform: 'capitalize',
               }}
             >
-              {f}
+              {{ all: 'All', request: 'Request', response: 'Response', errorCode: 'Errors', reference: 'Reference' }[f]}
             </button>
           ))}
         </div>
@@ -2000,7 +2143,9 @@ function JqExamplesSidePanel({
               onUse={
                 ex.kind === 'request'
                   ? () => onUseRequest(ex.snippet)
-                  : () => onUseResponse(ex.snippet)
+                  : ex.kind === 'errorCode'
+                    ? () => onUseErrorCode(ex.snippet)
+                    : () => onUseResponse(ex.snippet)
               }
             />
           ))

@@ -5,6 +5,7 @@ export type BpmnElementType =
   | 'endEvent'
   | 'userTask'
   | 'serviceTask'
+  | 'scriptTask'
   | 'businessRuleTask'
   | 'subProcess'
   | 'sendTask'
@@ -42,6 +43,8 @@ export interface HttpConnectorConfig {
   requestTransform?: string;
   /** Raw jq filter. Input: { status, headers, body }. Output: flat { var: value, ... } */
   responseTransform?: string;
+  /** jq expr against {status, headers, body}. Non-empty string → BPMN error code → routes token to BoundaryErrorEvent. */
+  errorCodeExpression?: string;
   retry?: HttpRetryConfig;
 }
 
@@ -59,6 +62,8 @@ export interface BpmnNodeData extends Record<string, unknown> {
   errorCode?: string;
   cancelling?: boolean;
   decisionRef?: string;
+  script?: string;
+  resultVariable?: string;
   /** Phase 16: HTTP connector config for service tasks. */
   http?: HttpConnectorConfig;
   /** When set, the node is rendered in viewer mode with this runtime overlay. */
@@ -76,6 +81,7 @@ export const RUNTIME_STATUS_COLOR: Record<RuntimeStatus, string> = {
 export interface BpmnEdgeData extends Record<string, unknown> {
   condition?: string;
   kind?: 'attachment';
+  isDefault?: boolean;
 }
 
 export const ELEMENT_LABELS: Record<BpmnElementType, string> = {
@@ -85,6 +91,7 @@ export const ELEMENT_LABELS: Record<BpmnElementType, string> = {
   endEvent:                      'End Event',
   userTask:                      'User Task',
   serviceTask:                   'Service Task',
+  scriptTask:                    'Script Task',
   businessRuleTask:              'Rule Task',
   subProcess:                    'Sub Process',
   sendTask:                      'Send Task',
@@ -107,6 +114,7 @@ export const NODE_DIMENSIONS: Record<string, { width: number; height: number }> 
   endEvent:                      { width: 22, height: 22 },
   userTask:                      { width: 72, height: 36 },
   serviceTask:                   { width: 72, height: 36 },
+  scriptTask:                    { width: 72, height: 36 },
   businessRuleTask:              { width: 72, height: 36 },
   subProcess:                    { width: 80, height: 44 },
   sendTask:                      { width: 72, height: 36 },
@@ -129,6 +137,7 @@ export const ELEMENT_COLORS: Record<BpmnElementType, { stroke: string; fill: str
   endEvent:                      { stroke: '#dc2626', fill: '#fef2f2', icon: '#dc2626' },
   userTask:                      { stroke: '#2563eb', fill: '#eff6ff', icon: '#2563eb' },
   serviceTask:                   { stroke: '#7c3aed', fill: '#f5f3ff', icon: '#7c3aed' },
+  scriptTask:                    { stroke: '#0f766e', fill: '#f0fdfa', icon: '#0f766e' },
   businessRuleTask:              { stroke: '#4338ca', fill: '#eef2ff', icon: '#4338ca' },
   subProcess:                    { stroke: '#475569', fill: '#f8fafc', icon: '#475569' },
   sendTask:                      { stroke: '#0891b2', fill: '#ecfeff', icon: '#0891b2' },

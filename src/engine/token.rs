@@ -607,6 +607,16 @@ impl Engine {
                     let dmn_def = match def_opt {
                         Some(d) => d,
                         None => {
+                            crate::db::process_events::record_error(
+                                &mut **tx,
+                                instance_id,
+                                Some(execution.id),
+                                Some(node.id.as_str()),
+                                "error_raised",
+                                None,
+                                &format!("decision definition '{}' not found", decision_ref),
+                            )
+                            .await?;
                             sqlx::query(
                                 "UPDATE process_instances \
                                  SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -620,7 +630,17 @@ impl Engine {
 
                     let tables = match crate::dmn::parse(&dmn_def.dmn_xml) {
                         Ok(t) => t,
-                        Err(_) => {
+                        Err(e) => {
+                            crate::db::process_events::record_error(
+                                &mut **tx,
+                                instance_id,
+                                Some(execution.id),
+                                Some(node.id.as_str()),
+                                "error_raised",
+                                None,
+                                &format!("DMN parse error: {e}"),
+                            )
+                            .await?;
                             sqlx::query(
                                 "UPDATE process_instances \
                                  SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -635,6 +655,16 @@ impl Engine {
                     let table = match tables.iter().find(|t| t.decision_key == *decision_ref) {
                         Some(t) => t,
                         None => {
+                            crate::db::process_events::record_error(
+                                &mut **tx,
+                                instance_id,
+                                Some(execution.id),
+                                Some(node.id.as_str()),
+                                "error_raised",
+                                None,
+                                &format!("decision key '{}' not found in DMN definition", decision_ref),
+                            )
+                            .await?;
                             sqlx::query(
                                 "UPDATE process_instances \
                                  SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -648,7 +678,17 @@ impl Engine {
 
                     let outputs = match crate::dmn::evaluate(table, &var_map) {
                         Ok(o) => o,
-                        Err(_) => {
+                        Err(e) => {
+                            crate::db::process_events::record_error(
+                                &mut **tx,
+                                instance_id,
+                                Some(execution.id),
+                                Some(node.id.as_str()),
+                                "error_raised",
+                                None,
+                                &format!("DMN evaluation error: {e}"),
+                            )
+                            .await?;
                             sqlx::query(
                                 "UPDATE process_instances \
                                  SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -678,6 +718,129 @@ impl Engine {
                             value,
                         )
                         .await?;
+                    }
+
+                    sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+                        .bind(execution.id)
+                        .execute(&mut **tx)
+                        .await?;
+
+                    for next_id in current_graph
+                        .outgoing
+                        .get(&node.id)
+                        .cloned()
+                        .unwrap_or_default()
+                    {
+                        stack.push((next_id, scope));
+                    }
+                }
+
+                FlowNodeKind::ScriptTask {
+                    script,
+                    result_variable,
+                } => {
+                    crate::db::execution_history::record_entry(
+                        tx,
+                        instance_id,
+                        execution.id,
+                        &node.id,
+                        element_type,
+                        true,
+                    )
+                    .await?;
+
+                    let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
+                        "SELECT * FROM variables WHERE instance_id = $1",
+                    )
+                    .bind(instance_id)
+                    .fetch_all(&mut **tx)
+                    .await?;
+                    let var_map: HashMap<String, JsonValue> =
+                        vars.into_iter().map(|v| (v.name, v.value)).collect();
+
+                    let output =
+                        match crate::engine::evaluator::evaluate_expression(script, &var_map) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                crate::db::process_events::record_error(
+                                    &mut **tx,
+                                    instance_id,
+                                    Some(execution.id),
+                                    Some(node.id.as_str()),
+                                    "error_raised",
+                                    None,
+                                    &format!("script evaluation failed: {e}"),
+                                )
+                                .await?;
+                                sqlx::query(
+                                    "UPDATE process_instances \
+                                     SET state = 'error', ended_at = NOW() WHERE id = $1",
+                                )
+                                .bind(instance_id)
+                                .execute(&mut **tx)
+                                .await?;
+                                continue;
+                            }
+                        };
+
+                    match output {
+                        JsonValue::Object(map) => {
+                            for (name, value) in &map {
+                                let value_type = match value {
+                                    JsonValue::String(_) => "string",
+                                    JsonValue::Bool(_) => "boolean",
+                                    _ => "json",
+                                };
+                                crate::db::variables::upsert_in_tx(
+                                    &mut *tx,
+                                    instance_id,
+                                    execution.id,
+                                    Some(&node.id),
+                                    name,
+                                    value_type,
+                                    value,
+                                )
+                                .await?;
+                            }
+                        }
+                        scalar => {
+                            if let Some(var_name) = result_variable {
+                                let value_type = match &scalar {
+                                    JsonValue::String(_) => "string",
+                                    JsonValue::Bool(_) => "boolean",
+                                    _ => "json",
+                                };
+                                crate::db::variables::upsert_in_tx(
+                                    &mut *tx,
+                                    instance_id,
+                                    execution.id,
+                                    Some(&node.id),
+                                    var_name,
+                                    value_type,
+                                    &scalar,
+                                )
+                                .await?;
+                            } else {
+                                crate::db::process_events::record_error(
+                                    &mut **tx,
+                                    instance_id,
+                                    Some(execution.id),
+                                    Some(node.id.as_str()),
+                                    "error_raised",
+                                    None,
+                                    "script returned a non-object value but no resultVariable is configured",
+                                )
+                                .await?;
+                                sqlx::query(
+                                    "UPDATE process_instances \
+                                     SET state = 'error', ended_at = NOW() WHERE id = $1",
+                                )
+                                .bind(instance_id)
+                                .execute(&mut **tx)
+                                .await?;
+                                continue;
+                            }
+                        }
                     }
 
                     sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
@@ -848,6 +1011,16 @@ impl Engine {
                             error = %err,
                             "exclusive gateway condition evaluation failed; marking instance error"
                         );
+                        crate::db::process_events::record_error(
+                            &mut **tx,
+                            instance_id,
+                            Some(execution.id),
+                            Some(node.id.as_str()),
+                            "error_raised",
+                            None,
+                            &format!("exclusive gateway condition evaluation failed on flow '{flow_id}': {err}"),
+                        )
+                        .await?;
                         sqlx::query(
                             "UPDATE process_instances \
                              SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -862,6 +1035,16 @@ impl Engine {
                     match chosen.or(default_target) {
                         Some(target) => stack.push((target, scope)),
                         None => {
+                            crate::db::process_events::record_error(
+                                &mut **tx,
+                                instance_id,
+                                Some(execution.id),
+                                Some(node.id.as_str()),
+                                "error_raised",
+                                None,
+                                "exclusive gateway: no matching condition and no default flow",
+                            )
+                            .await?;
                             sqlx::query(
                                 "UPDATE process_instances \
                                  SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -1029,6 +1212,16 @@ impl Engine {
                                 error = %err,
                                 "inclusive gateway condition evaluation failed; marking instance error"
                             );
+                            crate::db::process_events::record_error(
+                                &mut **tx,
+                                instance_id,
+                                Some(execution.id),
+                                Some(node.id.as_str()),
+                                "error_raised",
+                                None,
+                                &format!("inclusive gateway condition evaluation failed on flow '{flow_id}': {err}"),
+                            )
+                            .await?;
                             sqlx::query(
                                 "UPDATE process_instances \
                                  SET state = 'error', ended_at = NOW() WHERE id = $1",
@@ -1043,6 +1236,16 @@ impl Engine {
                             if let Some(target) = default_target {
                                 matched.push(target);
                             } else {
+                                crate::db::process_events::record_error(
+                                    &mut **tx,
+                                    instance_id,
+                                    Some(execution.id),
+                                    Some(node.id.as_str()),
+                                    "error_raised",
+                                    None,
+                                    "inclusive gateway: no matching condition and no default flow",
+                                )
+                                .await?;
                                 sqlx::query(
                                     "UPDATE process_instances \
                                      SET state = 'error', ended_at = NOW() WHERE id = $1",

@@ -541,3 +541,182 @@ async fn jq_runtime_error_fails_task() {
     let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
     assert_eq!(job.state, "failed");
 }
+
+// ─── errorCodeExpression tests ────────────────────────────────────────────────
+
+/// Build a BPMN with a serviceTask that has a `<conduit:http>` block plus an
+/// interrupting boundary error event that catches `error_code` (empty string
+/// = catch-all). The normal path leads to `end`; the error path to `end_error`.
+fn http_bpmn_with_boundary(mock_url: &str, http_block: &str, error_code: &str) -> String {
+    let error_ref = if error_code.is_empty() {
+        // catch-all: no errorRef
+        "".to_string()
+    } else {
+        format!(r#" errorRef="err1""#)
+    };
+    let error_def = if error_code.is_empty() {
+        String::new()
+    } else {
+        format!(r#"  <error id="err1" name="PaymentFailed" errorCode="{error_code}"/>"#)
+    };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             targetNamespace="http://conduit.io/test">
+{error_def}
+  <process id="http_boundary_proc" isExecutable="true">
+    <startEvent id="start"/>
+    <serviceTask id="call" name="Call" url="{mock_url}">
+      <extensionElements>
+{http_block}
+      </extensionElements>
+    </serviceTask>
+    <boundaryEvent id="on_error" attachedToRef="call" cancelActivity="true">
+      <errorEventDefinition{error_ref}/>
+    </boundaryEvent>
+    <endEvent id="end"/>
+    <endEvent id="end_error"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="call"/>
+    <sequenceFlow id="f2" sourceRef="call" targetRef="end"/>
+    <sequenceFlow id="f3" sourceRef="on_error" targetRef="end_error"/>
+  </process>
+</definitions>"#
+    )
+}
+
+async fn instance_state(pool: &PgPool, instance_id: Uuid) -> String {
+    sqlx::query_scalar::<_, String>("SELECT state FROM process_instances WHERE id = $1")
+        .bind(instance_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn error_code_expression_on_2xx_routes_to_boundary() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 1).await;
+    let mock = MockServer::start().await;
+
+    Mock::given(m_method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "error_code": "PAYMENT_FAILED", "msg": "card declined" })),
+        )
+        .mount(&mock)
+        .await;
+
+    let url = format!("{}/pay", mock.uri());
+    let block = r#"
+        <conduit:http method="POST">
+          <conduit:errorCodeExpression><![CDATA[ .body.error_code // "" ]]></conduit:errorCodeExpression>
+        </conduit:http>"#;
+    let bpmn = http_bpmn_with_boundary(&url, block, "PAYMENT_FAILED");
+    let inst_id = deploy_and_start(&app, org_id, groups[0], &bpmn, json!({})).await;
+
+    fire_job_for_instance(&engine_for(app.pool.clone()), &app.pool, inst_id).await;
+
+    // Job should be cancelled (interrupting boundary cancelled the service task job).
+    let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
+    assert_eq!(job.state, "cancelled", "job should be cancelled by interrupting boundary");
+
+    // Instance should complete via the error path.
+    assert_eq!(instance_state(&app.pool, inst_id).await, "completed");
+}
+
+#[tokio::test]
+async fn error_code_expression_null_follows_normal_path() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 1).await;
+    let mock = MockServer::start().await;
+
+    // Body has no `error_code` field — expression returns null/empty.
+    Mock::given(m_method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "result": "ok" })),
+        )
+        .mount(&mock)
+        .await;
+
+    let url = format!("{}/pay", mock.uri());
+    let block = r#"
+        <conduit:http method="POST">
+          <conduit:errorCodeExpression><![CDATA[ .body.error_code // "" ]]></conduit:errorCodeExpression>
+        </conduit:http>"#;
+    let bpmn = http_bpmn_with_boundary(&url, block, "PAYMENT_FAILED");
+    let inst_id = deploy_and_start(&app, org_id, groups[0], &bpmn, json!({})).await;
+
+    fire_job_for_instance(&engine_for(app.pool.clone()), &app.pool, inst_id).await;
+
+    // Normal path: job completed, instance completed.
+    let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
+    assert_eq!(job.state, "completed", "expression returned empty — normal completion expected");
+    assert_eq!(instance_state(&app.pool, inst_id).await, "completed");
+}
+
+#[tokio::test]
+async fn error_code_expression_no_boundary_terminates_instance() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 1).await;
+    let mock = MockServer::start().await;
+
+    Mock::given(m_method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "error_code": "UNKNOWN_CODE" })),
+        )
+        .mount(&mock)
+        .await;
+
+    let url = format!("{}/pay", mock.uri());
+    // errorCodeExpression on a process with NO boundary event at all.
+    let block = r#"
+        <conduit:http method="POST">
+          <conduit:errorCodeExpression><![CDATA[ .body.error_code // "" ]]></conduit:errorCodeExpression>
+        </conduit:http>"#;
+    // Use http_bpmn (no boundary) so there's nowhere to route the error.
+    let bpmn = http_bpmn(&url, block);
+    let inst_id = deploy_and_start(&app, org_id, groups[0], &bpmn, json!({})).await;
+
+    fire_job_for_instance(&engine_for(app.pool.clone()), &app.pool, inst_id).await;
+
+    let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
+    assert_eq!(job.state, "failed", "no boundary → job must be failed");
+    assert_eq!(instance_state(&app.pool, inst_id).await, "error");
+}
+
+#[tokio::test]
+async fn error_code_expression_on_4xx_intercepts_failure() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 1).await;
+    let mock = MockServer::start().await;
+
+    // 422 response with a structured error body.
+    Mock::given(m_method("POST"))
+        .respond_with(
+            ResponseTemplate::new(422)
+                .set_body_json(json!({ "error_code": "VALIDATION_ERROR", "detail": "bad input" })),
+        )
+        .mount(&mock)
+        .await;
+
+    let url = format!("{}/pay", mock.uri());
+    let block = r#"
+        <conduit:http method="POST">
+          <conduit:errorCodeExpression><![CDATA[ .body.error_code // "" ]]></conduit:errorCodeExpression>
+        </conduit:http>"#;
+    // Catch-all boundary (empty errorCode) — catches any BPMN error.
+    let bpmn = http_bpmn_with_boundary(&url, block, "");
+    let inst_id = deploy_and_start(&app, org_id, groups[0], &bpmn, json!({})).await;
+
+    fire_job_for_instance(&engine_for(app.pool.clone()), &app.pool, inst_id).await;
+
+    // Expression intercepted the 4xx before the failure path.
+    let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
+    assert_eq!(
+        job.state, "cancelled",
+        "errorCodeExpression on 4xx should route to boundary, not retry/fail"
+    );
+    assert_eq!(instance_state(&app.pool, inst_id).await, "completed");
+}

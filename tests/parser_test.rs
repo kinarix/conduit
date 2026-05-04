@@ -92,7 +92,7 @@ fn parse_camunda_dialect() {
     assert_eq!(graph.nodes.len(), 6);
     assert_eq!(graph.flows.len(), 5);
 
-    // Camunda topic extracted from camunda:topic attribute
+    // Backward compat: camunda:topic still accepted from Camunda 7 exports
     let payment = graph.nodes.get("task_payment").unwrap();
     match &payment.kind {
         FlowNodeKind::ServiceTask { topic, .. } => {
@@ -274,6 +274,7 @@ fn http_config_round_trips_through_json() {
         api_key_header: Some("X-API-Key".into()),
         request_transform: Some(".vars".into()),
         response_transform: Some("{x: .body}".into()),
+        error_code_expression: Some(".body.errorCode".into()),
         retry: RetryPolicy {
             max: 5,
             backoff_ms: 250,

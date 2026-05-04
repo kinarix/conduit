@@ -41,7 +41,7 @@ function nodeTypeFor(t: BpmnElementType): string {
     'intermediateCatchTimerEvent', 'intermediateCatchMessageEvent', 'intermediateCatchSignalEvent',
   ]
   if (eventTypes.includes(t)) return 'bpmnEvent'
-  if (t === 'userTask' || t === 'serviceTask' || t === 'businessRuleTask' ||
+  if (t === 'userTask' || t === 'serviceTask' || t === 'scriptTask' || t === 'businessRuleTask' ||
       t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask'
   return 'bpmnGateway'
 }

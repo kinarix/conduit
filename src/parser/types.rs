@@ -29,6 +29,12 @@ pub struct HttpConfig {
     /// Output doc: flat `{var_name: value, ...}` to upsert into instance vars.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_transform: Option<String>,
+    /// jq expression evaluated against `{status, headers, body}` for every
+    /// response. If it returns a non-empty string, that string is treated as a
+    /// BPMN error code and the token is routed to the matching
+    /// `BoundaryErrorEvent` instead of the normal completion path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code_expression: Option<String>,
     /// Retry policy. Defaults to no retries.
     #[serde(default)]
     pub retry: RetryPolicy,
@@ -154,6 +160,10 @@ pub enum FlowNodeKind {
     },
     SendTask {
         message_name: String,
+    },
+    ScriptTask {
+        script: String,
+        result_variable: Option<String>,
     },
 }
 

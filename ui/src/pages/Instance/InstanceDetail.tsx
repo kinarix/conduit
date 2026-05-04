@@ -10,6 +10,7 @@ import {
 } from '../../api/instances'
 import { fetchDeployment, type ProcessDefinition } from '../../api/deployments'
 import { fetchTasks, type Task } from '../../api/tasks'
+import { fetchInstanceEvents, type ProcessEvent } from '../../api/events'
 import { InstanceActions } from '../../components/InstanceActions'
 import InstanceTabs, { type TabSpec } from './InstanceTabs'
 import InstanceTimeline from './InstanceTimeline'
@@ -54,6 +55,13 @@ export default function InstanceDetail() {
     refetchInterval: 5_000,
   })
 
+  const eventsQ = useQuery({
+    queryKey: ['instance-events', instanceId],
+    queryFn: () => fetchInstanceEvents(instanceId),
+    enabled: !!instanceId,
+    refetchInterval: 5_000,
+  })
+
   if (instanceQ.isLoading) return <div className={styles.page}>Loading…</div>
   if (instanceQ.error)
     return (
@@ -71,6 +79,7 @@ export default function InstanceDetail() {
   const history = historyQ.data ?? []
   const jobs = jobsQ.data ?? []
   const errored = jobs.filter(j => j.error_message || j.state === 'failed')
+  const errorEvents = (eventsQ.data ?? []).filter(e => e.event_type === 'error_raised')
 
   const tabs: TabSpec[] = [
     {
@@ -97,9 +106,9 @@ export default function InstanceDetail() {
     {
       id: 'errors',
       label: 'Errors',
-      count: errored.length,
-      errorBadge: errored.length > 0,
-      render: () => <ErrorsTab jobs={errored} />,
+      count: errored.length + errorEvents.length,
+      errorBadge: errored.length + errorEvents.length > 0,
+      render: () => <ErrorsTab jobs={errored} errorEvents={errorEvents} />,
     },
     {
       id: 'history',
@@ -194,12 +203,30 @@ function TasksTab({ tasks }: { tasks: Task[] }) {
   )
 }
 
-function ErrorsTab({ jobs }: { jobs: InstanceJob[] }) {
-  if (jobs.length === 0) {
+function ErrorsTab({ jobs, errorEvents }: { jobs: InstanceJob[]; errorEvents: ProcessEvent[] }) {
+  if (jobs.length === 0 && errorEvents.length === 0) {
     return <div className={styles.empty}>No errors.</div>
   }
   return (
     <div>
+      {errorEvents.map(e => (
+        <div key={e.id} className={styles.errorCard}>
+          <div className={styles.errorHead}>
+            <code>{e.element_id ?? 'engine'}</code>
+            {e.payload.error_code != null && (
+              <code style={{ color: 'var(--text-tertiary)' }}>
+                {String(e.payload.error_code)}
+              </code>
+            )}
+            <span style={{ marginLeft: 'auto', color: 'var(--text-tertiary)' }}>
+              {new Date(e.occurred_at).toLocaleString()}
+            </span>
+          </div>
+          {e.payload.message != null && (
+            <pre className={styles.errorPre}>{String(e.payload.message)}</pre>
+          )}
+        </div>
+      ))}
       {jobs.map(j => (
         <div key={j.id} className={styles.errorCard}>
           <div className={styles.errorHead}>

@@ -121,6 +121,18 @@ const PALETTE: PaletteGroup[] = [
         ),
       },
       {
+        type: 'scriptTask',
+        label: 'Script Task',
+        icon: (c) => (
+          <svg width={20} height={14} viewBox="0 0 20 14">
+            <rect x={1} y={1} width={18} height={12} rx={2} fill={ELEMENT_COLORS.scriptTask.fill} stroke={c} strokeWidth={1.5} />
+            <path d="M6 5l-2.5 2L6 9" stroke={c} strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            <path d="M14 5l2.5 2L14 9" stroke={c} strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+            <line x1={11.5} y1={3.5} x2={8.5} y2={10.5} stroke={c} strokeWidth={1.1} strokeLinecap="round"/>
+          </svg>
+        ),
+      },
+      {
         type: 'businessRuleTask',
         label: 'Rule Task',
         icon: (c) => (

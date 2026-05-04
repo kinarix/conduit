@@ -154,6 +154,7 @@ impl Engine {
             FlowNodeKind::SubProcess { .. } => "subProcess",
             FlowNodeKind::BusinessRuleTask { .. } => "businessRuleTask",
             FlowNodeKind::SendTask { .. } => "sendTask",
+            FlowNodeKind::ScriptTask { .. } => "scriptTask",
             FlowNodeKind::TimerStartEvent { .. } => "startEvent",
         }
     }

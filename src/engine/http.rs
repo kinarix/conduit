@@ -22,9 +22,10 @@ use serde_json::{Map, Value as JsonValue};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::db::models::Execution;
+use crate::db::models::{EventSubscription, Execution};
 use crate::error::{EngineError, Result};
 use crate::parser::types::{HttpAuth, HttpConfig, RetryPolicy};
+use crate::parser::FlowNodeKind;
 
 use super::{Engine, VariableInput};
 
@@ -72,6 +73,30 @@ impl Engine {
             }
         };
 
+        // Build response doc once — used by errorCodeExpression, responseTransform, and audit.
+        let response_doc = serde_json::json!({
+            "status": status,
+            "headers": response_headers,
+            "body": response_body,
+        });
+
+        // ---- errorCodeExpression: checked before success/failure routing --------
+        // A non-empty string result overrides HTTP status and routes the token to
+        // the matching BoundaryErrorEvent instead of the normal completion path.
+        if let Some(expr) = plan.config.error_code_expression.as_deref() {
+            match self.jq_cache.run(expr, response_doc.clone()) {
+                Ok(JsonValue::String(code)) if !code.is_empty() => {
+                    return self.route_http_bpmn_error(&job, &code, response_doc).await;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    return self
+                        .handle_failure(&job, &RetryPolicy::default(), SendError::Internal(e))
+                        .await;
+                }
+            }
+        }
+
         if !is_success(status) {
             let class = if (400..500).contains(&status) {
                 FailureClass::Status4xx
@@ -85,7 +110,7 @@ impl Engine {
                     SendError::Status {
                         class,
                         status,
-                        body: response_body.to_string(),
+                        body: response_doc["body"].to_string(),
                     },
                 )
                 .await;
@@ -97,7 +122,7 @@ impl Engine {
         // accepted the request. Route through handle_failure so the job state
         // doesn't end up stranded in 'locked'.
         if let Err(post_err) = self
-            .complete_http_task(&job, &plan, status, response_body, response_headers)
+            .complete_http_task(&job, &plan, response_doc)
             .await
         {
             return self
@@ -111,23 +136,17 @@ impl Engine {
         &self,
         job: &crate::db::models::Job,
         plan: &RequestPlan,
-        status: u16,
-        response_body: JsonValue,
-        response_headers: JsonValue,
+        response_doc: JsonValue,
     ) -> Result<()> {
-        let response_doc = serde_json::json!({
-            "status": status,
-            "headers": response_headers,
-            "body": response_body,
-        });
         let output_vars = match plan.config.response_transform.as_deref() {
             Some(filter) => {
-                let shaped = self.jq_cache.run(filter, response_doc)?;
+                let shaped = self.jq_cache.run(filter, response_doc.clone())?;
                 flatten_response_to_vars(&shaped)
             }
-            None => Self::parse_http_response_variables(&response_body),
+            None => Self::parse_http_response_variables(&response_doc["body"]),
         };
 
+        let status = response_doc["status"].as_u64().unwrap_or(0);
         info!(
             job_id = %job.id,
             instance_id = %job.instance_id,
@@ -200,6 +219,32 @@ impl Engine {
         )
         .await?;
 
+        // Cancel any boundary event executions and subscriptions for this task.
+        // They are no longer needed once the host task completes normally.
+        if let Some(boundaries) = current_graph.attached_to.get(&element_id).cloned() {
+            for bid in &boundaries {
+                let cancelled: Vec<Uuid> = sqlx::query_scalar(
+                    "UPDATE executions SET state = 'cancelled' \
+                     WHERE instance_id = $1 AND element_id = $2 AND state = 'active' \
+                     RETURNING id",
+                )
+                .bind(job.instance_id)
+                .bind(bid)
+                .fetch_all(&mut *tx)
+                .await?;
+                if !cancelled.is_empty() {
+                    sqlx::query(
+                        "DELETE FROM event_subscriptions \
+                         WHERE instance_id = $1 AND element_id = $2",
+                    )
+                    .bind(job.instance_id)
+                    .bind(bid)
+                    .execute(&mut *tx)
+                    .await?;
+                }
+            }
+        }
+
         let next_ids: Vec<String> = current_graph
             .outgoing
             .get(&element_id)
@@ -210,6 +255,219 @@ impl Engine {
         }
 
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// Route the HTTP task to the best-matching `BoundaryErrorEvent` when
+    /// `errorCodeExpression` returns a non-empty error code. Mirrors the logic
+    /// in `throw_bpmn_error` from the external-task path.
+    async fn route_http_bpmn_error(
+        &self,
+        job: &crate::db::models::Job,
+        error_code: &str,
+        _response_doc: JsonValue,
+    ) -> Result<()> {
+        let def_row: (Uuid,) =
+            sqlx::query_as("SELECT definition_id FROM process_instances WHERE id = $1")
+                .bind(job.instance_id)
+                .fetch_one(&self.pool)
+                .await?;
+        let graph = self.load_graph(def_row.0).await?;
+
+        let mut tx = self.pool.begin().await?;
+
+        crate::db::process_events::record_error(
+            &mut *tx,
+            job.instance_id,
+            Some(job.execution_id),
+            None,
+            "error_raised",
+            Some(error_code),
+            &format!("HTTP connector errorCodeExpression matched '{error_code}'"),
+        )
+        .await?;
+
+        let sub: Option<EventSubscription> = sqlx::query_as(
+            "DELETE FROM event_subscriptions \
+             WHERE id = ( \
+                 SELECT id FROM event_subscriptions \
+                 WHERE instance_id = $1 \
+                   AND event_type = 'error' \
+                   AND (event_name = $2 OR event_name = '') \
+                 ORDER BY CASE WHEN event_name = $2 THEN 0 ELSE 1 END ASC, created_at ASC \
+                 LIMIT 1 \
+             ) RETURNING *",
+        )
+        .bind(job.instance_id)
+        .bind(error_code)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if sub.is_none() {
+            warn!(
+                job_id = %job.id,
+                error_code,
+                "no matching BoundaryErrorEvent for HTTP connector; terminating instance"
+            );
+            sqlx::query(
+                "UPDATE jobs SET state = 'failed', \
+                 error_message = $1, locked_by = NULL, locked_until = NULL WHERE id = $2",
+            )
+            .bind(format!(
+                "BPMN error '{error_code}' has no matching boundary event"
+            ))
+            .bind(job.id)
+            .execute(&mut *tx)
+            .await?;
+            crate::db::jobs::record_state_change(
+                &mut tx,
+                job.id,
+                "job_failed",
+                serde_json::json!({"error_code": error_code}),
+            )
+            .await?;
+            sqlx::query(
+                "UPDATE process_instances SET state = 'error', ended_at = NOW() WHERE id = $1",
+            )
+            .bind(job.instance_id)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            return Ok(());
+        }
+
+        let sub = sub.unwrap();
+
+        crate::db::process_events::record_error(
+            &mut *tx,
+            job.instance_id,
+            Some(sub.execution_id),
+            Some(sub.element_id.as_str()),
+            "error_caught",
+            Some(error_code),
+            &format!("HTTP connector errorCodeExpression matched '{error_code}'"),
+        )
+        .await?;
+
+        let (current_graph, _) =
+            Self::find_element_graph(sub.element_id.as_str(), &graph).ok_or_else(|| {
+                EngineError::Internal(format!(
+                    "Element '{}' not found in process graph",
+                    sub.element_id
+                ))
+            })?;
+        let boundary_node = current_graph
+            .nodes
+            .get(sub.element_id.as_str())
+            .ok_or_else(|| {
+                EngineError::Internal(format!("Boundary node '{}' not found", sub.element_id))
+            })?;
+
+        let (attached_to, cancelling) = match &boundary_node.kind {
+            FlowNodeKind::BoundaryErrorEvent {
+                attached_to,
+                cancelling,
+                ..
+            } => (attached_to.clone(), *cancelling),
+            _ => {
+                return Err(EngineError::Internal(format!(
+                    "Expected BoundaryErrorEvent at '{}'",
+                    sub.element_id
+                )));
+            }
+        };
+
+        if cancelling {
+            sqlx::query(
+                "UPDATE jobs SET state = 'cancelled', locked_by = NULL, locked_until = NULL \
+                 WHERE id = $1",
+            )
+            .bind(job.id)
+            .execute(&mut *tx)
+            .await?;
+            crate::db::jobs::record_state_change(
+                &mut tx,
+                job.id,
+                "job_cancelled",
+                serde_json::json!({"reason": "boundary_error_cancelled_host"}),
+            )
+            .await?;
+
+            crate::db::execution_history::record_exit(
+                &mut tx,
+                job.instance_id,
+                job.execution_id,
+                attached_to.as_str(),
+                "serviceTask",
+            )
+            .await?;
+
+            sqlx::query("UPDATE executions SET state = 'cancelled' WHERE id = $1")
+                .bind(job.execution_id)
+                .execute(&mut *tx)
+                .await?;
+
+            if let Some(all_boundaries) =
+                current_graph.attached_to.get(attached_to.as_str()).cloned()
+            {
+                for bid in &all_boundaries {
+                    if *bid != sub.element_id {
+                        let cancelled_ids: Vec<Uuid> = sqlx::query_scalar(
+                            "UPDATE jobs SET state = 'cancelled' \
+                             WHERE execution_id = (SELECT id FROM executions \
+                                 WHERE instance_id = $1 AND element_id = $2 LIMIT 1) \
+                             AND state IN ('pending', 'locked') \
+                             RETURNING id",
+                        )
+                        .bind(job.instance_id)
+                        .bind(bid)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                        crate::db::jobs::record_bulk_cancelled(&mut tx, &cancelled_ids).await?;
+
+                        sqlx::query(
+                            "DELETE FROM event_subscriptions \
+                             WHERE instance_id = $1 AND element_id = $2",
+                        )
+                        .bind(job.instance_id)
+                        .bind(bid)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+            }
+        }
+
+        crate::db::execution_history::record_exit(
+            &mut tx,
+            job.instance_id,
+            sub.execution_id,
+            sub.element_id.as_str(),
+            "boundaryEvent",
+        )
+        .await?;
+
+        sqlx::query("UPDATE executions SET state = 'completed' WHERE id = $1")
+            .bind(sub.execution_id)
+            .execute(&mut *tx)
+            .await?;
+
+        let next_ids: Vec<String> = current_graph
+            .outgoing
+            .get(sub.element_id.as_str())
+            .cloned()
+            .unwrap_or_default();
+        for next_id in next_ids {
+            Self::run_to_wait(&mut tx, job.instance_id, &next_id, &graph, None).await?;
+        }
+
+        tx.commit().await?;
+        info!(
+            job_id = %job.id,
+            boundary_id = %sub.element_id,
+            error_code,
+            "HTTP connector BPMN error routed to boundary event"
+        );
         Ok(())
     }
 
@@ -586,6 +844,7 @@ fn build_request_plan(job: &crate::db::models::Job) -> Result<RequestPlan> {
                 api_key_header: None,
                 request_transform: None,
                 response_transform: None,
+                error_code_expression: None,
                 retry: RetryPolicy::default(),
             },
         })

@@ -8,8 +8,9 @@
 //!
 //! Process variables (loaded as JSON from the `variables` table) are converted
 //! into FEEL values; the expression is parsed and evaluated against a scope
-//! containing those variables. Undefined variables and type mismatches surface
-//! as `Err`, never as silent `false` — gateway routing is strict.
+//! containing those variables. A null result (missing variable, indeterminate
+//! comparison) surfaces as `Err` so the gateway marks the instance as error
+//! rather than silently skipping the path. Non-boolean results are also errors.
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -18,7 +19,7 @@ use dsntk_feel::context::FeelContext;
 use dsntk_feel::values::Value as FeelValue;
 use dsntk_feel::{FeelNumber, FeelScope, Name};
 use dsntk_feel_evaluator::evaluate as feel_evaluate;
-use dsntk_feel_parser::parse_textual_expression;
+use dsntk_feel_parser::{parse_expression, parse_textual_expression};
 use serde_json::Value as JsonValue;
 
 use crate::error::{EngineError, Result};
@@ -37,13 +38,61 @@ pub fn evaluate_condition(expr: &str, variables: &HashMap<String, JsonValue>) ->
 
     match feel_evaluate(&scope, &ast) {
         FeelValue::Boolean(b) => Ok(b),
-        FeelValue::Null(reason) => Err(EngineError::Expression(format!(
-            "FEEL '{expr}' evaluated to null{}",
-            reason.map(|r| format!(": {r}")).unwrap_or_default()
+        FeelValue::Null(_) => Err(EngineError::Expression(format!(
+            "FEEL '{expr}' evaluated to null — variable may be undefined or comparison is indeterminate"
         ))),
         other => Err(EngineError::Expression(format!(
             "FEEL '{expr}' did not produce a boolean (got {other:?})"
         ))),
+    }
+}
+
+pub fn evaluate_expression(
+    expr: &str,
+    variables: &HashMap<String, JsonValue>,
+) -> Result<JsonValue> {
+    let mut root_ctx = FeelContext::default();
+    for (name, value) in variables {
+        root_ctx.set_entry(&Name::from(name.as_str()), json_to_feel(value));
+    }
+
+    let scope = FeelScope::default();
+    scope.push(root_ctx);
+
+    let ast = parse_expression(&scope, expr, false)
+        .map_err(|e| EngineError::Expression(format!("FEEL parse '{expr}': {e:?}")))?;
+
+    let result = feel_evaluate(&scope, &ast);
+    Ok(feel_to_json(result))
+}
+
+fn feel_to_json(value: FeelValue) -> JsonValue {
+    match value {
+        FeelValue::Boolean(b) => JsonValue::Bool(b),
+        FeelValue::String(s) => JsonValue::String(s),
+        FeelValue::Number(n) => {
+            let s = n.to_string();
+            if let Ok(i) = s.parse::<i64>() {
+                JsonValue::Number(i.into())
+            } else if let Ok(f) = s.parse::<f64>() {
+                serde_json::Number::from_f64(f)
+                    .map(JsonValue::Number)
+                    .unwrap_or(JsonValue::Null)
+            } else {
+                JsonValue::Null
+            }
+        }
+        FeelValue::List(items) => {
+            JsonValue::Array(items.iter().map(|v| feel_to_json(v.clone())).collect())
+        }
+        FeelValue::Context(ctx) => {
+            let mut map = serde_json::Map::new();
+            for (name, value) in ctx.iter() {
+                map.insert(name.to_string(), feel_to_json(value.clone()));
+            }
+            JsonValue::Object(map)
+        }
+        _ => JsonValue::Null,
     }
 }
 
@@ -214,5 +263,30 @@ mod tests {
         let v = vars(&[("scores", json!([85, 92, 71]))]);
         assert!(evaluate_condition("scores[1] = 85", &v).unwrap());
         assert!(evaluate_condition("scores[2] > 90", &v).unwrap());
+    }
+
+    #[test]
+    fn evaluate_expression_context_literal() {
+        use super::evaluate_expression;
+        let v = vars(&[("amount", json!(2000))]);
+        let result = evaluate_expression(
+            r#"{ fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }"#,
+            &v,
+        )
+        .unwrap();
+        eprintln!("context literal result: {:?}", result);
+        assert!(result.is_object(), "expected Object, got: {:?}", result);
+        let obj = result.as_object().unwrap();
+        assert_eq!(obj["fee"], json!(100));
+        assert_eq!(obj["tier"], json!("premium"));
+    }
+
+    #[test]
+    fn evaluate_expression_scalar_addition() {
+        use super::evaluate_expression;
+        let v = vars(&[("amount", json!(500)), ("shipping", json!(25))]);
+        let result = evaluate_expression("amount + shipping", &v).unwrap();
+        eprintln!("scalar addition result: {:?}", result);
+        assert_eq!(result, json!(525));
     }
 }

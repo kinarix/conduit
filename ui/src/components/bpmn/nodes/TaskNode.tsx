@@ -36,6 +36,13 @@ const EnvelopeOutlineIcon = ({ color }: { color: string }) => (
   </svg>
 );
 
+const ScriptIcon = ({ color }: { color: string }) => (
+  <svg width={10} height={10} viewBox="0 0 14 14" fill="none">
+    <path d="M2 3h6M2 6h8M2 9h5" stroke={color} strokeWidth={1.3} strokeLinecap="round"/>
+    <path d="M10 8l2 2-2 2" stroke={color} strokeWidth={1.2} strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+
 export default function TaskNode({ id, data, selected }: NodeProps) {
   const d = data as BpmnNodeData;
   const colors = ELEMENT_COLORS[d.bpmnType] ?? ELEMENT_COLORS.userTask;
@@ -95,6 +102,8 @@ export default function TaskNode({ id, data, selected }: NodeProps) {
           ? <EnvelopeFilledIcon color={colors.icon} fill={colors.fill} />
           : d.bpmnType === 'receiveTask'
           ? <EnvelopeOutlineIcon color={colors.icon} />
+          : d.bpmnType === 'scriptTask'
+          ? <ScriptIcon color={colors.icon} />
           : <PersonIcon color={colors.icon} />
         }
       </div>

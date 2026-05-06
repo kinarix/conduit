@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample 03 — Parallel Echo
+  ──────────────────────────
+  Two independent HTTP tasks fire concurrently (parallel gateway fork),
+  each echoing a different input variable. They rendezvous at a parallel
+  join before the end event.
+
+  Variables in:   input_a (string), input_b (string)
+  Variables out:  result_a (string), result_b (string)
+
+  This validates that:
+  • parallel gateway correctly forks execution into two tokens
+  • both HTTP tasks fire independently
+  • variables from both branches are available after the join
+
+  Replace REPLACE_ME with your echo service base URL before deploying.
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             targetNamespace="http://conduit.io/samples">
+  <process id="echo_parallel" name="Parallel Echo" isExecutable="true">
+
+    <startEvent id="start" name="Start"/>
+
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="split"/>
+
+    <parallelGateway id="split" name="Fork"/>
+
+    <sequenceFlow id="sf_a1" sourceRef="split" targetRef="call_a"/>
+    <sequenceFlow id="sf_b1" sourceRef="split" targetRef="call_b"/>
+
+    <!-- Branch A: echo input_a, store as result_a -->
+    <serviceTask id="call_a" name="Echo A"
+                 url="http://REPLACE_ME/anything">
+      <extensionElements>
+        <conduit:http method="POST" timeoutMs="5000">
+          <conduit:requestTransform><![CDATA[
+            { body: { source: "A", input: .vars.input_a } }
+          ]]></conduit:requestTransform>
+          <conduit:responseTransform><![CDATA[
+            { result_a: .body.json.input }
+          ]]></conduit:responseTransform>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+
+    <!-- Branch B: echo input_b, store as result_b -->
+    <serviceTask id="call_b" name="Echo B"
+                 url="http://REPLACE_ME/anything">
+      <extensionElements>
+        <conduit:http method="POST" timeoutMs="5000">
+          <conduit:requestTransform><![CDATA[
+            { body: { source: "B", input: .vars.input_b } }
+          ]]></conduit:requestTransform>
+          <conduit:responseTransform><![CDATA[
+            { result_b: .body.json.input }
+          ]]></conduit:responseTransform>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+
+    <sequenceFlow id="sf_a2" sourceRef="call_a" targetRef="join"/>
+    <sequenceFlow id="sf_b2" sourceRef="call_b" targetRef="join"/>
+
+    <!-- Join waits for both branches before advancing -->
+    <parallelGateway id="join" name="Join"/>
+
+    <sequenceFlow id="sf2" sourceRef="join" targetRef="end"/>
+
+    <endEvent id="end" name="End"/>
+
+  </process>
+</definitions>

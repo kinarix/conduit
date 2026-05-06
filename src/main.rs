@@ -1,5 +1,5 @@
-use axum::Router;
-use conduit::{api, config, db, state::AppState};
+use axum::{http::StatusCode, Router};
+use conduit::{api, config, db, error::assert_error_codes_complete, state::AppState};
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -13,6 +13,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    assert_error_codes_complete();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Starting Conduit");
 
     let pool = db::connect(&config).await?;
@@ -91,7 +92,18 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::signals::routes())
         .merge(api::decisions::routes())
         .merge(api::process_groups::routes())
+        .merge(api::process_layouts::routes())
         .merge(api::secrets::routes())
+        .fallback(|| async {
+            (
+                StatusCode::NOT_FOUND,
+                axum::Json(serde_json::json!({
+                    "code": "U404",
+                    "message": "The requested endpoint does not exist.",
+                    "action": "Check the API URL and HTTP method."
+                })),
+            )
+        })
         .layer(CorsLayer::very_permissive())
         .with_state(state);
 

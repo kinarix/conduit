@@ -1,7 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { type LogicalProcess } from '../../api/deployments'
 import { useOrg, type Org } from '../../App'
-import { ProcessIcon, TrashIcon } from './SidebarIcons'
+import { ProcessIcon, TrashIcon, DownloadIcon } from './SidebarIcons'
 import styles from './Sidebar.module.css'
 
 interface Props {
@@ -25,6 +25,18 @@ export default function ProcessRow({ proc, org, onConfirmDelete }: Props) {
   const dashboardPath = `/groups/${proc.groupId}/processes/${encodeURIComponent(proc.key)}`
   const onDashboard = location.pathname === dashboardPath
   const active = editingThis || onDashboard
+
+  const handleExport = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const xml = proc.latest.bpmn_xml
+    const blob = new Blob([xml], { type: 'application/xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${proc.key}.bpmn`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const handleClick = () => {
     setOrg(org)
@@ -59,6 +71,14 @@ export default function ProcessRow({ proc, org, onConfirmDelete }: Props) {
       <span className={styles.actions}>
         <button
           type="button"
+          className={styles.actionBtn}
+          title="Export BPMN"
+          onClick={handleExport}
+        >
+          <DownloadIcon size={13} />
+        </button>
+        <button
+          type="button"
           className={`${styles.actionBtn} ${styles.delete}`}
           title="Delete process"
           onClick={e => {
@@ -66,7 +86,7 @@ export default function ProcessRow({ proc, org, onConfirmDelete }: Props) {
             onConfirmDelete(proc)
           }}
         >
-          <TrashIcon size={11} />
+          <TrashIcon size={13} />
         </button>
       </span>
     </div>

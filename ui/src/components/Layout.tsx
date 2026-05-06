@@ -1,49 +1,99 @@
+import { useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchOrgs } from '../api/orgs'
 import Sidebar from './Sidebar/Sidebar'
+import Welcome from '../pages/Welcome'
 
 export default function Layout() {
-  const { data: orgs = [], isLoading } = useQuery({ queryKey: ['orgs'], queryFn: fetchOrgs })
+  const { data: orgs = [], isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ['orgs'],
+    queryFn: fetchOrgs,
+    retry: 1,
+  })
+
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <div className="spinner" />
+      </div>
+    )
+  }
+
+  if (isError) {
+    return <BackendDown onRetry={refetch} isFetching={isFetching} />
+  }
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <Sidebar />
 
       <main style={{ flex: 1, overflow: 'auto' }}>
-        {isLoading ? (
-          <CenterPanel><div className="spinner" /></CenterPanel>
-        ) : orgs.length === 0 ? (
-          <CenterPanel>
-            <div style={{ textAlign: 'center', maxWidth: 360, color: 'var(--text-secondary)' }}>
-              <div style={{ fontSize: 32, opacity: 0.25, marginBottom: 12 }}>⬡</div>
-              <h2 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>
-                Add an organisation to start
-              </h2>
-              <p style={{ fontSize: 13, lineHeight: 1.6, marginTop: 8 }}>
-                Organisations are the top-level containers for your processes. Create one from
-                the sidebar, then add process groups and deploy your first BPMN process.
-              </p>
-            </div>
-          </CenterPanel>
-        ) : (
-          <Outlet />
-        )}
+        {orgs.length === 0 ? <Welcome /> : <Outlet />}
       </main>
     </div>
   )
 }
 
-function CenterPanel({ children }: { children: React.ReactNode }) {
+
+const BASE_DELAY = 5
+const MAX_DELAY = 60
+
+function BackendDown({ onRetry, isFetching }: { onRetry: () => void; isFetching: boolean }) {
+  const attempt = useRef(0)
+  const remaining = useRef(BASE_DELAY)
+  const onRetryRef = useRef(onRetry)
+  const isFetchingRef = useRef(isFetching)
+  const [display, setDisplay] = useState(BASE_DELAY)
+
+  useEffect(() => { onRetryRef.current = onRetry }, [onRetry])
+  useEffect(() => { isFetchingRef.current = isFetching }, [isFetching])
+
+  useEffect(() => {
+    const tick = setInterval(() => {
+      if (isFetchingRef.current) return
+      remaining.current -= 1
+      if (remaining.current <= 0) {
+        attempt.current += 1
+        const next = Math.min(BASE_DELAY * Math.pow(2, attempt.current), MAX_DELAY)
+        remaining.current = next
+        setDisplay(next)
+        onRetryRef.current()
+      } else {
+        setDisplay(remaining.current)
+      }
+    }, 1000)
+    return () => clearInterval(tick)
+  }, [])
+
+  const handleManualRetry = () => {
+    attempt.current = 0
+    remaining.current = BASE_DELAY
+    setDisplay(BASE_DELAY)
+    onRetryRef.current()
+  }
+
   return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      height: '100%',
-      padding: 24,
-    }}>
-      {children}
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+      <div style={{ textAlign: 'center', maxWidth: 400, padding: 24 }}>
+        <div style={{ fontSize: 40, marginBottom: 16 }}>⚡</div>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Oops — can't reach the server</h2>
+        <p style={{ fontSize: 14, color: 'var(--color-text-muted)', lineHeight: 1.6, marginBottom: 24 }}>
+          Conduit couldn't connect to the backend. Make sure the server is running and try again.
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center' }}>
+          <button className="btn-primary" onClick={handleManualRetry} disabled={isFetching}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {isFetching && <div className="spinner" style={{ width: 12, height: 12 }} />}
+            {isFetching ? 'Retrying…' : 'Retry now'}
+          </button>
+          {!isFetching && (
+            <span style={{ fontSize: 13, color: 'var(--color-text-muted)' }}>
+              Retrying in {display}s…
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

@@ -9,6 +9,7 @@ pub mod process_definitions;
 pub mod process_events;
 pub mod process_groups;
 pub mod process_instances;
+pub mod process_layouts;
 pub mod secrets;
 pub mod tasks;
 pub mod users;

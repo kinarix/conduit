@@ -46,22 +46,16 @@ export default function OrgRow({
     enabled: expanded,
   })
 
+  const [newGroupId, setNewGroupId] = useState<string | null>(null)
+
   const createGroupMut = useMutation({
-    mutationFn: (name: string) => createProcessGroup(org.id, name),
+    mutationFn: () => createProcessGroup(org.id, 'New Process Group'),
     onSuccess: created => {
       qc.invalidateQueries({ queryKey: ['process-groups', org.id] })
-      // Auto-expand the freshly created group so the user sees it.
       groupsExp.expand(created.id)
+      setNewGroupId(created.id)
     },
   })
-
-  const uniqueGroupName = () => {
-    const names = new Set(groups.map(g => g.name))
-    if (!names.has('New Process Group')) return 'New Process Group'
-    let i = 2
-    while (names.has(`New Process Group (${i})`)) i++
-    return `New Process Group (${i})`
-  }
 
   return (
     <div>
@@ -89,10 +83,10 @@ export default function OrgRow({
               e.stopPropagation()
               setOrg(org)
               if (!expanded) onToggle()
-              createGroupMut.mutate(uniqueGroupName())
+              createGroupMut.mutate()
             }}
           >
-            <PlusIcon size={11} />
+            <PlusIcon size={13} />
           </button>
           <button
             type="button"
@@ -100,7 +94,7 @@ export default function OrgRow({
             title="Delete org"
             onClick={e => { e.stopPropagation(); onConfirmDeleteOrg(org) }}
           >
-            <TrashIcon size={11} />
+            <TrashIcon size={13} />
           </button>
         </span>
       </div>
@@ -124,6 +118,8 @@ export default function OrgRow({
               onToggle={() => groupsExp.toggle(group.id)}
               onConfirmDeleteGroup={onConfirmDeleteGroup}
               onConfirmDeleteProcess={onConfirmDeleteProcess}
+              autoEdit={group.id === newGroupId}
+              onEditDone={() => setNewGroupId(null)}
             />
           ))
         )

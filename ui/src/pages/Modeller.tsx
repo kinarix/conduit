@@ -1,24 +1,16 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import BpmnEditor, { BpmnEditorHandle } from '../components/bpmn/BpmnEditor'
 import { defaultBpmnXml } from '../components/bpmn/defaultBpmn'
-import { fetchDeployment, deployProcess, saveDraft, createDraft, promoteDraft } from '../api/deployments'
+import { fetchDeployment, deployProcess, saveDraft, createDraft, promoteDraft, fetchLayout, saveLayout, type LayoutData } from '../api/deployments'
+import { structuralFingerprint } from '../components/bpmn/bpmnXml'
 import { useOrg } from '../App'
 
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return ''
-  const secs = Math.round((Date.now() - then) / 1000)
-  if (secs < 5) return 'just now'
-  if (secs < 60) return `${secs}s ago`
-  const mins = Math.round(secs / 60)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.round(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.round(hrs / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString()
+function formatTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 export default function Modeller() {
@@ -114,10 +106,20 @@ function ModellerEdit({ defId }: { defId: string }) {
   const [draftId, setDraftId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState(false)
   const [editingKey, setEditingKey] = useState(false)
+  const [baselineFingerprint, setBaselineFingerprint] = useState<string | null>(null)
+  const [savePrompt, setSavePrompt] = useState<{ name: string; key: string } | null>(null)
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
 
   const { data: existing } = useQuery({
     queryKey: ['deployment', defId],
     queryFn: () => fetchDeployment(defId),
+  })
+
+  const { data: savedLayout } = useQuery({
+    queryKey: ['process_layout', existing?.org_id, existing?.process_key],
+    queryFn: () => fetchLayout(existing!.org_id, existing!.process_key),
+    enabled: !!existing?.org_id && !!existing?.process_key,
+    staleTime: Infinity,
   })
 
   useEffect(() => {
@@ -127,6 +129,9 @@ function ModellerEdit({ defId }: { defId: string }) {
       if (existing.status === 'draft') {
         setDraftId(existing.id)
       }
+      try {
+        setBaselineFingerprint(structuralFingerprint(existing.bpmn_xml))
+      } catch { /* ignore parse errors */ }
     }
   }, [existing])
 
@@ -139,14 +144,18 @@ function ModellerEdit({ defId }: { defId: string }) {
   const process_group_id = existing?.process_group_id ?? null
 
   const saveMut = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (overrides: { name: string; key: string } | void) => {
       if (!process_group_id) throw new Error('Process is not assigned to a process group')
       const bpmn_xml = await modRef.current!.getXml()
-      return saveDraft({ org_id: org!.id, process_group_id, key, name, bpmn_xml })
+      return saveDraft({ org_id: org!.id, process_group_id, key: overrides?.key ?? key, name: overrides?.name ?? name, bpmn_xml })
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['deployments'] })
+      setLastSavedAt(new Date())
       setDraftId(result.id)
+      try {
+        setBaselineFingerprint(structuralFingerprint(result.bpmn_xml))
+      } catch { /* ignore */ }
     },
     onError: (e: Error) => setError(e.message),
   })
@@ -170,8 +179,20 @@ function ModellerEdit({ defId }: { defId: string }) {
     onError: (e: Error) => setError(e.message),
   })
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setError('')
+    if (modRef.current && baselineFingerprint !== null) {
+      try {
+        const xml = await modRef.current.getXml()
+        if (structuralFingerprint(xml) === baselineFingerprint) {
+          return // layout-only change — nothing to persist
+        }
+      } catch { /* fingerprint check failed, fall through to save */ }
+    }
+    if (name === 'Untitled process') {
+      setSavePrompt({ name, key })
+      return
+    }
     saveMut.mutate()
   }
 
@@ -179,6 +200,11 @@ function ModellerEdit({ defId }: { defId: string }) {
     setError('')
     deployMut.mutate()
   }
+
+  const handleLayoutChange = useCallback((layout: LayoutData) => {
+    if (!existing?.org_id || !existing?.process_key) return
+    saveLayout(existing.org_id, existing.process_key, layout).catch(() => {})
+  }, [existing?.org_id, existing?.process_key])
 
   const isExistingDraft = existing?.status === 'draft' || !!draftId
   const isBusy = saveMut.isPending || deployMut.isPending
@@ -293,9 +319,9 @@ function ModellerEdit({ defId }: { defId: string }) {
               {isExistingDraft ? 'Draft' : 'Deployed'}
             </span>
             {existing?.version != null && <span>v{existing.version}</span>}
-            {existing?.deployed_at && (
-              <span title={new Date(existing.deployed_at).toLocaleString()}>
-                Last saved {formatRelative(existing.deployed_at)}
+            {(lastSavedAt ?? existing?.deployed_at) && (
+              <span title={(lastSavedAt ?? new Date(existing!.deployed_at)).toLocaleString()}>
+                Last saved {formatTime((lastSavedAt ?? new Date(existing!.deployed_at)).toISOString())}
               </span>
             )}
             {saveMut.isSuccess && !saveMut.isPending && (
@@ -303,7 +329,8 @@ function ModellerEdit({ defId }: { defId: string }) {
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ width: 1, height: 20, background: 'var(--color-border)', margin: '0 2px' }} />
           <button className="btn-ghost" onClick={() => navigate(`/definitions/${defId}`)} disabled={isBusy}>
             Cancel
           </button>
@@ -316,6 +343,10 @@ function ModellerEdit({ defId }: { defId: string }) {
         </div>
       </div>
 
+      {error && (
+        <div className="error-banner" style={{ marginBottom: 8, flexShrink: 0 }}>{error}</div>
+      )}
+
       <div style={{
         flex: 1,
         border: '1px solid var(--color-border)',
@@ -323,8 +354,48 @@ function ModellerEdit({ defId }: { defId: string }) {
         overflow: 'hidden',
         background: 'var(--color-surface-2)',
       }}>
-        <BpmnEditor ref={modRef} xml={existing?.bpmn_xml} onProcessNameChange={setName} />
+        <BpmnEditor ref={modRef} xml={existing?.bpmn_xml} initialLayout={savedLayout} onLayoutChange={handleLayoutChange} onProcessNameChange={setName} />
       </div>
+
+      {savePrompt && (
+        <div className="modal-overlay" onClick={() => setSavePrompt(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>Name your process</h3>
+            <div className="field">
+              <label>Name</label>
+              <input
+                autoFocus
+                value={savePrompt.name === 'Untitled process' ? '' : savePrompt.name}
+                placeholder="e.g. Order Approval"
+                onChange={e => setSavePrompt(p => p && { ...p, name: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label>Key</label>
+              <input
+                value={savePrompt.key}
+                placeholder="e.g. order-approval"
+                onChange={e => setSavePrompt(p => p && { ...p, key: e.target.value.replace(/\s+/g, '-').toLowerCase() })}
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="btn-ghost" onClick={() => setSavePrompt(null)}>Cancel</button>
+              <button
+                className="btn-primary"
+                disabled={!savePrompt.name || !savePrompt.key || saveMut.isPending}
+                onClick={() => {
+                  setName(savePrompt.name)
+                  setKey(savePrompt.key)
+                  saveMut.mutate({ name: savePrompt.name, key: savePrompt.key })
+                  setSavePrompt(null)
+                }}
+              >
+                {saveMut.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

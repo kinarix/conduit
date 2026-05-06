@@ -23,6 +23,7 @@ Query it with `/graphify query "<question>"`. Rebuild after major changes with `
 4. **Workers are external** — engine orchestrates, workers execute
 5. **Incremental phases** — every phase is working and deployable
 6. **Test first** — integration tests with real DB via testcontainers
+7. **Structured error codes** — every error has a U/S code, a client message, an optional user-action hint, and an optional server-side debug hint. U-prefix = user/client errors (4xx, actionable). S-prefix = system errors (5xx, never leaks internals). Codes are defined in `src/error_codes.toml` and asserted complete at startup. Wire format: `{"code": "U001", "message": "...", "action": "..."}`. See `src/error.rs`.
 
 ## Repository Structure
 

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample 02 — Echo Routing
+  ─────────────────────────
+  POST a "route" variable to the echo service; the gateway reads the echoed
+  value back and branches accordingly.
+
+  Variables in:   route ("path_a" or "path_b")
+  Variables out:  route (string, as echoed)
+
+  This validates that:
+  • response variables are available to downstream gateways
+  • FEEL conditions on ExclusiveGateway evaluate correctly
+
+  Replace REPLACE_ME with your echo service base URL before deploying.
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             targetNamespace="http://conduit.io/samples">
+  <process id="echo_routing" name="Echo Routing" isExecutable="true">
+
+    <startEvent id="start" name="Start"/>
+
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="echo_task"/>
+
+    <!-- Send the route variable to the echo service.
+         The echo service reflects it back under .json.route.
+         We extract it so the gateway can branch on it. -->
+    <serviceTask id="echo_task" name="Echo Route"
+                 url="http://REPLACE_ME/anything">
+      <extensionElements>
+        <conduit:http method="POST" timeoutMs="5000">
+          <conduit:requestTransform><![CDATA[
+            { body: { route: .vars.route } }
+          ]]></conduit:requestTransform>
+          <conduit:responseTransform><![CDATA[
+            { route: .body.json.route }
+          ]]></conduit:responseTransform>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+
+    <sequenceFlow id="sf2" sourceRef="echo_task" targetRef="gw"/>
+
+    <exclusiveGateway id="gw" name="Which path?" default="sf_default"/>
+
+    <!-- FEEL condition: route equals "path_a" -->
+    <sequenceFlow id="sf_a" sourceRef="gw" targetRef="end_a">
+      <conditionExpression>route = "path_a"</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Default branch (path_b or anything else) -->
+    <sequenceFlow id="sf_default" sourceRef="gw" targetRef="end_b"/>
+
+    <endEvent id="end_a" name="Path A"/>
+    <endEvent id="end_b" name="Path B (default)"/>
+
+  </process>
+</definitions>

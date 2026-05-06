@@ -47,6 +47,7 @@ import BpmnPalette from './BpmnPalette';
 import BpmnProperties from './BpmnProperties';
 import { toXml, fromXml } from './bpmnXml';
 import type { BpmnNodeData, BpmnEdgeData, BpmnElementType } from './bpmnTypes';
+import type { LayoutData } from '../../api/deployments';
 import { NODE_DIMENSIONS } from './bpmnTypes';
 import { applyAutoLayout, recomputeAllEdgeHandles, spreadGatewayHandles } from './autoLayout';
 
@@ -156,6 +157,7 @@ const DEFAULT_NODES: Node[] = [
 
 export interface BpmnEditorHandle {
   getXml: () => Promise<string>;
+  loadXml: (xml: string) => void;
 }
 
 interface Props {
@@ -163,9 +165,11 @@ interface Props {
   processId?: string;
   processName?: string;
   onProcessNameChange?: (name: string) => void;
+  initialLayout?: LayoutData;
+  onLayoutChange?: (layout: LayoutData) => void;
 }
 
-function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onProcessNameChange }: Props, ref: React.Ref<BpmnEditorHandle>) {
+function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onProcessNameChange, initialLayout, onLayoutChange }: Props, ref: React.Ref<BpmnEditorHandle>) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(DEFAULT_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selected, setSelected] = useState<Node | Edge | null>(null);
@@ -191,6 +195,9 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
   processIdRef.current = processId;
   processNameRef.current = processName;
   processSchemaRef.current = processSchema;
+
+  const suppressLayoutSave = useRef(false);
+  const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const warningsMap = useMemo(() => computeWarningsMap(nodes, edges), [nodes, edges]);
   const invalidEdgeIds = useMemo(() => computeInvalidEdgeIds(nodes, edges), [nodes, edges]);
@@ -241,6 +248,7 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
     if (!xml) return;
     try {
       const parsed = fromXml(xml);
+      suppressLayoutSave.current = true;
       setNodes(parsed.nodes);
       setEdges(parsed.edges);
       setProcessId(parsed.processId);
@@ -252,8 +260,63 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
     }
   }, [xml]);
 
+  // Apply saved layout positions/handles over the parsed nodes/edges.
+  useEffect(() => {
+    if (!initialLayout) return;
+    suppressLayoutSave.current = true;
+    setNodes(ns => ns.map(n => {
+      const pos = (initialLayout.nodes ?? {})[n.id];
+      return pos ? { ...n, position: pos } : n;
+    }));
+    setEdges(es => es.map(e => {
+      const el = (initialLayout.edges ?? {})[e.id];
+      if (!el) return e;
+      return {
+        ...e,
+        ...(el.sourceHandle !== undefined ? { sourceHandle: el.sourceHandle } : {}),
+        ...(el.targetHandle !== undefined ? { targetHandle: el.targetHandle } : {}),
+      };
+    }));
+  }, [initialLayout]);
+
+  // Debounced layout save — skipped immediately after XML load or layout overlay.
+  useEffect(() => {
+    if (suppressLayoutSave.current) {
+      suppressLayoutSave.current = false;
+      return;
+    }
+    if (!onLayoutChange) return;
+    if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current);
+    layoutTimerRef.current = setTimeout(() => {
+      const layout: LayoutData = {
+        nodes: Object.fromEntries(nodesRef.current.map(n => [n.id, { x: n.position.x, y: n.position.y }])),
+        edges: Object.fromEntries(edgesRef.current.map(e => [e.id, {
+          sourceHandle: e.sourceHandle ?? undefined,
+          targetHandle: e.targetHandle ?? undefined,
+        }])),
+      };
+      onLayoutChange(layout);
+    }, 800);
+    return () => { if (layoutTimerRef.current) clearTimeout(layoutTimerRef.current); };
+  }, [nodes, edges, onLayoutChange]);
+
   useImperativeHandle(ref, () => ({
     getXml: async () => toXml(nodesRef.current, edgesRef.current, processIdRef.current, processNameRef.current, processSchemaRef.current),
+    loadXml: (xml: string) => {
+      try {
+        const parsed = fromXml(xml);
+        suppressLayoutSave.current = true;
+        setNodes(parsed.nodes);
+        setEdges(parsed.edges);
+        setProcessId(parsed.processId);
+        setProcessName(parsed.processName);
+        onProcessNameChange?.(parsed.processName);
+        setProcessSchema(parsed.inputSchema);
+      } catch (e) {
+        console.error('Failed to parse imported BPMN XML', e);
+        throw e;
+      }
+    },
   }));
 
   const onConnect: OnConnect = useCallback(

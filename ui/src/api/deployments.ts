@@ -67,6 +67,20 @@ export interface LogicalProcess {
   hasDraft: boolean
 }
 
+export interface LayoutData {
+  nodes: Record<string, { x: number; y: number }>;
+  edges: Record<string, { sourceHandle?: string; targetHandle?: string }>;
+}
+
+export const fetchLayout = (org_id: string, process_key: string) =>
+  apiFetch<LayoutData>(`/api/v1/orgs/${org_id}/processes/${encodeURIComponent(process_key)}/layout`)
+
+export const saveLayout = (org_id: string, process_key: string, layout: LayoutData) =>
+  apiFetch<LayoutData>(
+    `/api/v1/orgs/${org_id}/processes/${encodeURIComponent(process_key)}/layout`,
+    { method: 'PUT', body: JSON.stringify(layout) },
+  )
+
 export function groupByProcessKey(defs: ProcessDefinition[]): LogicalProcess[] {
   const buckets = new Map<string, ProcessDefinition[]>()
   for (const d of defs) {

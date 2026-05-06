@@ -27,6 +27,14 @@ interface OrgContextValue {
 export const OrgContext = createContext<OrgContextValue>({ org: null, setOrg: () => {} })
 export const useOrg = () => useContext(OrgContext)
 
+function HomeIndex() {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)', fontSize: 14 }}>
+      Select a process from the sidebar to get started.
+    </div>
+  )
+}
+
 function DefinitionRedirect() {
   const { id = '' } = useParams<{ id: string }>()
   const { data, isLoading, error } = useQuery({
@@ -51,7 +59,7 @@ export default function App() {
     <OrgContext.Provider value={{ org, setOrg }}>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<Welcome />} />
+          <Route index element={<HomeIndex />} />
           <Route path="definitions" element={<Navigate to="/" replace />} />
           {/* Legacy /definitions/:id resolves to the new Process Dashboard. */}
           <Route path="definitions/:id" element={<DefinitionRedirect />} />

@@ -2,12 +2,13 @@ use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Json, Router,
+    Router,
 };
 use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::extractors::Json;
 use crate::db::decision_definitions;
 use crate::error::{EngineError, Result};
 use crate::state::AppState;

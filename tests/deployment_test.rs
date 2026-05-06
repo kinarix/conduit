@@ -156,7 +156,7 @@ async fn deploy_empty_key_returns_400() {
     assert_eq!(resp.status(), 400);
 
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 #[tokio::test]
@@ -180,7 +180,7 @@ async fn deploy_invalid_xml_returns_400() {
     assert_eq!(resp.status(), 400);
 
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 #[tokio::test]
@@ -213,12 +213,12 @@ async fn deploy_unsupported_gateway_returns_400() {
 
     let body: serde_json::Value = resp.json().await.unwrap();
     assert!(
-        body["error"]
+        body["message"]
             .as_str()
             .unwrap_or("")
             .contains("eventBasedGateway"),
         "error message should mention eventBasedGateway, got: {}",
-        body["error"]
+        body["message"]
     );
 }
 
@@ -281,7 +281,7 @@ async fn deploy_does_not_persist_on_parse_failure() {
 // ── Missing / malformed request body ─────────────────────────────────────────
 
 #[tokio::test]
-async fn deploy_missing_key_field_returns_422() {
+async fn deploy_missing_key_field_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
@@ -296,12 +296,11 @@ async fn deploy_missing_key_field_returns_422() {
         .await
         .unwrap();
 
-    // Axum returns 422 Unprocessable Entity when required JSON fields are missing
-    assert_eq!(resp.status(), 422);
+    assert_eq!(resp.status(), 400);
 }
 
 #[tokio::test]
-async fn deploy_missing_bpmn_xml_field_returns_422() {
+async fn deploy_missing_bpmn_xml_field_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
@@ -314,5 +313,5 @@ async fn deploy_missing_bpmn_xml_field_returns_422() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 422);
+    assert_eq!(resp.status(), 400);
 }

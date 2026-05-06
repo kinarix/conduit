@@ -1,7 +1,8 @@
-use axum::{extract::State, routing::get, Json, Router};
+use axum::{extract::State, routing::get, Router};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+use super::extractors::Json;
 use crate::state::AppState;
 
 pub fn routes() -> Router<Arc<AppState>> {

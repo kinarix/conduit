@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample 01 — Hello Echo
+  ──────────────────────
+  Simplest HTTP task flow: POST two variables to the echo service, extract the
+  echoed-back values into process variables.
+
+  Variables in:   name (string), value (integer)
+  Variables out:  echoed_name (string), echoed_value (integer), echo_method (string)
+
+  Replace REPLACE_ME with your echo service base URL, then deploy:
+
+    curl -s -X POST http://localhost:8080/api/v1/deployments \
+      -H 'Content-Type: application/json' \
+      -d '{"org_id":"<org-id>","process_group_id":"<group-id>","key":"hello-echo","bpmn_xml":"<contents>"}'
+
+  Echo service assumed to be httpbin-compatible:
+    POST /anything → { "json": {…}, "method": "POST", "headers": {…}, "url": "…" }
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             targetNamespace="http://conduit.io/samples">
+  <process id="hello_echo" name="Hello Echo" isExecutable="true">
+
+    <startEvent id="start" name="Start"/>
+
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="echo_task"/>
+
+    <!-- POST both input vars to the echo endpoint.
+         The echo service returns them under .json in the response body. -->
+    <serviceTask id="echo_task" name="Echo Call"
+                 url="http://REPLACE_ME/anything">
+      <extensionElements>
+        <conduit:http method="POST" timeoutMs="5000">
+          <conduit:requestTransform><![CDATA[
+            { body: { name: .vars.name, value: .vars.value } }
+          ]]></conduit:requestTransform>
+          <!-- httpbin puts the parsed JSON body under .json -->
+          <conduit:responseTransform><![CDATA[
+            {
+              echoed_name:  .body.json.name,
+              echoed_value: .body.json.value,
+              echo_method:  .body.method
+            }
+          ]]></conduit:responseTransform>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+
+    <sequenceFlow id="sf2" sourceRef="echo_task" targetRef="end"/>
+
+    <endEvent id="end" name="End"/>
+
+  </process>
+</definitions>

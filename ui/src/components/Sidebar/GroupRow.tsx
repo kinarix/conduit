@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { renameProcessGroup, assignProcessGroup, type ProcessGroup } from '../../api/processGroups'
-import { groupByProcessKey, type ProcessDefinition, type LogicalProcess } from '../../api/deployments'
+import { groupByProcessKey, createDraft, type ProcessDefinition, type LogicalProcess } from '../../api/deployments'
+import { fromXml } from '../bpmn/bpmnXml'
 import { useOrg, type Org } from '../../App'
-import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon } from './SidebarIcons'
+import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon } from './SidebarIcons'
 import ProcessRow, { PROCESS_DRAG_MIME } from './ProcessRow'
 import InlineNameInput from './InlineNameInput'
 import styles from './Sidebar.module.css'
@@ -17,6 +18,8 @@ interface Props {
   onToggle: () => void
   onConfirmDeleteGroup: (group: ProcessGroup) => void
   onConfirmDeleteProcess: (proc: LogicalProcess) => void
+  autoEdit?: boolean
+  onEditDone?: () => void
 }
 
 export default function GroupRow({
@@ -27,13 +30,16 @@ export default function GroupRow({
   onToggle,
   onConfirmDeleteGroup,
   onConfirmDeleteProcess,
+  autoEdit = false,
+  onEditDone,
 }: Props) {
   const navigate = useNavigate()
   const location = useLocation()
   const qc = useQueryClient()
   const { setOrg } = useOrg()
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(autoEdit)
   const [dropping, setDropping] = useState(false)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const orgId = org.id
 
   const renameMut = useMutation({
@@ -41,6 +47,7 @@ export default function GroupRow({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['process-groups', orgId] })
       setEditing(false)
+      onEditDone?.()
     },
   })
 
@@ -48,6 +55,32 @@ export default function GroupRow({
     mutationFn: (defId: string) => assignProcessGroup(defId, group.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deployments', orgId] }),
   })
+
+  const importMut = useMutation({
+    mutationFn: ({ key, name, bpmn_xml }: { key: string; name: string; bpmn_xml: string }) =>
+      createDraft({ org_id: orgId, process_group_id: group.id, key, name, bpmn_xml }),
+    onSuccess: def => {
+      qc.invalidateQueries({ queryKey: ['deployments', orgId] })
+      navigate(`/definitions/${def.id}/edit`)
+    },
+  })
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const xml = ev.target?.result as string
+      try {
+        const parsed = fromXml(xml)
+        importMut.mutate({ key: parsed.processId, name: parsed.processName, bpmn_xml: xml })
+      } catch {
+        // invalid BPMN — silently ignore (user sees nothing happens)
+      }
+    }
+    reader.readAsText(file)
+  }
 
   const groupActive = location.pathname.startsWith(`/groups/${group.id}`) ||
                       location.pathname.startsWith(`/process-groups/${group.id}`)
@@ -93,12 +126,19 @@ export default function GroupRow({
           <InlineNameInput
             initial={group.name}
             onSubmit={name => renameMut.mutate(name)}
-            onCancel={() => setEditing(false)}
+            onCancel={() => { setEditing(false); onEditDone?.() }}
           />
         ) : (
           <span className={styles.label}>{group.name}</span>
         )}
         <span className={styles.actions}>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".bpmn,.xml"
+            style={{ display: 'none' }}
+            onChange={handleImport}
+          />
           <button
             type="button"
             className={`${styles.actionBtn} ${styles.add}`}
@@ -108,7 +148,15 @@ export default function GroupRow({
               navigate(`/process-groups/${group.id}/definitions/new`)
             }}
           >
-            <PlusIcon size={11} />
+            <PlusIcon size={13} />
+          </button>
+          <button
+            type="button"
+            className={styles.actionBtn}
+            title="Import BPMN"
+            onClick={e => { e.stopPropagation(); importInputRef.current?.click() }}
+          >
+            <UploadIcon size={13} />
           </button>
           <button
             type="button"
@@ -116,7 +164,7 @@ export default function GroupRow({
             title="Rename"
             onClick={e => { e.stopPropagation(); setEditing(true) }}
           >
-            <PencilIcon size={11} />
+            <PencilIcon size={13} />
           </button>
           <button
             type="button"
@@ -124,7 +172,7 @@ export default function GroupRow({
             title="Delete process group"
             onClick={e => { e.stopPropagation(); onConfirmDeleteGroup(group) }}
           >
-            <TrashIcon size={11} />
+            <TrashIcon size={13} />
           </button>
         </span>
       </div>

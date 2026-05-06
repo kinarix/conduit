@@ -1,3 +1,4 @@
+pub mod extractors;
 pub mod decisions;
 pub mod deployments;
 pub mod external_tasks;
@@ -6,6 +7,7 @@ pub mod instances;
 pub mod messages;
 pub mod orgs;
 pub mod process_groups;
+pub mod process_layouts;
 pub mod secrets;
 pub mod signals;
 pub mod tasks;

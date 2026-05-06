@@ -135,11 +135,11 @@ async fn start_instance_unknown_definition_returns_404() {
 
     assert_eq!(resp.status(), 404);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 #[tokio::test]
-async fn start_instance_missing_definition_id_returns_422() {
+async fn start_instance_missing_definition_id_returns_400() {
     let app = common::spawn_test_app().await;
     let client = reqwest::Client::new();
 
@@ -150,7 +150,7 @@ async fn start_instance_missing_definition_id_returns_422() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 422);
+    assert_eq!(resp.status(), 400);
 }
 
 // ─── GET /api/v1/process-instances/:id ───────────────────────────────────────
@@ -213,7 +213,7 @@ async fn get_instance_not_found_returns_404() {
 
     assert_eq!(resp.status(), 404);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 // ─── GET /api/v1/tasks ───────────────────────────────────────────────────────
@@ -331,7 +331,7 @@ async fn get_task_not_found_returns_404() {
 
     assert_eq!(resp.status(), 404);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 // ─── POST /api/v1/tasks/:id/complete ─────────────────────────────────────────
@@ -467,7 +467,7 @@ async fn complete_task_not_found_returns_404() {
 
     assert_eq!(resp.status(), 404);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 #[tokio::test]
@@ -527,7 +527,7 @@ async fn complete_already_completed_task_returns_409() {
         .unwrap();
     assert_eq!(r2.status(), 409);
     let body: serde_json::Value = r2.json().await.unwrap();
-    assert!(body["error"].is_string());
+    assert!(body["message"].is_string());
 }
 
 // ─── Labels roundtrip ─────────────────────────────────────────────────────────

@@ -1,0 +1,65 @@
+# Error code registry for Conduit.
+#
+# Every code emitted by EngineError::code() MUST have an entry here.
+# The server asserts this at startup — a missing entry is a compile/boot error.
+#
+# Fields:
+#   display  — sent to the client in {"message": "..."}. For U-codes this is
+#               overridden at runtime by the variant's own message; for S-codes
+#               this is the only message the client ever sees.
+#   action   — (optional) sent to client in {"action": "..."}. Actionable hint
+#               the UI can surface next to the error message.
+#   debug    — (optional, S-codes only) human-readable hint logged server-side.
+#               Never sent to the client.
+
+# ─── U-codes: user/client errors (4xx) ──────────────────────────────────────
+
+[U001]
+display = "Validation failed."
+action  = "Check the submitted values and try again."
+
+[U002]
+display = "The requested resource does not exist."
+action  = "Verify the ID or key and try again."
+
+[U003]
+display = "A resource with that identifier already exists."
+action  = "Use a different name or key."
+
+[U004]
+display = "The submitted BPMN XML could not be parsed."
+action  = "Check the BPMN file for syntax errors."
+
+[U005]
+display = "This BPMN element type is not yet supported."
+action  = "Remove or replace the unsupported element."
+
+[U006]
+display = "The submitted DMN XML could not be parsed."
+action  = "Check the DMN file for syntax errors."
+
+[U007]
+display = "A FEEL expression in the DMN table produced an error."
+action  = "Review the FEEL expressions in your decision table."
+
+[U008]
+display = "No decision rule matched the input."
+action  = "Ensure the input values match at least one rule in the decision table."
+
+[U009]
+display = "Multiple decision rules matched (UNIQUE hit policy violated)."
+action  = "Fix the decision table so at most one rule matches for any given input."
+
+# ─── S-codes: system errors (5xx) ────────────────────────────────────────────
+
+[S001]
+display = "An internal server error occurred. Please contact the administrator if the problem persists."
+debug   = "Unexpected database-level failure — check DB connectivity and schema."
+
+[S002]
+display = "An internal server error occurred. Please contact the administrator if the problem persists."
+debug   = "Unexpected internal failure — inspect server logs for the full error chain."
+
+[S003]
+display = "An internal server error occurred. Please contact the administrator if the problem persists."
+debug   = "Runtime FEEL expression evaluation failure — check gateway conditions."

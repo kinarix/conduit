@@ -1,9 +1,49 @@
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
+use serde::Deserialize;
 use serde_json::json;
+
+// ─── Error-code registry (loaded once from error_codes.toml) ─────────────────
+
+#[derive(Deserialize)]
+struct ErrorCodeEntry {
+    display: String,
+    action: Option<String>,
+    debug: Option<String>,
+}
+
+static ERROR_CODES: OnceLock<HashMap<String, ErrorCodeEntry>> = OnceLock::new();
+
+fn codes() -> &'static HashMap<String, ErrorCodeEntry> {
+    ERROR_CODES.get_or_init(|| {
+        const RAW: &str = include_str!("error_codes.toml");
+        toml::from_str(RAW).expect("error_codes.toml is malformed")
+    })
+}
+
+/// Call once at startup to assert every variant's code() has an entry in the
+/// TOML registry. Panics if any code is missing, catching enum/TOML drift early.
+pub fn assert_error_codes_complete() {
+    let map = codes();
+    let required = [
+        "U001", "U002", "U003", "U004", "U005", "U006", "U007", "U008", "U009",
+        "S001", "S002", "S003",
+    ];
+    for code in required {
+        assert!(
+            map.contains_key(code),
+            "error_codes.toml is missing entry for code '{code}'"
+        );
+    }
+}
+
+// ─── Unified error type ───────────────────────────────────────────────────────
 
 /// Unified error type for Conduit.
 /// All errors convert to appropriate HTTP responses via IntoResponse.
@@ -49,30 +89,40 @@ pub enum EngineError {
     DmnMultipleMatches,
 }
 
-/// Generic message returned for any 5xx response so we never leak internal
-/// details (DB errors, expression panics, etc.) to API callers. Operators see
-/// the full error in logs via the `tracing::error!` calls below.
-const PUBLIC_500_MESSAGE: &str =
-    "An internal server error occurred. Please contact the administrator if the problem persists.";
-
 impl EngineError {
-    /// Short, stable label for this variant — used in structured logs and the
-    /// JSON `code` field so callers can branch programmatically.
+    /// Structured error code returned in API responses and displayed in the UI.
+    ///
+    /// Code registry:
+    ///   U-prefix = user/client errors (4xx) — actionable by the caller.
+    ///   S-prefix = system errors (5xx) — requires operator attention.
+    ///
+    ///   U001 — Validation      Bad input supplied by the caller
+    ///   U002 — NotFound        Requested resource does not exist
+    ///   U003 — Conflict        Duplicate / unique constraint violated
+    ///   U004 — Parse           Invalid BPMN XML submitted by the caller
+    ///   U005 — UnsupportedEl   BPMN element not implemented
+    ///   U006 — DmnParse        Invalid DMN XML submitted by the caller
+    ///   U007 — DmnFeel         FEEL expression in DMN produced an error
+    ///   U008 — DmnNoMatch      No DMN rule matched the input
+    ///   U009 — DmnMultiple     Multiple DMN rules matched (UNIQUE hit policy)
+    ///
+    ///   S001 — Database        Unexpected database-level failure
+    ///   S002 — Internal        Unexpected internal server error
+    ///   S003 — Expression      Runtime FEEL expression evaluation failure
     fn code(&self) -> &'static str {
         match self {
-            EngineError::NotFound(_) => "not_found",
-            EngineError::Validation(_) => "validation",
-            EngineError::Conflict(_) => "conflict",
-            EngineError::Database(_) => "database",
-            EngineError::Internal(_) => "internal",
-            EngineError::Parse(_) => "parse",
-            EngineError::UnsupportedElement(_) => "unsupported_element",
-            EngineError::Expression(_) => "expression",
-            EngineError::DmnParse(_) => "dmn_parse",
-            EngineError::DmnFeel(_) => "dmn_feel",
-            EngineError::DmnNotFound(_) => "dmn_not_found",
-            EngineError::DmnNoMatch => "dmn_no_match",
-            EngineError::DmnMultipleMatches => "dmn_multiple_matches",
+            EngineError::Validation(_) => "U001",
+            EngineError::NotFound(_) | EngineError::DmnNotFound(_) => "U002",
+            EngineError::Conflict(_) => "U003",
+            EngineError::Parse(_) => "U004",
+            EngineError::UnsupportedElement(_) => "U005",
+            EngineError::DmnParse(_) => "U006",
+            EngineError::DmnFeel(_) => "U007",
+            EngineError::DmnNoMatch => "U008",
+            EngineError::DmnMultipleMatches => "U009",
+            EngineError::Database(_) => "S001",
+            EngineError::Internal(_) => "S002",
+            EngineError::Expression(_) => "S003",
         }
     }
 
@@ -95,10 +145,10 @@ impl EngineError {
         }
     }
 
-    /// User-facing message. For 5xx variants, returns a generic message so
-    /// internal details never leak to clients. For 4xx, returns the variant's
-    /// own message which is intended to be actionable.
-    fn public_message(&self) -> String {
+    /// Client-facing message. U-codes surface the variant's runtime detail
+    /// (already actionable). S-codes return the generic display from TOML so
+    /// internal details never reach the client.
+    fn client_message(&self) -> String {
         match self {
             EngineError::NotFound(msg)
             | EngineError::Validation(msg)
@@ -112,10 +162,19 @@ impl EngineError {
             EngineError::DmnMultipleMatches => {
                 "Multiple DMN rules matched (UNIQUE hit policy violated)".to_string()
             }
+            // S-codes: use the generic display from the registry.
             EngineError::Database(_) | EngineError::Internal(_) | EngineError::Expression(_) => {
-                PUBLIC_500_MESSAGE.to_string()
+                codes()
+                    .get(self.code())
+                    .map(|e| e.display.clone())
+                    .unwrap_or_else(|| "An internal server error occurred.".to_string())
             }
         }
+    }
+
+    /// Optional user-action hint from the TOML registry (sent to client).
+    fn client_action(&self) -> Option<String> {
+        codes().get(self.code()).and_then(|e| e.action.clone())
     }
 
     /// Emit a single structured log line for this error at `error` level with
@@ -127,12 +186,17 @@ impl EngineError {
         let code = self.code();
         let detail = self.to_string();
         let source = std::error::Error::source(self).map(|s| s.to_string());
+        let debug_hint = codes()
+            .get(code)
+            .and_then(|e| e.debug.as_deref())
+            .unwrap_or("");
 
         tracing::error!(
             error.code = code,
             error.status = status.as_u16(),
             error.detail = %detail,
             error.source = source.as_deref().unwrap_or(""),
+            error.debug = debug_hint,
             "request failed"
         );
     }
@@ -142,10 +206,19 @@ impl IntoResponse for EngineError {
     fn into_response(self) -> Response {
         self.log();
         let status = self.status();
-        let body = json!({
-            "error": self.public_message(),
-            "code": self.code(),
+        let action = self.client_action();
+        let code = self.code();
+        let message = self.client_message();
+
+        let mut body = json!({
+            "code": code,
+            "message": message,
         });
+
+        if let Some(act) = action {
+            body["action"] = serde_json::Value::String(act);
+        }
+
         (status, Json(body)).into_response()
     }
 }
@@ -237,5 +310,10 @@ mod tests {
         let err = EngineError::DmnNoMatch;
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn error_codes_registry_is_complete() {
+        assert_error_codes_complete();
     }
 }

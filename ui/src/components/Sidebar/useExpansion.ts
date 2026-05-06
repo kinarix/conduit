@@ -25,6 +25,22 @@ export function useExpansion(storageKey: string) {
     }
   }, [storageKey, expanded])
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { detail } = e as CustomEvent<string>
+      if (detail !== storageKey) return
+      try {
+        const raw = localStorage.getItem(storageKey)
+        if (!raw) return
+        const arr = JSON.parse(raw)
+        if (!Array.isArray(arr)) return
+        setExpanded(new Set(arr.filter((v): v is string => typeof v === 'string')))
+      } catch {}
+    }
+    window.addEventListener('sidebar:expansion-sync', handler)
+    return () => window.removeEventListener('sidebar:expansion-sync', handler)
+  }, [storageKey])
+
   const toggle = useCallback((id: string) => {
     setExpanded(prev => {
       const next = new Set(prev)

@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Sample 04 — Echo Error Boundary
+  ─────────────────────────────────
+  Demonstrates BPMN error boundary events driven by the echo service response.
+
+  The trick: we include an "error_code" in the request body. The echo service
+  reflects it back under .json.error_code. The errorCodeExpression reads it:
+
+    .body.json.error_code // ""
+
+  • If error_code is non-null in the request   → boundary fires   → error path
+  • If error_code is absent/null               → normal completion → happy path
+
+  Variables in:   payload (string), error_code (string | null)
+  Variables out:  result (string) on happy path
+                  caught_error_code (string) on error path
+
+  This validates that:
+  • errorCodeExpression on a 2xx response can still route to a boundary event
+  • The caught error code is available as a process variable after boundary fires
+  • The process follows the correct path based on the presence of error_code
+
+  Replace REPLACE_ME with your echo service base URL before deploying.
+
+  Test scenarios:
+    Happy:  {"payload": "hello", "error_code": null}
+    Error:  {"payload": "hello", "error_code": "VALIDATION_ERROR"}
+-->
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext"
+             targetNamespace="http://conduit.io/samples">
+  <process id="echo_error_boundary" name="Echo Error Boundary" isExecutable="true">
+
+    <startEvent id="start" name="Start"/>
+
+    <sequenceFlow id="sf1" sourceRef="start" targetRef="echo_task"/>
+
+    <serviceTask id="echo_task" name="Echo with Error"
+                 url="http://REPLACE_ME/anything">
+      <extensionElements>
+        <conduit:http method="POST" timeoutMs="5000">
+          <!-- Send both payload and error_code; echo returns them verbatim -->
+          <conduit:requestTransform><![CDATA[
+            { body: { payload: .vars.payload, error_code: .vars.error_code } }
+          ]]></conduit:requestTransform>
+          <!-- Extract payload for the happy-path result variable -->
+          <conduit:responseTransform><![CDATA[
+            { result: .body.json.payload }
+          ]]></conduit:responseTransform>
+          <!-- Non-empty string → boundary fires; null/empty → normal completion -->
+          <conduit:errorCodeExpression><![CDATA[
+            .body.json.error_code // ""
+          ]]></conduit:errorCodeExpression>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+
+    <!-- Interrupting boundary: cancels the task and routes to error handling -->
+    <boundaryEvent id="err_boundary" attachedToRef="echo_task" cancelActivity="true">
+      <errorEventDefinition errorCodeVariable="caught_error_code"/>
+    </boundaryEvent>
+
+    <!-- Normal completion path -->
+    <sequenceFlow id="sf2" sourceRef="echo_task" targetRef="happy_end"/>
+    <endEvent id="happy_end" name="Happy End"/>
+
+    <!-- Error path: caught_error_code variable is set by the engine -->
+    <sequenceFlow id="sf_err" sourceRef="err_boundary" targetRef="error_end"/>
+    <endEvent id="error_end" name="Error End"/>
+
+  </process>
+</definitions>

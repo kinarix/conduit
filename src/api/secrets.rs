@@ -2,11 +2,12 @@
 //! never returned via `GET` or `LIST`. Rotation is "delete then create".
 
 use axum::{
-    extract::{Path, State},
+    extract::State,
     http::StatusCode,
     routing::get,
-    Json, Router,
+    Router,
 };
+use super::extractors::{Json, Path};
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;

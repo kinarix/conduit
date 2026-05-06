@@ -218,3 +218,11 @@ impl From<SecretRow> for SecretMetadata {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ProcessLayout {
+    pub org_id:      Uuid,
+    pub process_key: String,
+    pub layout_data: JsonValue,
+    pub updated_at:  DateTime<Utc>,
+}

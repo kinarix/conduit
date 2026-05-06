@@ -747,6 +747,23 @@ function extractResultVariable(el: Element): string | undefined {
   return undefined;
 }
 
+/**
+ * Returns a stable JSON string representing only the structural parts of the
+ * BPMN — node IDs + data and edge source/target/data — with positions and
+ * handle assignments excluded.  Two XMLs with the same structure but different
+ * layouts produce identical fingerprints.
+ */
+export function structuralFingerprint(xml: string): string {
+  const { nodes, edges } = fromXml(xml);
+  const nFp = nodes
+    .map(n => ({ id: n.id, data: n.data }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const eFp = edges
+    .map(e => ({ id: e.id, source: e.source, target: e.target, data: e.data }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return JSON.stringify({ nodes: nFp, edges: eFp });
+}
+
 function nodeTypeFor(t: BpmnElementType): string {
   const eventTypes: BpmnElementType[] = [
     'startEvent', 'messageStartEvent', 'timerStartEvent', 'endEvent',

@@ -44,6 +44,13 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
+# Graceful shutdown — CancellationToken for background executors
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Metrics
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"
+
 # XML parsing (Phase 3)
 roxmltree = "0.19"
 

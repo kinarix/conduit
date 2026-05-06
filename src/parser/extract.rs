@@ -137,9 +137,9 @@ pub(super) fn extract_http_config(
 
     if matches!(auth, HttpAuth::Basic | HttpAuth::Bearer | HttpAuth::ApiKey) && secret_ref.is_none()
     {
-        return Err(EngineError::Parse(format!(
-            "conduit:http authType requires a `secretRef` attribute"
-        )));
+        return Err(EngineError::Parse(
+            "conduit:http authType requires a `secretRef` attribute".to_string(),
+        ));
     }
     if matches!(auth, HttpAuth::ApiKey) && api_key_header.is_none() {
         return Err(EngineError::Parse(
@@ -244,10 +244,7 @@ pub(super) fn extract_timer_spec(node: &roxmltree::Node) -> Result<TimerSpec> {
     ))
 }
 
-pub(super) fn extract_result_variable(
-    node: &roxmltree::Node,
-    conduit_ns: &str,
-) -> Option<String> {
+pub(super) fn extract_result_variable(node: &roxmltree::Node, conduit_ns: &str) -> Option<String> {
     for ext in node
         .children()
         .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")

@@ -36,6 +36,7 @@ where
 
 /// Variable set/changed. If `old_value` is None, this is a new variable (`variable_set`);
 /// otherwise it's a change (`variable_changed`).
+#[allow(clippy::too_many_arguments)]
 pub async fn record_variable<'e, E>(
     executor: E,
     instance_id: Uuid,
@@ -74,6 +75,7 @@ where
 
 /// Job state transition. `event_type` is one of: job_created, job_locked, job_completed,
 /// job_failed, job_cancelled.
+#[allow(clippy::too_many_arguments)]
 pub async fn record_job<'e, E>(
     executor: E,
     instance_id: Uuid,
@@ -162,6 +164,7 @@ where
 }
 
 /// Message or signal correlated to this instance.
+#[allow(clippy::too_many_arguments)]
 pub async fn record_correlation<'e, E>(
     executor: E,
     instance_id: Uuid,

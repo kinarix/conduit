@@ -116,7 +116,7 @@ fn json_to_feel(value: &JsonValue) -> FeelValue {
         JsonValue::String(s) => FeelValue::String(s.clone()),
         JsonValue::Array(items) => {
             let values: Vec<FeelValue> = items.iter().map(json_to_feel).collect();
-            FeelValue::List(values.into())
+            FeelValue::List(values)
         }
         JsonValue::Object(map) => {
             let mut ctx = FeelContext::default();

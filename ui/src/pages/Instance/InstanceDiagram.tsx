@@ -15,15 +15,6 @@ interface Props {
   instanceId: string
 }
 
-/**
- * Derives a runtime-status map for every BPMN element this instance has touched
- * (or is currently sitting on), based on:
- *
- *   - execution_history rows  → entered / left
- *   - active tasks            → element is currently waiting on the user
- *   - active jobs             → element is currently waiting on a worker
- *   - process_events errors   → mark as 'error'
- */
 export default function InstanceDiagram({ instanceId }: Props) {
   const instanceQ = useQuery({
     queryKey: ['instance', instanceId],
@@ -64,56 +55,66 @@ export default function InstanceDiagram({ instanceId }: Props) {
   const elementStates = useMemo(() => {
     const m = new Map<string, RuntimeStatus>()
 
-    // 1. From history: entered+left → completed; entered+open → active.
+    // Index open executions (left_at=null) by execution_id for O(1) job lookup.
+    // Jobs only carry execution_id, not element_id directly.
+    const openExecToElement = new Map<string, string>()
+
     for (const row of historyQ.data ?? []) {
-      const prev = m.get(row.element_id)
-      if (row.left_at) {
-        // Already completed at least once. Don't downgrade an active row.
-        if (prev !== 'active') m.set(row.element_id, 'completed')
-      } else {
+      if (!row.left_at) {
+        openExecToElement.set(row.execution_id, row.element_id)
         m.set(row.element_id, 'active')
+      } else {
+        // Don't downgrade 'active' (a later open row for the same element takes priority)
+        if (m.get(row.element_id) !== 'active') {
+          m.set(row.element_id, 'completed')
+        }
       }
     }
 
-    // 2. Active tasks for this instance — explicit "active" override.
+    // Active human tasks override with 'active'
     for (const t of tasksQ.data ?? []) {
       if (t.instance_id === instanceId && t.state === 'active') {
         m.set(t.element_id, 'active')
       }
     }
 
-    // 3. Locked / pending jobs → active. Failed jobs → error on element.
+    // Jobs: failed → 'error'; pending/locked → 'active'
     for (const j of jobsQ.data ?? []) {
-      // Jobs don't directly carry element_id in the API — but their execution_id
-      // matches an execution_history row. Cross-reference via history.
-      const histRow = (historyQ.data ?? []).find(h => h.execution_id === j.execution_id)
-      if (!histRow) continue
-      if (j.state === 'pending' || j.state === 'locked') {
-        m.set(histRow.element_id, 'active')
-      } else if (j.state === 'failed' || j.error_message) {
-        m.set(histRow.element_id, 'error')
+      const elementId = openExecToElement.get(j.execution_id)
+      if (!elementId) continue
+      if (j.state === 'failed' || j.error_message) {
+        m.set(elementId, 'error')
+      } else if (j.state === 'pending' || j.state === 'locked') {
+        m.set(elementId, 'active')
       }
     }
 
-    // 4. Errors raised/caught from the event log.
+    // Error events take highest priority (override any other status)
     for (const ev of eventsQ.data ?? []) {
-      if (ev.event_type === 'error_raised' || ev.event_type === 'error_caught') {
-        if (ev.element_id) m.set(ev.element_id, 'error')
+      if (
+        (ev.event_type === 'error_raised' || ev.event_type === 'error_caught') &&
+        ev.element_id
+      ) {
+        m.set(ev.element_id, 'error')
       }
     }
 
     return m
   }, [historyQ.data, tasksQ.data, jobsQ.data, eventsQ.data, instanceId])
 
-  if (defQ.isLoading || instanceQ.isLoading) {
-    return <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)' }}>Loading diagram…</div>
-  }
-
-  const def = defQ.data
-  if (!def?.bpmn_xml) {
+  if (instanceQ.isLoading || defQ.isLoading) {
     return (
       <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)' }}>
-        No BPMN XML available for this instance's definition.
+        Loading diagram…
+      </div>
+    )
+  }
+
+  const bpmnXml = defQ.data?.bpmn_xml
+  if (!bpmnXml) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)' }}>
+        No BPMN diagram available for this process.
       </div>
     )
   }
@@ -128,7 +129,7 @@ export default function InstanceDiagram({ instanceId }: Props) {
         background: 'var(--bg-tertiary)',
       }}
     >
-      <BpmnViewer xml={def.bpmn_xml} elementStates={elementStates} />
+      <BpmnViewer xml={bpmnXml} elementStates={elementStates} />
     </div>
   )
 }

@@ -23,7 +23,7 @@ import type { BpmnNodeData, BpmnElementType, RuntimeStatus } from './bpmnTypes'
 
 interface Props {
   xml: string
-  /** Map<element_id, status>. Nodes without an entry default to 'pending'. */
+  /** Map<element_id, RuntimeStatus>. Nodes without an entry default to 'pending'. */
   elementStates?: Map<string, RuntimeStatus>
   height?: number | string
 }
@@ -41,9 +41,40 @@ function nodeTypeFor(t: BpmnElementType): string {
     'intermediateCatchTimerEvent', 'intermediateCatchMessageEvent', 'intermediateCatchSignalEvent',
   ]
   if (eventTypes.includes(t)) return 'bpmnEvent'
-  if (t === 'userTask' || t === 'serviceTask' || t === 'scriptTask' || t === 'businessRuleTask' ||
-      t === 'subProcess' || t === 'sendTask' || t === 'receiveTask') return 'bpmnTask'
+  if (
+    t === 'userTask' || t === 'serviceTask' || t === 'scriptTask' ||
+    t === 'businessRuleTask' || t === 'subProcess' || t === 'sendTask' || t === 'receiveTask'
+  ) return 'bpmnTask'
   return 'bpmnGateway'
+}
+
+// The BPMN editor stores sourceHandle/targetHandle in XML. These can be stale or
+// wrong (e.g. "left-source" saved as a targetHandle), which triggers ReactFlow
+// error #008 and makes edges invisible. In viewer mode we always recompute handles
+// from node geometry so every edge renders regardless of what the XML says.
+function fixEdgeHandles(edges: Edge[], nodes: Node[]): Edge[] {
+  const posMap = new Map(nodes.map(n => [n.id, n.position]))
+  return edges.map(e => {
+    // Attachment edges (boundary events) have no geometry-based handles
+    if ((e.data as { kind?: string } | undefined)?.kind === 'attachment') return e
+
+    const srcPos = posMap.get(e.source)
+    const tgtPos = posMap.get(e.target)
+    if (!srcPos || !tgtPos) return { ...e, sourceHandle: undefined, targetHandle: undefined }
+
+    const dx = tgtPos.x - srcPos.x
+    const dy = tgtPos.y - srcPos.y
+    let sourceHandle: string
+    let targetHandle: string
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      sourceHandle = dx >= 0 ? 'right-source' : 'left-source'
+      targetHandle = dx >= 0 ? 'left-target' : 'right-target'
+    } else {
+      sourceHandle = dy >= 0 ? 'bottom-source' : 'top-source'
+      targetHandle = dy >= 0 ? 'top-target' : 'bottom-target'
+    }
+    return { ...e, sourceHandle, targetHandle }
+  })
 }
 
 export default function BpmnViewer({ xml, elementStates, height = '100%' }: Props) {
@@ -69,7 +100,7 @@ function ViewerInner({ xml, elementStates }: { xml: string; elementStates?: Map<
     try {
       const parsed = fromXml(xml)
       setNodes(parsed.nodes)
-      setEdges(parsed.edges)
+      setEdges(fixEdgeHandles(parsed.edges, parsed.nodes))
     } catch (e) {
       console.error('BpmnViewer: failed to parse XML', e)
     }
@@ -94,15 +125,18 @@ function ViewerInner({ xml, elementStates }: { xml: string; elementStates?: Map<
   const styledEdges = useMemo(
     () =>
       edges.map(e => {
-        // Highlight an edge as "active" if its source node is completed and target is active.
         const sourceStatus = elementStates?.get(e.source)
         const targetStatus = elementStates?.get(e.target)
-        const traversed = sourceStatus === 'completed'
-        const active = targetStatus === 'active'
-        const stroke = active ? '#2563eb' : traversed ? '#16a34a' : '#cbd5e1'
+        // Priority: error > active (waiting at target) > traversed (source completed) > pending
+        const isError     = targetStatus === 'error'
+        const isActive    = !isError && targetStatus === 'active'
+        const isTraversed = !isError && !isActive && sourceStatus === 'completed'
+        const stroke = isError ? '#dc2626' : isActive ? '#2563eb' : isTraversed ? '#16a34a' : '#cbd5e1'
         return {
           ...e,
-          style: { stroke, strokeWidth: traversed || active ? 2 : 1.2 },
+          type: 'smoothstep',
+          animated: isActive,
+          style: { stroke, strokeWidth: isTraversed || isActive || isError ? 2 : 1.2 },
           markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: stroke },
         }
       }),

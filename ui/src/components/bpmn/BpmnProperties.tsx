@@ -18,7 +18,7 @@ import type {
   HttpAuthType,
   HttpConnectorConfig,
 } from './bpmnTypes';
-import { ELEMENT_COLORS } from './bpmnTypes';
+import { ELEMENT_COLORS, ELEMENT_LABELS } from './bpmnTypes';
 import BpmnSchemaBuilder from './BpmnSchemaBuilder';
 import { computeNodeWarnings } from './bpmnValidation';
 import { useOrg } from '../../App';
@@ -219,22 +219,231 @@ function BoundaryWiringDiagram() {
   );
 }
 
+// ── Catch event flow diagrams ─────────────────────────────────────────────────
+
+function CatchFlowTimerDiagram() {
+  return (
+    <div style={{ margin: '2px 0 8px', borderRadius: 5, background: '#f1f5f9', padding: '7px 8px' }}>
+      <svg width={210} height={52} viewBox="0 0 210 52" style={{ display: 'block', overflow: 'visible' }}>
+        {/* Start event */}
+        <circle cx={16} cy={24} r={10} fill="#f0fdf4" stroke="#16a34a" strokeWidth={1.4}/>
+        {/* flow → catch event */}
+        <line x1={26} y1={24} x2={64} y2={24} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="64,21 64,27 70,24" fill="#64748b"/>
+        {/* Timer intermediate catch event — double ring */}
+        <circle cx={82} cy={24} r={12} fill="#fff7ed" stroke="#ea580c" strokeWidth={1.4}/>
+        <circle cx={82} cy={24} r={7.5} fill="none" stroke="#ea580c" strokeWidth={0.9}/>
+        {/* clock hands */}
+        <path d="M82 21v3l2 1.2" stroke="#ea580c" strokeWidth={0.9} strokeLinecap="round"/>
+        {/* label */}
+        <text x={82} y={46} textAnchor="middle" fontSize={7} fill="#94a3b8">token waits here</text>
+        {/* flow → task */}
+        <line x1={94} y1={24} x2={138} y2={24} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="138,21 138,27 144,24" fill="#64748b"/>
+        {/* Continue task */}
+        <rect x={144} y={16} width={58} height={16} rx={3} fill="#ede9fe" stroke="#6366f1" strokeWidth={1.4}/>
+        <text x={173} y={27} textAnchor="middle" fontSize={9} fill="#3730a3">Continue</text>
+      </svg>
+    </div>
+  );
+}
+
+function CatchFlowMessageDiagram() {
+  return (
+    <div style={{ margin: '2px 0 8px', borderRadius: 5, background: '#f1f5f9', padding: '7px 8px' }}>
+      <svg width={210} height={68} viewBox="0 0 210 68" style={{ display: 'block', overflow: 'visible' }}>
+        {/* POST /messages arriving from above */}
+        <text x={82} y={9} textAnchor="middle" fontSize={7} fill="#0284c7">POST /messages</text>
+        <line x1={82} y1={11} x2={82} y2={19} stroke="#0284c7" strokeWidth={1} strokeDasharray="2 1.5"/>
+        <polygon points="79,19 85,19 82,23" fill="#0284c7"/>
+        {/* Start event */}
+        <circle cx={16} cy={38} r={10} fill="#f0fdf4" stroke="#16a34a" strokeWidth={1.4}/>
+        {/* flow → */}
+        <line x1={26} y1={38} x2={64} y2={38} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="64,35 64,41 70,38" fill="#64748b"/>
+        {/* Message catch event — double ring */}
+        <circle cx={82} cy={38} r={12} fill="#f0f9ff" stroke="#0284c7" strokeWidth={1.4}/>
+        <circle cx={82} cy={38} r={7.5} fill="none" stroke="#0284c7" strokeWidth={0.9}/>
+        {/* envelope */}
+        <rect x={77} y={34} width={10} height={7} rx={1} fill="#f0f9ff" stroke="#0284c7" strokeWidth={0.8}/>
+        <path d="M77 35l5 3 5-3" stroke="#0284c7" strokeWidth={0.7} fill="none" strokeLinecap="round"/>
+        {/* label */}
+        <text x={82} y={62} textAnchor="middle" fontSize={7} fill="#94a3b8">token waits here</text>
+        {/* flow → */}
+        <line x1={94} y1={38} x2={138} y2={38} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="138,35 138,41 144,38" fill="#64748b"/>
+        {/* Continue task */}
+        <rect x={144} y={30} width={58} height={16} rx={3} fill="#ede9fe" stroke="#6366f1" strokeWidth={1.4}/>
+        <text x={173} y={41} textAnchor="middle" fontSize={9} fill="#3730a3">Continue</text>
+      </svg>
+    </div>
+  );
+}
+
+function CatchFlowSignalDiagram() {
+  return (
+    <div style={{ margin: '2px 0 8px', borderRadius: 5, background: '#f1f5f9', padding: '7px 8px' }}>
+      <svg width={210} height={68} viewBox="0 0 210 68" style={{ display: 'block', overflow: 'visible' }}>
+        {/* Broadcast arriving from above */}
+        <text x={82} y={9} textAnchor="middle" fontSize={7} fill="#7c3aed">POST /signals/broadcast</text>
+        <line x1={82} y1={11} x2={82} y2={19} stroke="#7c3aed" strokeWidth={1} strokeDasharray="2 1.5"/>
+        <polygon points="79,19 85,19 82,23" fill="#7c3aed"/>
+        {/* Start event */}
+        <circle cx={16} cy={38} r={10} fill="#f0fdf4" stroke="#16a34a" strokeWidth={1.4}/>
+        {/* flow → */}
+        <line x1={26} y1={38} x2={64} y2={38} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="64,35 64,41 70,38" fill="#64748b"/>
+        {/* Signal catch event — double ring */}
+        <circle cx={82} cy={38} r={12} fill="#faf5ff" stroke="#7c3aed" strokeWidth={1.4}/>
+        <circle cx={82} cy={38} r={7.5} fill="none" stroke="#7c3aed" strokeWidth={0.9}/>
+        {/* filled signal triangle */}
+        <polygon points="82,33 87,41 77,41" fill="#7c3aed" opacity={0.7}/>
+        {/* label */}
+        <text x={82} y={62} textAnchor="middle" fontSize={7} fill="#94a3b8">token waits here</text>
+        {/* flow → */}
+        <line x1={94} y1={38} x2={138} y2={38} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="138,35 138,41 144,38" fill="#64748b"/>
+        {/* Continue task */}
+        <rect x={144} y={30} width={58} height={16} rx={3} fill="#ede9fe" stroke="#6366f1" strokeWidth={1.4}/>
+        <text x={173} y={41} textAnchor="middle" fontSize={9} fill="#3730a3">Continue</text>
+      </svg>
+    </div>
+  );
+}
+
+function BoundarySignalEventDiagram() {
+  return (
+    <div style={{ margin: '2px 0 8px', borderRadius: 5, background: '#f1f5f9', padding: '7px 8px' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 6, fontSize: 10, color: '#64748b', flexWrap: 'wrap' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: '#f59e0b', display: 'inline-block', flexShrink: 0 }} />
+          bottom port → attach to host task
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1', display: 'inline-block', flexShrink: 0 }} />
+          right port → path when signal fires
+        </span>
+      </div>
+      <svg width={200} height={88} viewBox="0 0 200 88" style={{ display: 'block', overflow: 'visible' }}>
+        {/* Service Task */}
+        <rect x={4} y={6} width={62} height={24} rx={3} fill="#ede9fe" stroke="#6366f1" strokeWidth={1.4}/>
+        <text x={35} y={22} textAnchor="middle" fontSize={9} fill="#3730a3" fontWeight={500}>Service Task</text>
+        {/* Normal path */}
+        <text x={84} y={14} textAnchor="middle" fontSize={7} fill="#94a3b8">normal</text>
+        <line x1={66} y1={18} x2={110} y2={18} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="110,15 110,21 116,18" fill="#64748b"/>
+        {/* End event */}
+        <circle cx={125} cy={18} r={7} fill="#fef2f2" stroke="#ef4444" strokeWidth={2.5}/>
+        {/* Amber attachment port */}
+        <rect x={32} y={30} width={7} height={7} rx={1.5} fill="#f59e0b"/>
+        {/* Dashed attachment line */}
+        <line x1={35} y1={37} x2={35} y2={59} stroke="#94a3b8" strokeWidth={1.2} strokeDasharray="3 2"/>
+        {/* Boundary event (signal) */}
+        <circle cx={35} cy={71} r={11} fill="#faf5ff" stroke="#7c3aed" strokeWidth={1.4} strokeDasharray="3 2"/>
+        <circle cx={35} cy={71} r={6} fill="none" stroke="#7c3aed" strokeWidth={0.9}/>
+        {/* filled signal triangle */}
+        <polygon points="35,66 40,75 30,75" fill="#7c3aed" opacity={0.7}/>
+        {/* Indigo sequence flow port */}
+        <circle cx={46} cy={71} r={3.5} fill="#6366f1"/>
+        {/* On-signal path */}
+        <text x={71} y={67} textAnchor="middle" fontSize={7} fill="#94a3b8">on signal</text>
+        <line x1={50} y1={71} x2={110} y2={71} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="110,68 110,74 116,71" fill="#64748b"/>
+        {/* Handler box */}
+        <rect x={116} y={64} width={52} height={14} rx={2} fill="#faf5ff" stroke="#7c3aed" strokeWidth={1.2}/>
+        <text x={142} y={74} textAnchor="middle" fontSize={8} fill="#6d28d9">Handler</text>
+      </svg>
+    </div>
+  );
+}
+
+function BoundaryErrorEventDiagram() {
+  return (
+    <div style={{ margin: '2px 0 8px', borderRadius: 5, background: '#f1f5f9', padding: '7px 8px' }}>
+      <div style={{ display: 'flex', gap: 12, marginBottom: 6, fontSize: 10, color: '#64748b', flexWrap: 'wrap' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: '#f59e0b', display: 'inline-block', flexShrink: 0 }} />
+          bottom port → attach to host task
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#6366f1', display: 'inline-block', flexShrink: 0 }} />
+          right port → error handling path
+        </span>
+      </div>
+      <svg width={200} height={88} viewBox="0 0 200 88" style={{ display: 'block', overflow: 'visible' }}>
+        {/* Service Task */}
+        <rect x={4} y={6} width={62} height={24} rx={3} fill="#ede9fe" stroke="#6366f1" strokeWidth={1.4}/>
+        <text x={35} y={19} textAnchor="middle" fontSize={9} fill="#3730a3" fontWeight={500}>Service Task</text>
+        <text x={35} y={28} textAnchor="middle" fontSize={7} fill="#dc2626">throws error</text>
+        {/* Normal path */}
+        <text x={84} y={14} textAnchor="middle" fontSize={7} fill="#94a3b8">normal</text>
+        <line x1={66} y1={18} x2={110} y2={18} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="110,15 110,21 116,18" fill="#64748b"/>
+        {/* End event */}
+        <circle cx={125} cy={18} r={7} fill="#fef2f2" stroke="#ef4444" strokeWidth={2.5}/>
+        {/* Amber attachment port */}
+        <rect x={32} y={30} width={7} height={7} rx={1.5} fill="#f59e0b"/>
+        {/* Dashed attachment line */}
+        <line x1={35} y1={37} x2={35} y2={59} stroke="#94a3b8" strokeWidth={1.2} strokeDasharray="3 2"/>
+        {/* Boundary event (error) */}
+        <circle cx={35} cy={71} r={11} fill="#fef2f2" stroke="#dc2626" strokeWidth={1.4} strokeDasharray="3 2"/>
+        <circle cx={35} cy={71} r={6} fill="none" stroke="#dc2626" strokeWidth={0.9}/>
+        {/* error × icon */}
+        <path d="M31 68 L39 74 M39 68 L31 74" stroke="#dc2626" strokeWidth={1.2} strokeLinecap="round"/>
+        {/* Indigo sequence flow port */}
+        <circle cx={46} cy={71} r={3.5} fill="#6366f1"/>
+        {/* On-error path */}
+        <text x={71} y={67} textAnchor="middle" fontSize={7} fill="#94a3b8">on error</text>
+        <line x1={50} y1={71} x2={110} y2={71} stroke="#64748b" strokeWidth={1.2}/>
+        <polygon points="110,68 110,74 116,71" fill="#64748b"/>
+        {/* Error handler box */}
+        <rect x={116} y={64} width={52} height={14} rx={2} fill="#fef2f2" stroke="#dc2626" strokeWidth={1.2}/>
+        <text x={142} y={74} textAnchor="middle" fontSize={7.5} fill="#dc2626">Error path</text>
+      </svg>
+    </div>
+  );
+}
+
 // ── Documentation content per element type ────────────────────────────────────
 
 const DOCS: Partial<Record<string, React.ReactNode>> = {
   timerStartEvent: (
     <>
-      <p>Starts a new process instance when a timer fires. The engine reschedules cycles automatically.</p>
+      <p>Starts a new process instance when a timer fires. The engine reschedules cycles automatically after each firing.</p>
+
+      <p><strong>Duration</strong> — fire once, after a delay from when the process is deployed.</p>
       <table>
-        <thead><tr><th>Type</th><th>Expression</th><th>Meaning</th></tr></thead>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
         <tbody>
-          <tr><td>Cycle</td><td><code>R/PT1H</code></td><td>Repeat every hour</td></tr>
-          <tr><td>Cycle</td><td><code>R/PT30M</code></td><td>Repeat every 30 min</td></tr>
-          <tr><td>Duration</td><td><code>PT5M</code></td><td>Fire once after 5 min</td></tr>
-          <tr><td>Date</td><td><code>2026-06-01T09:00:00Z</code></td><td>Fire once at exact time</td></tr>
+          <tr><td><code>PT30M</code></td><td>30 minutes</td></tr>
+          <tr><td><code>PT2H</code></td><td>2 hours</td></tr>
+          <tr><td><code>P1D</code></td><td>1 day</td></tr>
+          <tr><td><code>P1DT4H30M</code></td><td>1 day, 4 hours and 30 minutes</td></tr>
         </tbody>
       </table>
-      <p>Cycle format: <code>R[n]/&lt;duration&gt;</code> — omit <code>n</code> to repeat forever.<br/>Duration format: <code>PT&lt;H&gt;H&lt;M&gt;M&lt;S&gt;S</code> per ISO 8601.</p>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Format: <code>P</code> prefix, then <code>[n]Y[n]M[n]D</code> for calendar parts, then <code>T[n]H[n]M[n]S</code> for time parts. Only include units you need.</p>
+
+      <p><strong>Date</strong> — fire once at an absolute point in time (ISO 8601 datetime).</p>
+      <table>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>2026-06-01T09:00:00Z</code></td><td>1 Jun 2026 at 09:00 UTC</td></tr>
+          <tr><td><code>2026-06-01T09:00:00+05:30</code></td><td>1 Jun 2026 at 09:00 IST</td></tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Always include a timezone offset or <code>Z</code> (UTC). Omitting it is ambiguous.</p>
+
+      <p><strong>Cycle</strong> — fire repeatedly on a schedule. Starts a new instance each time.</p>
+      <table>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>R/PT1H</code></td><td>Every hour, forever</td></tr>
+          <tr><td><code>R/P1D</code></td><td>Every day, forever</td></tr>
+          <tr><td><code>R3/PT30M</code></td><td>Every 30 min, exactly 3 times</td></tr>
+          <tr><td><code>R5/P1DT8H</code></td><td>Every 1 day 8 hours, 5 times</td></tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Format: <code>R[n]/&lt;duration&gt;</code>. Omit <code>n</code> to repeat forever. The duration part follows the same ISO 8601 rules as above.</p>
     </>
   ),
   messageStartEvent: (
@@ -296,7 +505,7 @@ const DOCS: Partial<Record<string, React.ReactNode>> = {
   ),
   boundaryErrorEvent: (
     <>
-      <BoundaryWiringDiagram />
+      <BoundaryErrorEventDiagram />
       <p>Catches a BPMN business error thrown by a service task worker via <code>POST /api/v1/external-tasks/:id/bpmn-error</code>.</p>
       <p>Set <strong>Error Code</strong> to match a specific error code. Leave blank to catch <em>any</em> error (catch-all).</p>
       <p>When <strong>Interrupting</strong> is checked, the host task is cancelled when the error fires. Uncheck for non-interrupting (host continues alongside the error path).</p>
@@ -305,28 +514,87 @@ const DOCS: Partial<Record<string, React.ReactNode>> = {
   boundaryTimerEvent: (
     <>
       <BoundaryWiringDiagram />
-      <p>Fires after the host task has been running for the given duration, then routes to the boundary's outgoing flow.</p>
-      <p>Use ISO 8601 duration format: <code>PT30M</code> (30 minutes), <code>PT2H</code> (2 hours), <code>P1D</code> (1 day).</p>
+      <p>Attached to a task — watches it from the outside. If the task takes too long, the timer fires and routes to the boundary's outgoing flow.</p>
+      <table>
+        <thead><tr><th>Mode</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Interrupting</strong> (default)</td><td>Cancels the host task, then follows the boundary path.</td></tr>
+          <tr><td><strong>Non-interrupting</strong></td><td>Spawns a parallel path; host task keeps running.</td></tr>
+        </tbody>
+      </table>
+      <p>Boundary timers only support <strong>duration</strong> format — time elapsed since the host task became active:</p>
+      <table>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>PT15M</code></td><td>15 minutes</td></tr>
+          <tr><td><code>PT2H</code></td><td>2 hours</td></tr>
+          <tr><td><code>P1D</code></td><td>1 day</td></tr>
+          <tr><td><code>P1DT4H</code></td><td>1 day and 4 hours</td></tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Format: <code>P</code> prefix, then <code>[n]Y[n]M[n]D</code> for calendar parts, <code>T[n]H[n]M[n]S</code> for time parts. Only include units you need (e.g. <code>PT30M</code> not <code>P0DT0H30M0S</code>).</p>
+      <p style={{ fontSize: 10, color: '#64748b' }}>
+        <strong>vs Timer Catch Event</strong> — a Timer Catch sits <em>in</em> the flow as a deliberate wait step every token must pass through. A Boundary Timer is a timeout/escalation on top of a task; it doesn't block the flow itself.
+      </p>
     </>
   ),
   boundarySignalEvent: (
     <>
-      <BoundaryWiringDiagram />
+      <BoundarySignalEventDiagram />
       <p>Fires when a signal with the matching name is broadcast via <code>POST /api/v1/signals/broadcast</code>.</p>
     </>
   ),
   intermediateCatchTimerEvent: (
     <>
-      <p>Pauses the token at this point until the timer fires, then continues along the outgoing flow.</p>
+      <CatchFlowTimerDiagram />
+      <p>Sits <em>inside</em> the sequence flow as an explicit wait step. Every token that reaches this event must pause here until the timer fires, then continues along the outgoing flow.</p>
+      <p><strong>Duration</strong> — wait for a fixed amount of time from when the token arrives.</p>
+      <table>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>PT30M</code></td><td>30 minutes</td></tr>
+          <tr><td><code>PT2H</code></td><td>2 hours</td></tr>
+          <tr><td><code>P1D</code></td><td>1 day</td></tr>
+          <tr><td><code>P1DT4H30M</code></td><td>1 day, 4 hours and 30 minutes</td></tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Format: <code>P</code> prefix, then <code>[n]Y[n]M[n]D</code> for calendar parts, <code>T[n]H[n]M[n]S</code> for time parts. Only include units you need.</p>
+
+      <p><strong>Date</strong> — wait until an absolute point in time.</p>
+      <table>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>2026-06-01T09:00:00Z</code></td><td>1 Jun 2026 at 09:00 UTC</td></tr>
+          <tr><td><code>2026-06-01T09:00:00+05:30</code></td><td>1 Jun 2026 at 09:00 IST</td></tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Always include a timezone offset or <code>Z</code> (UTC). Omitting it is ambiguous.</p>
+
+      <p><strong>Cycle</strong> — fire repeatedly; each firing advances the token once and re-arms the timer.</p>
+      <table>
+        <thead><tr><th>Expression</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>R/PT1H</code></td><td>Every hour, forever</td></tr>
+          <tr><td><code>R3/PT30M</code></td><td>Every 30 min, exactly 3 times</td></tr>
+          <tr><td><code>R5/P1D</code></td><td>Every day, 5 times</td></tr>
+        </tbody>
+      </table>
+      <p style={{ fontSize: 10, color: '#64748b' }}>Format: <code>R[n]/&lt;duration&gt;</code>. Omit <code>n</code> to repeat forever.</p>
+
+      <p style={{ fontSize: 10, color: '#64748b' }}>
+        <strong>vs Boundary Timer</strong> — a Boundary Timer is attached to a task and fires only if that task takes too long (timeout/escalation). A Timer Catch is a deliberate pause <em>for all tokens</em> at a fixed point in the flow — not a timeout.
+      </p>
     </>
   ),
   intermediateCatchMessageEvent: (
     <>
+      <CatchFlowMessageDiagram />
       <p>Pauses the token until a message with the matching name and correlation key is received via <code>POST /api/v1/messages</code>.</p>
     </>
   ),
   intermediateCatchSignalEvent: (
     <>
+      <CatchFlowSignalDiagram />
       <p>Pauses the token until a signal with the matching name is broadcast via <code>POST /api/v1/signals/broadcast</code>.</p>
     </>
   ),
@@ -566,7 +834,7 @@ export default function BpmnProperties({
     return (
       <div style={panelStyle}>
         <div style={scrollableStyle}>
-          <div style={{ ...headingStyle, color: accentColor }}>Properties</div>
+          <div style={{ ...headingStyle, color: accentColor }}>{ELEMENT_LABELS[d.bpmnType] ?? 'Properties'}</div>
           <ValidationWarnings warnings={warnings} />
 
           <Field label="ID">

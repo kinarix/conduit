@@ -1,3 +1,4 @@
 /target/
+/website/dist/
 .env
 .DS_Store

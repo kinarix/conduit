@@ -1,0 +1,70 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Message Catch Event'
+group: 'Events'
+---
+import CatchFlowDiagram from '../../../components/diagrams/CatchFlowDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# Message Catch Event
+
+<CatchFlowDiagram variant="message" client:load />
+
+Pauses the token until a message with the matching name and correlation key is received via the API or from a [Send Task](/docs/elements/send-task/) in another process. Similar to a [Receive Task](/docs/elements/receive-task/) but represented as a circle rather than a rounded rectangle.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+| Message Name | string | yes | The message name this event waits for |
+| Correlation Key | string | yes | Variable name whose value routes messages to the correct instance |
+
+## How Correlation Works
+
+When the token arrives at the catch event:
+1. The engine reads the current value of the **Correlation Key** variable (e.g. `orderId = "ORD-001"`)
+2. Creates an event subscription keyed on `message_name + correlation_key_value`
+3. When a matching message arrives, the subscription is consumed and the token advances
+
+## XML Example
+
+```xml
+<bpmn:intermediateCatchEvent id="await_approval" name="Await External Approval">
+  <bpmn:messageEventDefinition messageRef="msg_approved"/>
+  <bpmn:extensionElements>
+    <conduit:correlationKey>requestId</conduit:correlationKey>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_await</bpmn:incoming>
+  <bpmn:outgoing>flow_to_next</bpmn:outgoing>
+</bpmn:intermediateCatchEvent>
+
+<bpmn:message id="msg_approved" name="ExternalApproval"/>
+```
+
+## API Integration
+
+**Deliver the message:**
+
+```http
+POST /api/v1/messages
+Content-Type: application/json
+
+{
+  "org_id": "your-org-id",
+  "message_name": "ExternalApproval",
+  "correlation_key": "REQ-100",
+  "variables": [
+    { "name": "approvalStatus", "value": "approved" },
+    { "name": "approvedBy", "value": "manager@example.com" }
+  ]
+}
+```
+
+The `correlation_key` value must match the current value of the `requestId` variable in the waiting instance.
+
+## Message Catch Event vs Receive Task
+
+Both pause the token and wait for a message. Use a **Receive Task** when the waiting step logically represents "receiving" (it shows as a task in task lists); use a **Message Catch Event** when the step is a coordination point in the flow rather than a work item.

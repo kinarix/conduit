@@ -1,0 +1,76 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Business Rule Task'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# Business Rule Task
+
+<SimpleFlowDiagram label="Business Rule" icon="rule" client:load />
+
+Evaluates a DMN decision table and writes the output columns back as process variables. Combine with a [Script Task](/docs/elements/script-task/) or gateway conditions to branch on the decision result.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+| Decision Ref | string | yes | The `id` attribute of the deployed DMN decision |
+
+## How It Works
+
+1. Deploy your DMN XML via `POST /api/v1/decisions`
+2. The decision's `id` attribute becomes the **Decision Ref**
+3. When a token reaches the business rule task, the engine evaluates the decision using current process variables as inputs
+4. Output column values are written back as process variables with the same names as the output columns
+
+## XML Example
+
+```xml
+<bpmn:businessRuleTask id="classify_order" name="Classify Order">
+  <bpmn:extensionElements>
+    <conduit:decisionRef>order-classification</conduit:decisionRef>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_classify</bpmn:incoming>
+  <bpmn:outgoing>flow_to_route</bpmn:outgoing>
+</bpmn:businessRuleTask>
+```
+
+## Deploying a Decision
+
+```http
+POST /api/v1/decisions
+Content-Type: application/xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="order-decisions" name="Order Decisions"
+             namespace="http://camunda.org/schema/1.0/dmn">
+  <decision id="order-classification" name="Order Classification">
+    <decisionTable hitPolicy="FIRST">
+      <input id="amount_input" label="Amount">
+        <inputExpression typeRef="number">
+          <text>amount</text>
+        </inputExpression>
+      </input>
+      <output id="tier_output" label="Tier" name="tier" typeRef="string"/>
+      <rule id="rule1">
+        <inputEntry><text>&gt; 1000</text></inputEntry>
+        <outputEntry><text>"premium"</text></outputEntry>
+      </rule>
+      <rule id="rule2">
+        <inputEntry><text></text></inputEntry>
+        <outputEntry><text>"standard"</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
+```
+
+After this request, the variable `tier` is available to all subsequent elements in the instance.
+
+See the [Decision Tables docs](/docs/decision-tables/) for hit policies, FEEL input syntax, and full reference.

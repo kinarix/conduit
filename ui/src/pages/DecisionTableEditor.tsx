@@ -383,170 +383,6 @@ function FEELInput({ value, onChange, placeholder, suggestions: pool = FEEL_SUGG
   )
 }
 
-// ─── Help panel ───────────────────────────────────────────────────────────────
-
-function HelpSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true)
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
-          display: 'flex', alignItems: 'center', gap: 6, width: '100%',
-          color: 'inherit', fontSize: 12, fontWeight: 600,
-        }}
-      >
-        <span style={{ fontSize: 10, opacity: 0.6 }}>{open ? '▼' : '▶'}</span>
-        {title}
-      </button>
-      {open && <div style={{ marginTop: 6 }}>{children}</div>}
-    </div>
-  )
-}
-
-const hRow: React.CSSProperties = {
-  display: 'flex', gap: 8, padding: '3px 0',
-  borderBottom: '1px solid var(--color-border, #45475a)',
-  fontSize: 11,
-}
-const hCode: React.CSSProperties = {
-  fontFamily: 'var(--font-mono, monospace)', fontSize: 11,
-  color: 'var(--color-accent, #cba6f4)', whiteSpace: 'nowrap', minWidth: 100,
-}
-const hDesc: React.CSSProperties = { color: 'var(--text-tertiary, #6c7086)', fontSize: 11 }
-const hFn: React.CSSProperties = {
-  fontFamily: 'var(--font-mono, monospace)', fontSize: 10,
-  color: 'var(--color-accent, #cba6f4)', padding: '2px 4px',
-  background: 'var(--color-bg-secondary, #181825)', borderRadius: 3,
-  display: 'inline-block', margin: '2px 2px 2px 0',
-}
-const hGroup: React.CSSProperties = { fontWeight: 600, fontSize: 10, color: 'var(--text-tertiary)', marginTop: 8, marginBottom: 4 }
-
-function HelpPanel() {
-  return (
-    <div
-      style={{
-        width: 280, minWidth: 280,
-        borderLeft: '1px solid var(--color-border, #45475a)',
-        padding: '16px 14px',
-        overflowY: 'auto',
-        height: '100vh',
-        position: 'sticky',
-        top: 0,
-        background: 'var(--color-bg, #1e1e2e)',
-        flexShrink: 0,
-      }}
-    >
-      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 16 }}>FEEL Reference</div>
-
-      <HelpSection title="Input Entry Syntax">
-        {[
-          ['-',                'Match any value'],
-          ['>= n',             'Greater than or equal'],
-          ['<= n',             'Less than or equal'],
-          ['> n / < n',        'Greater / less than'],
-          ['!= n',             'Not equal'],
-          ['[a..b]',           'Inclusive range'],
-          ['(a..b)',           'Exclusive range'],
-          ['[a..b)',           'Mixed range'],
-          ['"string"',         'Exact string match'],
-          ['"x","y"',          'In list (OR)'],
-          ['not("x","y")',     'Not any of'],
-          ['true / false',     'Boolean'],
-          ['null',             'Null check'],
-          ['date("2024-01-01")','Date literal'],
-        ].map(([code, desc]) => (
-          <div key={code} style={hRow}>
-            <span style={hCode}>{code}</span>
-            <span style={hDesc}>{desc}</span>
-          </div>
-        ))}
-      </HelpSection>
-
-      <HelpSection title="Hit Policies">
-        {[
-          ['UNIQUE',      'Exactly one rule matches'],
-          ['FIRST',       'First match wins'],
-          ['ANY',         'All matches must agree'],
-          ['COLLECT',     'All matches collected; optional SUM/MIN/MAX/COUNT'],
-          ['RULE ORDER',  'All matches in declaration order'],
-          ['PRIORITY',    'Highest-priority output wins'],
-          ['OUTPUT ORDER','Matches sorted by output priority list'],
-        ].map(([pol, desc]) => (
-          <div key={pol} style={hRow}>
-            <span style={{ ...hCode, minWidth: 96 }}>{pol}</span>
-            <span style={hDesc}>{desc}</span>
-          </div>
-        ))}
-      </HelpSection>
-
-      <HelpSection title="FEEL Functions">
-        <div style={hGroup}>Numeric</div>
-        {['abs(n)', 'floor(n)', 'ceiling(n)', 'decimal(n, scale)', 'modulo(n, d)', 'sqrt(n)'].map(f => (
-          <span key={f} style={hFn}>{f}</span>
-        ))}
-
-        <div style={hGroup}>String</div>
-        {[
-          'string length(s)', 'upper case(s)', 'lower case(s)',
-          'substring(s, start, len?)', 'contains(s, sub)',
-          'starts with(s, pre)', 'ends with(s, suf)',
-          'matches(s, pattern)', 'replace(s, pattern, rep)',
-        ].map(f => (
-          <span key={f} style={hFn}>{f}</span>
-        ))}
-
-        <div style={hGroup}>List</div>
-        {[
-          'list contains(list, item)', 'count(list)', 'min(list)', 'max(list)',
-          'sum(list)', 'mean(list)', 'append(list, item)',
-          'flatten(list)', 'distinct values(list)',
-        ].map(f => (
-          <span key={f} style={hFn}>{f}</span>
-        ))}
-
-        <div style={hGroup}>Date / Time</div>
-        {[
-          'date("2024-01-01")', 'time("12:00:00")',
-          'date and time("…")', 'duration("P1D")',
-          'now()', 'today()',
-        ].map(f => (
-          <span key={f} style={hFn}>{f}</span>
-        ))}
-      </HelpSection>
-
-      <HelpSection title="Data Wiring">
-        <div style={hGroup}>Input column expression</div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, lineHeight: 1.6 }}>
-          Each column header is a <em>process variable name</em>. The engine looks up that variable
-          in the current BPMN execution context and passes it as the input value for that column.
-          Example: column <code style={hCode}>age</code> reads process variable <code style={hCode}>age</code>.
-        </div>
-
-        <div style={hGroup}>Input entry cells — mini-FEEL</div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, lineHeight: 1.6 }}>
-          Unary tests only — no stdlib functions. Each cell is tested against the column value.
-          Use <code style={hCode}>-</code> to match any value. Invalid entries are highlighted in red.
-        </div>
-
-        <div style={hGroup}>Output entry cells — full FEEL</div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, lineHeight: 1.6 }}>
-          Full FEEL expressions evaluated by dsntk. May reference process variables by name,
-          call any stdlib function, or use <code style={hCode}>if … then … else</code>.
-          Example: <code style={hCode}>upper case(status)</code> reads variable <code style={hCode}>status</code>.
-        </div>
-
-        <div style={hGroup}>BusinessRuleTask in BPMN</div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
-          Set <code style={hCode}>camunda:decisionRef</code> to the <em>Decision Key</em> of this table.
-          All current process variables flow in as context. Each output column name is written
-          back as a process variable after evaluation — available immediately in the next element.
-        </div>
-      </HelpSection>
-    </div>
-  )
-}
 
 // ─── Cell styles ─────────────────────────────────────────────────────────────
 
@@ -579,7 +415,6 @@ export default function DecisionTableEditor() {
   const [state, setState] = useState<EditorState>(emptyState)
   const [error, setError] = useState<string | null>(null)
   const [cellErrors, setCellErrors] = useState<Record<string, string>>({})
-  const [showHelp, setShowHelp] = useState(false)
   const [showTest, setShowTest] = useState(false)
   const [testInputs, setTestInputs] = useState<Record<string, string>>({})
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -809,13 +644,14 @@ export default function DecisionTableEditor() {
             )}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              onClick={() => setShowHelp(h => !h)}
-              style={{ fontSize: 11, opacity: showHelp ? 1 : 0.7 }}
-              title="Toggle FEEL reference panel"
+            <a
+              href="https://conduit.kinarix.com/docs/decision-tables/"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none' }}
             >
-              {showHelp ? 'Hide help' : '? Help'}
-            </button>
+              Open docs →
+            </a>
             <button
               onClick={() => setShowTest(t => !t)}
               style={{ fontSize: 11, opacity: showTest ? 1 : 0.7 }}
@@ -1208,8 +1044,6 @@ export default function DecisionTableEditor() {
         )}
       </div>
 
-      {/* Help panel */}
-      {showHelp && <HelpPanel />}
     </div>
   )
 }

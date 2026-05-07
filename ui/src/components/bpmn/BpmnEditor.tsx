@@ -60,11 +60,11 @@ function ZoomDisplay() {
       right: 12,
       zIndex: 5,
       background: 'rgba(255,255,255,0.85)',
-      border: '1px solid #e2e8f0',
+      border: '1px solid var(--border-primary)',
       borderRadius: 4,
       padding: '2px 7px',
-      fontSize: 11,
-      fontWeight: 500,
+      fontSize: 'var(--text-sm)',
+      fontWeight: 'var(--weight-medium)',
       color: '#64748b',
       pointerEvents: 'none',
     }}>
@@ -492,17 +492,17 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
                 alignItems: 'center',
                 gap: 5,
                 padding: '5px 10px',
-                fontSize: 12,
-                fontWeight: 500,
-                color: '#475569',
+                fontSize: 'var(--text-md)',
+                fontWeight: 'var(--weight-medium)',
+                color: 'var(--text-secondary)',
                 background: 'rgba(255,255,255,0.97)',
-                border: '1px solid #e2e8f0',
+                border: '1px solid var(--border-primary)',
                 borderRadius: 6,
                 cursor: 'pointer',
                 boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
               }}
-              onMouseEnter={e => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.borderColor = '#94a3b8'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.97)'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--text-tertiary)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.97)'; e.currentTarget.style.borderColor = 'var(--border-primary)'; }}
             >
               <svg width={13} height={13} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6}>
                 <rect x={1} y={1} width={4} height={4} rx={1}/>
@@ -528,10 +528,10 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
           flexShrink: 0,
           cursor: 'col-resize',
           background: 'transparent',
-          borderLeft: '1px solid #e2e8f0',
+          borderLeft: '1px solid var(--border-primary)',
           transition: 'background 0.15s',
         }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#e2e8f0')}
+        onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
         onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
       />
 

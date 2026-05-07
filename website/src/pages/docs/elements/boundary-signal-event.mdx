@@ -1,0 +1,73 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Boundary Signal Event'
+group: 'Boundary Events'
+---
+import BoundarySignalDiagram from '../../../components/diagrams/BoundarySignalDiagram.tsx';
+
+<span class="badge-boundary">Boundary Event</span>
+
+# Boundary Signal Event
+
+<BoundarySignalDiagram client:load />
+
+Attached to a task — fires when a signal with the matching name is broadcast via the API. Unlike message events, signals are broadcast to all subscribers simultaneously; there is no correlation key.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+| Attached To | element ID | yes | The task this boundary event is attached to |
+| Signal Name | string | yes | Must match the `signal_name` in the broadcast call |
+| Interrupting | boolean | yes | See behavior below |
+
+## Interrupting vs Non-Interrupting
+
+| Mode | Behavior |
+|------|---------|
+| **Interrupting** (default) | Cancels the host task when the signal fires, then follows the boundary path |
+| **Non-interrupting** | Spawns a parallel path; the host task continues running |
+
+## XML Example
+
+```xml
+<bpmn:userTask id="process_order" name="Process Order">
+  <bpmn:incoming>flow_to_process</bpmn:incoming>
+  <bpmn:outgoing>flow_to_ship</bpmn:outgoing>
+</bpmn:userTask>
+
+<!-- Non-interrupting: handle emergency alongside normal processing -->
+<bpmn:boundaryEvent id="emergency_signal" attachedToRef="process_order"
+  cancelActivity="false">
+  <bpmn:signalEventDefinition signalRef="sig_emergency"/>
+  <bpmn:outgoing>flow_to_alert</bpmn:outgoing>
+</bpmn:boundaryEvent>
+
+<bpmn:signal id="sig_emergency" name="EmergencyShutdown"/>
+
+<bpmn:serviceTask id="alert_team" name="Alert Team">
+  <bpmn:incoming>flow_to_alert</bpmn:incoming>
+  <bpmn:outgoing>flow_alerted</bpmn:outgoing>
+</bpmn:serviceTask>
+```
+
+## API Integration
+
+**Broadcast a signal to all waiting instances:**
+
+```http
+POST /api/v1/signals/broadcast
+Content-Type: application/json
+
+{
+  "org_id": "your-org-id",
+  "signal_name": "EmergencyShutdown",
+  "variables": [
+    { "name": "reason", "value": "planned maintenance" }
+  ]
+}
+```
+
+Every instance with a boundary signal event or signal catch event subscribed to `EmergencyShutdown` will be activated simultaneously. Variables in the payload are merged into each receiving instance.

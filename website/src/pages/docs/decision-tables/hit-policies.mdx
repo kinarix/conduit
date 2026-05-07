@@ -1,0 +1,128 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Hit Policies'
+---
+
+# Hit Policies
+
+The hit policy controls how the decision table handles multiple matching rules. Set it on the `<decisionTable>` element via the `hitPolicy` attribute.
+
+## UNIQUE
+
+**Exactly one rule must match.** If zero rules match, or more than one rule matches, the engine throws an error.
+
+Use when your rules are exhaustive and mutually exclusive — every valid input has exactly one answer.
+
+```xml
+<decisionTable hitPolicy="UNIQUE">
+```
+
+**When to use:** Well-defined classification rules where overlap is a modeling mistake.
+
+---
+
+## FIRST
+
+**The first matching rule wins.** Rules are evaluated in the order they appear in the XML (top to bottom in the table UI). Only the first match's output is returned.
+
+Use when you want priority-by-position: put the most specific rules at the top and a catch-all at the bottom.
+
+```xml
+<decisionTable hitPolicy="FIRST">
+```
+
+**When to use:** Tiered pricing, fallback logic, override hierarchies.
+
+---
+
+## ANY
+
+**All matching rules must agree on the output value.** If they disagree, the engine throws an error. If they agree, that value is returned.
+
+Use when rules may overlap by design but must all produce the same answer (consistency check).
+
+```xml
+<decisionTable hitPolicy="ANY">
+```
+
+**When to use:** Redundant rules that encode the same policy from different angles — disagreement signals a modeling error.
+
+---
+
+## COLLECT
+
+**All matching rules are collected.** Returns a list of outputs. Supports optional aggregation operators:
+
+| Annotation | Behavior |
+|-----------|---------|
+| `C` (plain collect) | Returns a list of all matched outputs |
+| `C+` | Sum of all matched numeric outputs |
+| `C-` | Minimum of all matched numeric outputs |
+| `C#` | Count of matched rules |
+| `C<` | Minimum value |
+| `C>` | Maximum value |
+
+```xml
+<decisionTable hitPolicy="COLLECT">   <!-- list -->
+<decisionTable hitPolicy="COLLECT" aggregation="SUM">
+```
+
+**When to use:** Fee calculations (add all applicable fees), validation (collect all failing rule messages).
+
+---
+
+## RULE ORDER
+
+**All matching rules are returned in the order they appear in the table.** Returns a list.
+
+Similar to COLLECT but explicitly preserves declaration order without aggregation.
+
+```xml
+<decisionTable hitPolicy="RULE ORDER">
+```
+
+**When to use:** Ordered recommendation lists, ranked alternatives.
+
+---
+
+## PRIORITY
+
+**The rule with the highest-priority output wins.** Priority is determined by the output column's allowed values list — values listed earlier have higher priority.
+
+```xml
+<decisionTable hitPolicy="PRIORITY">
+  <output name="level" typeRef="string">
+    <outputValues>
+      <text>"critical","high","medium","low"</text>
+    </outputValues>
+  </output>
+```
+
+In the above, `"critical"` has the highest priority. Among all matching rules, the one whose output appears earliest in the list wins.
+
+**When to use:** Severity classification, alert prioritization.
+
+---
+
+## OUTPUT ORDER
+
+**All matches sorted by output priority.** Returns a list ordered by the output column's priority list (same as PRIORITY, but returns all matches instead of just the winner).
+
+```xml
+<decisionTable hitPolicy="OUTPUT ORDER">
+```
+
+**When to use:** Generating a ranked list of options where order matters.
+
+---
+
+## Choosing a Hit Policy
+
+| Situation | Recommended Policy |
+|-----------|-------------------|
+| Rules never overlap | `UNIQUE` |
+| Overlapping rules, first specific wins | `FIRST` |
+| Need all matching outputs | `COLLECT` |
+| Sum / aggregate all matches | `COLLECT` with aggregation |
+| Rank by severity | `PRIORITY` |
+| Ordered list of recommendations | `OUTPUT ORDER` |

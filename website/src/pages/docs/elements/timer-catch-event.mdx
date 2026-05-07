@@ -1,0 +1,75 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Timer Catch Event'
+group: 'Events'
+---
+import CatchFlowDiagram from '../../../components/diagrams/CatchFlowDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# Timer Catch Event
+
+<CatchFlowDiagram variant="timer" client:load />
+
+Sits **inside** the sequence flow as an explicit wait step. Every token that reaches this event pauses here until the timer fires, then continues along the outgoing flow.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+| Timer Type | `duration` \| `date` \| `cycle` | yes | How the timer behaves |
+| Timer Expression | string | yes | ISO 8601 expression |
+
+## Timer Expressions
+
+### Duration — wait for a fixed amount of time from when the token arrives
+
+| Expression | Meaning |
+|------------|---------|
+| `PT30M` | 30 minutes |
+| `PT2H` | 2 hours |
+| `P1D` | 1 day |
+| `P1DT4H30M` | 1 day, 4 hours, 30 minutes |
+
+### Date — wait until an absolute point in time
+
+| Expression | Meaning |
+|------------|---------|
+| `2026-06-01T09:00:00Z` | 1 Jun 2026 at 09:00 UTC |
+| `2026-06-01T09:00:00+05:30` | 1 Jun 2026 at 09:00 IST |
+
+Always include a timezone offset or `Z`. Omitting it is ambiguous.
+
+### Cycle — fire repeatedly; each firing advances the token once and re-arms
+
+| Expression | Meaning |
+|------------|---------|
+| `R/PT1H` | Every hour, forever |
+| `R3/PT30M` | Every 30 minutes, 3 times |
+| `R5/P1D` | Every day, 5 times |
+
+Format: `R[n]/<duration>`. Omit `n` to repeat forever.
+
+## XML Example
+
+```xml
+<!-- Wait 24 hours before sending a follow-up -->
+<bpmn:intermediateCatchEvent id="wait_1d" name="Wait 24h">
+  <bpmn:timerEventDefinition>
+    <bpmn:timeDuration>P1D</bpmn:timeDuration>
+  </bpmn:timerEventDefinition>
+  <bpmn:incoming>flow_to_wait</bpmn:incoming>
+  <bpmn:outgoing>flow_to_followup</bpmn:outgoing>
+</bpmn:intermediateCatchEvent>
+```
+
+## Timer Catch Event vs Boundary Timer
+
+| | Timer Catch Event | [Boundary Timer Event](/docs/elements/boundary-timer-event/) |
+|--|-------------------|-------------------------------|
+| Position | In the sequence flow | Attached to a task |
+| Purpose | Deliberate scheduled pause | Timeout / escalation |
+| All tokens pass through? | Yes | No — only fires if task is still active |
+| Supports date and cycle? | Yes | No — duration only |

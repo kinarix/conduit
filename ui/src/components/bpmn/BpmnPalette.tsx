@@ -327,7 +327,7 @@ export default function BpmnPalette() {
       zIndex: 10,
       width: 164,
       background: 'rgba(255,255,255,0.97)',
-      border: '1px solid #e2e8f0',
+      border: '1px solid var(--border-primary)',
       borderRadius: 8,
       boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
       overflow: 'hidden',
@@ -341,8 +341,8 @@ export default function BpmnPalette() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '7px 10px',
-          background: '#f8fafc',
-          borderBottom: minimized ? 'none' : '1px solid #e2e8f0',
+          background: 'var(--bg-primary)',
+          borderBottom: minimized ? 'none' : '1px solid var(--border-primary)',
           cursor: 'grab',
           userSelect: 'none',
         }}
@@ -374,14 +374,14 @@ export default function BpmnPalette() {
             border: 'none',
             cursor: 'pointer',
             padding: '1px 3px',
-            color: '#94a3b8',
+            color: 'var(--text-tertiary)',
             lineHeight: 1,
             borderRadius: 3,
             display: 'flex',
             alignItems: 'center',
           }}
-          onMouseEnter={e => (e.currentTarget.style.color = '#475569')}
-          onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
         >
           {minimized ? (
             /* Restore: small window square */
@@ -414,10 +414,10 @@ export default function BpmnPalette() {
                     padding: '5px 4px 3px',
                     cursor: 'pointer',
                     userSelect: 'none',
-                    color: '#94a3b8',
+                    color: 'var(--text-tertiary)',
                   }}
-                  onMouseEnter={e => (e.currentTarget.style.color = '#475569')}
-                  onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-secondary)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-tertiary)')}
                 >
                   <Twisty open={!isCollapsed} size={10} />
                   <span style={{
@@ -448,14 +448,14 @@ export default function BpmnPalette() {
                             cursor: 'grab',
                             border: `1px solid ${color}22`,
                             borderLeft: `3px solid ${color}`,
-                            background: '#ffffff',
+                            background: 'var(--bg-secondary)',
                             userSelect: 'none',
                           }}
                           onMouseEnter={e => (e.currentTarget.style.background = ELEMENT_COLORS[type].fill)}
-                          onMouseLeave={e => (e.currentTarget.style.background = '#ffffff')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
                         >
                           <div style={{ flexShrink: 0 }}>{icon(color)}</div>
-                          <span style={{ fontSize: 11, color: '#0f172a' }}>{label}</span>
+                          <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{label}</span>
                         </div>
                       );
                     })}

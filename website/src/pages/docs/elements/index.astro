@@ -1,0 +1,59 @@
+---
+import DocsLayout from '../../../layouts/DocsLayout.astro';
+---
+<DocsLayout title="BPMN Elements">
+  <h1>BPMN Elements</h1>
+  <p>
+    Conduit supports 20 BPMN 2.0 element types, organized into four groups.
+    Click any element to see its full documentation including properties, examples, and API integration.
+  </p>
+
+  <h2>Events</h2>
+  <table>
+    <thead><tr><th>Element</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><a href="/docs/elements/start-event/">Start Event</a></td><td>Plain start — triggered by an API call to start an instance.</td></tr>
+      <tr><td><a href="/docs/elements/message-start-event/">Message Start Event</a></td><td>Instance starts when a named message arrives via <code>POST /api/v1/messages</code>.</td></tr>
+      <tr><td><a href="/docs/elements/timer-start-event/">Timer Start Event</a></td><td>Instance starts on a schedule — once, at a date, or on a repeat cycle.</td></tr>
+      <tr><td><a href="/docs/elements/end-event/">End Event</a></td><td>Terminates a token. When all tokens end, the instance completes.</td></tr>
+      <tr><td><a href="/docs/elements/timer-catch-event/">Timer Catch Event</a></td><td>Pauses all tokens at this point until a timer fires.</td></tr>
+      <tr><td><a href="/docs/elements/message-catch-event/">Message Catch Event</a></td><td>Pauses a token until a matching message arrives via the API.</td></tr>
+      <tr><td><a href="/docs/elements/signal-catch-event/">Signal Catch Event</a></td><td>Pauses a token until a matching signal is broadcast via the API.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Tasks</h2>
+  <table>
+    <thead><tr><th>Element</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><a href="/docs/elements/user-task/">User Task</a></td><td>Creates a work item for a human. Completed via <code>POST /api/v1/tasks/:id/complete</code>.</td></tr>
+      <tr><td><a href="/docs/elements/service-task/">Service Task</a></td><td>External worker pattern or direct HTTP push. Engine locks, worker executes and completes.</td></tr>
+      <tr><td><a href="/docs/elements/script-task/">Script Task</a></td><td>Evaluates an inline FEEL expression and stores results as process variables.</td></tr>
+      <tr><td><a href="/docs/elements/business-rule-task/">Business Rule Task</a></td><td>Evaluates a DMN decision table and writes outputs as process variables.</td></tr>
+      <tr><td><a href="/docs/elements/sub-process/">Sub-Process</a></td><td>Embeds a complete inner flow within a single element. Variables are shared with the parent.</td></tr>
+      <tr><td><a href="/docs/elements/send-task/">Send Task</a></td><td>Throws a named message and continues immediately (fire-and-continue).</td></tr>
+      <tr><td><a href="/docs/elements/receive-task/">Receive Task</a></td><td>Pauses a token waiting for a named inbound message with optional correlation.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Gateways</h2>
+  <table>
+    <thead><tr><th>Element</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><a href="/docs/elements/exclusive-gateway/">Exclusive Gateway</a></td><td>Routes to exactly one outgoing flow based on FEEL conditions (XOR).</td></tr>
+      <tr><td><a href="/docs/elements/parallel-gateway/">Parallel Gateway</a></td><td>Forks to all outgoing flows simultaneously; join waits for all branches.</td></tr>
+      <tr><td><a href="/docs/elements/inclusive-gateway/">Inclusive Gateway</a></td><td>Activates all outgoing flows where conditions are true (OR); join waits for all activated branches.</td></tr>
+      <tr><td><a href="/docs/elements/sequence-flow/">Sequence Flow</a></td><td>Conditional connection — FEEL expression evaluated when source is a gateway.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Boundary Events</h2>
+  <table>
+    <thead><tr><th>Element</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><a href="/docs/elements/boundary-timer-event/">Boundary Timer Event</a></td><td>Fires if the attached task has not completed within a duration. Interrupting or non-interrupting.</td></tr>
+      <tr><td><a href="/docs/elements/boundary-signal-event/">Boundary Signal Event</a></td><td>Fires when a matching signal is broadcast while the attached task is active.</td></tr>
+      <tr><td><a href="/docs/elements/boundary-error-event/">Boundary Error Event</a></td><td>Catches BPMN errors thrown by the attached service task. Routes to an error-handling path.</td></tr>
+    </tbody>
+  </table>
+</DocsLayout>

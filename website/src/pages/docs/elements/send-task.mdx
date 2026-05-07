@@ -1,0 +1,51 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Send Task'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# Send Task
+
+<SimpleFlowDiagram label="Send Task" icon="send" client:load />
+
+Throws a named message and continues immediately (fire-and-continue). If a [Receive Task](/docs/elements/receive-task/), [Message Catch Event](/docs/elements/message-catch-event/), or [Message Start Event](/docs/elements/message-start-event/) is waiting with a matching name and correlation key, the message is delivered; otherwise it is dropped.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+| Message Name | string | yes | Must match the target element's message name |
+| Correlation Key Expression | FEEL | no | Expression evaluated to the correlation key value (e.g. `orderId`) |
+
+## How Message Delivery Works
+
+1. The Send Task evaluates the **Correlation Key Expression** against current process variables to get the correlation key value
+2. It scans for event subscriptions with a matching `message_name` and `correlation_key`
+3. If found, the waiting token is activated; if not found, the message is silently dropped
+4. The sending token continues immediately regardless
+
+## XML Example
+
+```xml
+<bpmn:sendTask id="notify_warehouse" name="Notify Warehouse">
+  <bpmn:messageEventDefinition messageRef="msg_ship_order"/>
+  <bpmn:extensionElements>
+    <conduit:correlationKey>orderId</conduit:correlationKey>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_notify</bpmn:incoming>
+  <bpmn:outgoing>flow_after_notify</bpmn:outgoing>
+</bpmn:sendTask>
+
+<bpmn:message id="msg_ship_order" name="ShipOrder"/>
+```
+
+## Notes
+
+- The send task does **not** wait for a reply — use a [Receive Task](/docs/elements/receive-task/) immediately after if you need to wait
+- For external-initiated messages (from your application rather than from another process element), use `POST /api/v1/messages` directly
+- Correlation key expressions use FEEL: `orderId` is a variable reference; `"literal-value"` is a string

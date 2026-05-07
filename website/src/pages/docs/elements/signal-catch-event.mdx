@@ -1,0 +1,62 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Signal Catch Event'
+group: 'Events'
+---
+import CatchFlowDiagram from '../../../components/diagrams/CatchFlowDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# Signal Catch Event
+
+<CatchFlowDiagram variant="signal" client:load />
+
+Pauses the token until a signal with the matching name is broadcast. Unlike messages (which target a specific instance via correlation key), signals are broadcast to all subscribers simultaneously — every waiting instance with a matching signal name is activated at once.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+| Signal Name | string | yes | Must match the `signal_name` in the broadcast call |
+
+## XML Example
+
+```xml
+<bpmn:intermediateCatchEvent id="await_release" name="Await Release Signal">
+  <bpmn:signalEventDefinition signalRef="sig_release_approved"/>
+  <bpmn:incoming>flow_to_await</bpmn:incoming>
+  <bpmn:outgoing>flow_to_deploy</bpmn:outgoing>
+</bpmn:intermediateCatchEvent>
+
+<bpmn:signal id="sig_release_approved" name="ReleaseApproved"/>
+```
+
+## API Integration
+
+**Broadcast a signal to all waiting instances:**
+
+```http
+POST /api/v1/signals/broadcast
+Content-Type: application/json
+
+{
+  "org_id": "your-org-id",
+  "signal_name": "ReleaseApproved",
+  "variables": [
+    { "name": "releaseVersion", "value": "2.1.0" }
+  ]
+}
+```
+
+Every instance waiting on a signal catch event (or boundary signal event) subscribed to `ReleaseApproved` is activated. Variables in the payload are merged into each receiving instance.
+
+## Signals vs Messages
+
+| | Signal | Message |
+|--|--------|---------|
+| Delivery | Broadcast to all subscribers | Targeted to one instance via correlation key |
+| Use case | System-wide events, fan-out, global state changes | Point-to-point communication between specific instances |
+| API endpoint | `POST /api/v1/signals/broadcast` | `POST /api/v1/messages` |
+| Correlation | None | Required (correlation key matches one instance) |

@@ -1,0 +1,47 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'End Event'
+group: 'Events'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# End Event
+
+<SimpleFlowDiagram label="End" fill="#fef2f2" stroke="#ef4444" client:load />
+
+The end event terminates a token. When a token reaches an end event, it is consumed. If it is the last active token in the instance, the instance transitions to `completed`.
+
+In processes with parallel branches (parallel or inclusive gateways), each branch has its own token. All tokens must reach an end event before the instance completes.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique identifier within the process |
+| Name | string | no | Display label |
+
+## XML Example
+
+```xml
+<bpmn:endEvent id="end" name="End">
+  <bpmn:incoming>flow_from_last_task</bpmn:incoming>
+</bpmn:endEvent>
+```
+
+## Checking Instance State
+
+```http
+GET /api/v1/instances/{instance_id}
+```
+
+When all tokens have been consumed, the response shows:
+
+```json
+{
+  "id": "...",
+  "status": "completed",
+  "completed_at": "2026-05-01T12:34:56Z"
+}
+```

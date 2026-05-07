@@ -1,0 +1,75 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Boundary Timer Event'
+group: 'Boundary Events'
+---
+import BoundaryWiringDiagram from '../../../components/diagrams/BoundaryWiringDiagram.tsx';
+
+<span class="badge-boundary">Boundary Event</span>
+
+# Boundary Timer Event
+
+<BoundaryWiringDiagram client:load />
+
+Attached to a task — watches it from the outside. If the task takes too long, the timer fires and routes to the boundary event's outgoing flow.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+| Attached To | element ID | yes | The task this boundary event is attached to |
+| Timer Expression | ISO 8601 duration | yes | Time elapsed since the host task became active (duration only) |
+| Interrupting | boolean | yes | See behavior table below |
+
+## Interrupting vs Non-Interrupting
+
+| Mode | Behavior |
+|------|---------|
+| **Interrupting** (default) | Cancels the host task, then follows the boundary path |
+| **Non-interrupting** | Spawns a parallel path; the host task keeps running |
+
+## Timer Expression (Duration Only)
+
+Boundary timers only support **duration** format — absolute dates and cycles are not supported here.
+
+| Expression | Meaning |
+|------------|---------|
+| `PT15M` | 15 minutes |
+| `PT2H` | 2 hours |
+| `P1D` | 1 day |
+| `P1DT4H` | 1 day and 4 hours |
+
+Format: `P` prefix, then `[n]Y[n]M[n]D` for calendar parts, `T[n]H[n]M[n]S` for time parts. Only include units you need — e.g. `PT30M` not `P0DT0H30M0S`.
+
+## XML Example
+
+```xml
+<bpmn:userTask id="manager_review" name="Manager Review">
+  <bpmn:incoming>flow_to_review</bpmn:incoming>
+  <bpmn:outgoing>flow_approved</bpmn:outgoing>
+</bpmn:userTask>
+
+<!-- Interrupting boundary timer: escalate after 48 hours -->
+<bpmn:boundaryEvent id="review_timeout" attachedToRef="manager_review">
+  <bpmn:timerEventDefinition>
+    <bpmn:timeDuration>P2D</bpmn:timeDuration>
+  </bpmn:timerEventDefinition>
+  <bpmn:outgoing>flow_to_escalate</bpmn:outgoing>
+</bpmn:boundaryEvent>
+
+<bpmn:serviceTask id="escalate" name="Escalate to Director">
+  <bpmn:incoming>flow_to_escalate</bpmn:incoming>
+  <bpmn:outgoing>flow_done</bpmn:outgoing>
+</bpmn:serviceTask>
+```
+
+## Boundary Timer vs Timer Catch Event
+
+| | Boundary Timer | [Timer Catch Event](/docs/elements/timer-catch-event/) |
+|--|----------------|----------------------|
+| Position | Attached to a task | Sits in the sequence flow |
+| Purpose | Timeout / escalation | Deliberate wait step |
+| All tokens pass through? | No — only triggers if task is still active | Yes — every token pauses here |
+| Supports cycles? | No | Yes |

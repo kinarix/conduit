@@ -1,0 +1,201 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="Process Orchestration Without the JVM">
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="badge-row">
+        <span class="pill">Rust · PostgreSQL · Tokio</span>
+      </div>
+      <h1>Process orchestration<br/><span class="accent">without the JVM</span></h1>
+      <p class="lead">
+        Conduit is a BPMN 2.0 workflow engine that fits in a single binary.
+        No application server. No JVM warm-up. No middleware overhead.
+        Just Rust, PostgreSQL, and your workers.
+      </p>
+      <div class="cta-row">
+        <a href="/docs/" class="btn btn-primary">Read the docs</a>
+        <a href="https://github.com/kinarix/conduit" target="_blank" rel="noopener" class="btn btn-ghost">
+          GitHub →
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="features-inner">
+      <div class="feature-card">
+        <div class="icon">⚡</div>
+        <h3>Single binary</h3>
+        <p>Ships as one executable. No JVM, no app server, no container sprawl. Drop it on a VM or package it in a scratch container.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🗄</div>
+        <h3>PostgreSQL is the runtime</h3>
+        <p>All state lives in the database. Atomic token advancement. No separate message broker or state machine service.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔌</div>
+        <h3>Workers are external</h3>
+        <p>Workers poll for tasks over REST. Write them in any language. The engine orchestrates — it never executes business logic itself.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📐</div>
+        <h3>BPMN 2.0 + DMN</h3>
+        <p>Full BPMN 2.0 element support including subprocesses, boundary events, message/signal correlation, and DMN decision tables.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🔢</div>
+        <h3>FEEL expressions</h3>
+        <p>Gateway conditions and DMN rules use standard FEEL (Friendly Enough Expression Language), the same expression language as Camunda and Zeebe.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📊</div>
+        <h3>Observability built-in</h3>
+        <p>Prometheus metrics, structured JSON logs, and a health endpoint. Leader election for clustered deployments via PostgreSQL advisory locks.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="arch">
+    <div class="arch-inner">
+      <h2>How it works</h2>
+      <p>Conduit models your business process as a BPMN 2.0 diagram. When an instance starts, a token advances through the graph. At each element the engine decides what happens next — all in a single PostgreSQL transaction.</p>
+      <pre class="arch-diagram">
+              Your Application
+                    │
+                    │  REST API
+                    ▼
+          ┌─────────────────┐
+          │    Conduit       │
+          │                  │
+          │  API Layer       │  ◀── Deploy BPMN / Start instances
+          │    │             │       Complete tasks / Send messages
+          │  Engine          │
+          │    │             │
+          │  Job Executor    │  ──▶ Timer events / boundary timeouts
+          │    │             │
+          │  PostgreSQL      │
+          └─────────────────┘
+                    ▲
+                    │  Fetch &amp; lock / Complete
+              Worker Processes
+              (any language)
+      </pre>
+    </div>
+  </section>
+
+  <section class="quick-start">
+    <div class="qs-inner">
+      <h2>Quick start</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div>
+            <h4>Run PostgreSQL</h4>
+            <pre><code>docker-compose up -d
+cargo sqlx migrate run</code></pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div>
+            <h4>Deploy a process</h4>
+            <pre><code>curl -X POST http://localhost:8080/api/v1/deployments \
+  -F "file=@my-process.bpmn"</code></pre>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div>
+            <h4>Start an instance</h4>
+            <pre><code>curl -X POST http://localhost:8080/api/v1/instances \
+  -H 'Content-Type: application/json' \
+  -d '{"{"}\"process_key\":\"my-process\",\"variables\":{"{"}\"amount\":100{"}"}{"}"}' </code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  section { padding: 5rem 1.5rem; }
+
+  .hero { background: radial-gradient(ellipse at 50% 0, #1a1d3a 0%, var(--color-bg) 70%); }
+  .hero-inner { max-width: 720px; margin: 0 auto; text-align: center; }
+  .badge-row { margin-bottom: 1.5rem; }
+  .pill {
+    display: inline-block;
+    padding: 0.3em 0.8em;
+    background: var(--color-surface-2);
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+  }
+  h1 { font-size: clamp(2rem, 5vw, 3.5rem); margin: 0 0 1rem; }
+  .accent { color: var(--color-accent-light); }
+  .lead { font-size: 1.1rem; color: var(--color-muted); max-width: 520px; margin: 0 auto 2rem; }
+  .cta-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    display: inline-block;
+    padding: 0.65rem 1.5rem;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; text-decoration: none; }
+  .btn-primary { background: var(--color-accent); color: #fff; }
+  .btn-ghost { background: var(--color-surface-2); color: var(--color-text); border: 1px solid var(--color-border); }
+
+  .features { background: var(--color-surface); }
+  .features-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.25rem;
+  }
+  .feature-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+  .icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+  .feature-card h3 { margin: 0 0 0.5rem; font-size: 1rem; }
+  .feature-card p { margin: 0; color: var(--color-muted); font-size: 0.9rem; }
+
+  .arch-inner { max-width: 720px; margin: 0 auto; }
+  .arch-inner h2 { margin-top: 0; }
+  .arch-diagram {
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--color-muted);
+  }
+
+  .quick-start { background: var(--color-surface); }
+  .qs-inner { max-width: 720px; margin: 0 auto; }
+  .qs-inner h2 { margin-top: 0; }
+  .steps { display: flex; flex-direction: column; gap: 1.5rem; }
+  .step { display: flex; gap: 1.25rem; align-items: flex-start; }
+  .step-num {
+    width: 2rem;
+    height: 2rem;
+    background: var(--color-accent);
+    color: #fff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-top: 0.2rem;
+  }
+  .step h4 { margin: 0 0 0.5rem; }
+</style>

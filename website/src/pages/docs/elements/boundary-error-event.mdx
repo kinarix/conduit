@@ -1,0 +1,81 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Boundary Error Event'
+group: 'Boundary Events'
+---
+import BoundaryErrorDiagram from '../../../components/diagrams/BoundaryErrorDiagram.tsx';
+
+<span class="badge-boundary">Boundary Event</span>
+
+# Boundary Error Event
+
+<BoundaryErrorDiagram client:load />
+
+Catches a BPMN business error thrown by a service task worker. When the worker calls the `bpmn-error` endpoint, the engine routes to the boundary error event's outgoing flow instead of continuing on the normal path.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+| Attached To | element ID | yes | The service task this boundary event watches |
+| Error Code | string | no | Match a specific error code; leave blank to catch any error |
+| Interrupting | boolean | yes | See behavior below |
+
+## Interrupting vs Non-Interrupting
+
+| Mode | Behavior |
+|------|---------|
+| **Interrupting** (default) | Cancels the host task when the error fires, then follows the error path |
+| **Non-interrupting** | Spawns a parallel path; the host task continues running |
+
+## Error Code Matching
+
+- **Specific code** (e.g. `PAYMENT_DECLINED`): only catches errors where `error_code` matches exactly
+- **Blank**: catch-all — catches any BPMN error regardless of code
+
+Multiple boundary error events can be stacked on one task with different codes, plus one blank catch-all.
+
+## XML Example
+
+```xml
+<bpmn:serviceTask id="charge_card" name="Charge Card">
+  <bpmn:extensionElements>
+    <conduit:taskTopic>payment-worker</conduit:taskTopic>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_charge</bpmn:incoming>
+  <bpmn:outgoing>flow_charged</bpmn:outgoing>
+</bpmn:serviceTask>
+
+<!-- Specific error code -->
+<bpmn:boundaryEvent id="declined_error" attachedToRef="charge_card">
+  <bpmn:errorEventDefinition errorRef="err_declined"/>
+  <bpmn:outgoing>flow_to_retry</bpmn:outgoing>
+</bpmn:boundaryEvent>
+
+<!-- Catch-all for unexpected errors -->
+<bpmn:boundaryEvent id="generic_error" attachedToRef="charge_card">
+  <bpmn:errorEventDefinition/>
+  <bpmn:outgoing>flow_to_support</bpmn:outgoing>
+</bpmn:boundaryEvent>
+
+<bpmn:error id="err_declined" name="Payment Declined" errorCode="PAYMENT_DECLINED"/>
+```
+
+## API Integration — Throwing a BPMN Error
+
+Workers throw a BPMN error via:
+
+```http
+POST /api/v1/external-tasks/{task_id}/bpmn-error
+Content-Type: application/json
+
+{
+  "worker_id": "payment-worker-1",
+  "error_code": "PAYMENT_DECLINED",
+  "error_message": "Card declined: insufficient funds"
+}
+```
+
+The `error_code` is matched against the boundary event's **Error Code** property. The `error_message` is stored as the process variable `errorMessage` for use in subsequent elements.

@@ -1,0 +1,69 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Receive Task'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# Receive Task
+
+<SimpleFlowDiagram label="Receive Task" icon="receive" client:load />
+
+Pauses the token and waits for an inbound message with a matching name. The message can be delivered by a [Send Task](/docs/elements/send-task/) in another process instance or by an external `POST /api/v1/messages` call.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+| Message Name | string | yes | The message name this task waits for |
+| Correlation Key | string | yes | Variable name whose value is used to route messages to the correct instance |
+
+## How Correlation Works
+
+The **Correlation Key** is a variable name (e.g. `orderId`). When the token reaches the Receive Task:
+
+1. The engine reads the current value of that variable (e.g. `orderId = "ORD-001"`)
+2. It creates an event subscription keyed on `message_name + correlation_key_value`
+3. When a message arrives with the same name and key value, this specific instance is activated
+
+This lets multiple running instances each wait for their own message without ambiguity.
+
+## XML Example
+
+```xml
+<bpmn:receiveTask id="await_payment" name="Await Payment Confirmation">
+  <bpmn:messageEventDefinition messageRef="msg_payment_confirmed"/>
+  <bpmn:extensionElements>
+    <conduit:correlationKey>orderId</conduit:correlationKey>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_wait</bpmn:incoming>
+  <bpmn:outgoing>flow_to_fulfill</bpmn:outgoing>
+</bpmn:receiveTask>
+
+<bpmn:message id="msg_payment_confirmed" name="PaymentConfirmed"/>
+```
+
+## API Integration
+
+**Deliver a message to the waiting instance:**
+
+```http
+POST /api/v1/messages
+Content-Type: application/json
+
+{
+  "org_id": "your-org-id",
+  "message_name": "PaymentConfirmed",
+  "correlation_key": "ORD-001",
+  "variables": [
+    { "name": "paymentId", "value": "PAY-999" },
+    { "name": "paidAmount", "value": 250.00 }
+  ]
+}
+```
+
+The `correlation_key` value (`"ORD-001"`) must match the value of the `orderId` variable in the waiting instance. Variables in the payload are merged into the instance and available to all subsequent elements.

@@ -1,0 +1,74 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Inclusive Gateway'
+group: 'Gateways'
+---
+import GatewayDiagram from '../../../components/diagrams/GatewayDiagram.tsx';
+
+<span class="badge-gateway">Gateway</span>
+
+# Inclusive Gateway
+
+<GatewayDiagram variant="inclusive" client:load />
+
+**Fork:** activates every outgoing flow whose condition evaluates to `true` — one or more branches run in parallel.
+
+**Join:** waits for all **activated** branches to arrive before continuing. Unlike the parallel gateway, it only waits for the branches that were actually started.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+
+Conditions are set on outgoing **Sequence Flows** using FEEL expressions (same syntax as [Exclusive Gateway](/docs/elements/exclusive-gateway/)).
+
+## XML Example
+
+```xml
+<bpmn:inclusiveGateway id="check_flags" name="Route?"/>
+
+<!-- Condition A: amount > 100 -->
+<bpmn:sequenceFlow id="flow_to_a" sourceRef="check_flags" targetRef="path_a">
+  <bpmn:conditionExpression>amount > 100</bpmn:conditionExpression>
+</bpmn:sequenceFlow>
+
+<!-- Condition B: status = "priority" -->
+<bpmn:sequenceFlow id="flow_to_b" sourceRef="check_flags" targetRef="path_b">
+  <bpmn:conditionExpression>status = "priority"</bpmn:conditionExpression>
+</bpmn:sequenceFlow>
+
+<!-- Join — waits for whichever branches ran -->
+<bpmn:inclusiveGateway id="merge" name="Merge">
+  <bpmn:incoming>from_a</bpmn:incoming>
+  <bpmn:incoming>from_b</bpmn:incoming>
+  <bpmn:outgoing>flow_after_merge</bpmn:outgoing>
+</bpmn:inclusiveGateway>
+```
+
+In the example above:
+- If `amount = 150` and `status = "priority"`, both branches activate and the join waits for both
+- If `amount = 50` and `status = "priority"`, only Branch B activates and the join releases after Branch B
+- If neither condition matches and there is no default, the engine throws an error
+
+## Default Flow
+
+Leave one flow without a condition as a guaranteed fallback. At least one flow must match (or be the default) — the gateway cannot route to zero branches.
+
+## Condition Expressions
+
+Same FEEL syntax as Exclusive Gateway:
+
+```feel
+amount > 1000
+status = "priority"
+tier = "gold" or amount > 500
+```
+
+## Notes
+
+- The join tracks exactly which branches were activated at the fork and only waits for those
+- If the same inclusive gateway ID is used for both fork and join (uncommon), wiring must be unambiguous
+- For exactly-one routing, use an [Exclusive Gateway](/docs/elements/exclusive-gateway/)
+- For always-all routing, use a [Parallel Gateway](/docs/elements/parallel-gateway/)

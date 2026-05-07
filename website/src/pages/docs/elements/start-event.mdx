@@ -1,0 +1,49 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Start Event'
+group: 'Events'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# Start Event
+
+<SimpleFlowDiagram label="Start" client:load />
+
+The plain start event marks the beginning of every process instance. When you call `POST /api/v1/instances`, the engine creates a new instance, places a token on the start event, and immediately advances it to the first task or gateway.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique identifier within the process |
+| Name | string | no | Display label |
+
+No additional configuration is needed. For timer-triggered or message-triggered starts, use [Timer Start Event](/docs/elements/timer-start-event/) or [Message Start Event](/docs/elements/message-start-event/) instead.
+
+## XML Example
+
+```xml
+<bpmn:startEvent id="start" name="Start">
+  <bpmn:outgoing>flow_to_first_task</bpmn:outgoing>
+</bpmn:startEvent>
+```
+
+## API Integration
+
+**Start a process instance:**
+
+```http
+POST /api/v1/instances
+Content-Type: application/json
+
+{
+  "definition_id": "uuid-of-your-definition",
+  "variables": [
+    { "name": "orderId", "value": "ORD-001" }
+  ]
+}
+```
+
+The engine returns the new instance ID. The process advances immediately past the start event — the first task or gateway is already active by the time the response arrives.

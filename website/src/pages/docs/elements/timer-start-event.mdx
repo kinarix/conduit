@@ -1,0 +1,82 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Timer Start Event'
+group: 'Events'
+---
+import StartEventDiagram from '../../../components/diagrams/StartEventDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# Timer Start Event
+
+<StartEventDiagram variant="timer" client:load />
+
+Starts a new process instance when a timer fires. The engine schedules the job when the process definition is deployed and reschedules automatically for cycles.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique identifier |
+| Name | string | no | Display label |
+| Timer Type | `duration` \| `date` \| `cycle` | yes | How the timer behaves |
+| Timer Expression | string | yes | ISO 8601 expression (see below) |
+
+## Timer Expressions
+
+### Duration — fire once, after a delay from deployment
+
+| Expression | Meaning |
+|------------|---------|
+| `PT30M` | 30 minutes |
+| `PT2H` | 2 hours |
+| `P1D` | 1 day |
+| `P1DT4H30M` | 1 day, 4 hours, 30 minutes |
+
+Format: `P` prefix, then `[n]Y[n]M[n]D` for calendar parts, then `T[n]H[n]M[n]S` for time parts. Only include units you need.
+
+### Date — fire once at an absolute point in time
+
+| Expression | Meaning |
+|------------|---------|
+| `2026-06-01T09:00:00Z` | 1 Jun 2026 at 09:00 UTC |
+| `2026-06-01T09:00:00+05:30` | 1 Jun 2026 at 09:00 IST |
+
+Always include a timezone offset or `Z` (UTC). Omitting it is ambiguous.
+
+### Cycle — fire repeatedly, creating a new instance each time
+
+| Expression | Meaning |
+|------------|---------|
+| `R/PT1H` | Every hour, forever |
+| `R/P1D` | Every day, forever |
+| `R3/PT30M` | Every 30 minutes, exactly 3 times |
+| `R5/P1DT8H` | Every 1 day 8 hours, 5 times |
+
+Format: `R[n]/<duration>`. Omit `n` to repeat forever.
+
+## XML Example
+
+```xml
+<!-- Cycle: run daily forever -->
+<bpmn:startEvent id="timer_start" name="Daily Batch">
+  <bpmn:timerEventDefinition>
+    <bpmn:timeCycle>R/P1D</bpmn:timeCycle>
+  </bpmn:timerEventDefinition>
+  <bpmn:outgoing>flow_to_process</bpmn:outgoing>
+</bpmn:startEvent>
+```
+
+```xml
+<!-- Duration: run once after 1 hour -->
+<bpmn:startEvent id="timer_start" name="Delayed Start">
+  <bpmn:timerEventDefinition>
+    <bpmn:timeDuration>PT1H</bpmn:timeDuration>
+  </bpmn:timerEventDefinition>
+  <bpmn:outgoing>flow_to_process</bpmn:outgoing>
+</bpmn:startEvent>
+```
+
+## Notes
+
+Timer start events do not require an API call to trigger — the engine fires them on schedule automatically. To manually start an instance at any time, use a plain [Start Event](/docs/elements/start-event/) with `POST /api/v1/instances`.

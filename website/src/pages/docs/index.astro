@@ -1,0 +1,52 @@
+---
+import DocsLayout from '../../layouts/DocsLayout.astro';
+---
+<DocsLayout title="Documentation">
+  <h1>Documentation</h1>
+  <p>
+    Conduit is a BPMN 2.0 + DMN process orchestration engine.
+    Choose a section below to get started.
+  </p>
+
+  <div class="doc-cards">
+    <a href="/docs/elements/" class="doc-card">
+      <div class="card-icon">📐</div>
+      <h3>BPMN Elements</h3>
+      <p>All 20 element types: events, tasks, gateways, and boundary events. Properties, examples, and API integration for each.</p>
+      <span class="card-link">Browse elements →</span>
+    </a>
+    <a href="/docs/decision-tables/" class="doc-card">
+      <div class="card-icon">📊</div>
+      <h3>Decision Tables</h3>
+      <p>DMN decision tables with FEEL expressions. Hit policies, the full FEEL standard library, and how to wire tables into your process.</p>
+      <span class="card-link">Browse decision tables →</span>
+    </a>
+  </div>
+</DocsLayout>
+
+<style>
+  .doc-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+  .doc-card {
+    display: block;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 1.75rem;
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .doc-card:hover {
+    border-color: var(--color-accent);
+    background: var(--color-surface-2);
+    text-decoration: none;
+  }
+  .card-icon { font-size: 2rem; margin-bottom: 0.75rem; }
+  .doc-card h3 { margin: 0 0 0.5rem; color: #fff; }
+  .doc-card p { margin: 0 0 1rem; color: var(--color-muted); font-size: 0.9rem; }
+  .card-link { color: var(--color-accent-light); font-size: 0.9rem; }
+</style>

@@ -1,0 +1,64 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Parallel Gateway'
+group: 'Gateways'
+---
+import GatewayDiagram from '../../../components/diagrams/GatewayDiagram.tsx';
+
+<span class="badge-gateway">Gateway</span>
+
+# Parallel Gateway
+
+<GatewayDiagram variant="parallel" client:load />
+
+**Fork:** creates a token on every outgoing flow simultaneously — all branches run in parallel.
+
+**Join:** waits until **all** incoming tokens have arrived before continuing. A single parallel gateway element serves as both fork and join depending on how it is wired.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label |
+
+No condition expressions. All outgoing flows are always activated.
+
+## XML Example
+
+```xml
+<!-- Fork -->
+<bpmn:parallelGateway id="fork" name="Fork"/>
+
+<bpmn:sequenceFlow id="branch_a" sourceRef="fork" targetRef="task_a"/>
+<bpmn:sequenceFlow id="branch_b" sourceRef="fork" targetRef="task_b"/>
+
+<!-- Each branch has its own tasks -->
+<bpmn:userTask id="task_a" name="Task A">
+  <bpmn:incoming>branch_a</bpmn:incoming>
+  <bpmn:outgoing>to_join_a</bpmn:outgoing>
+</bpmn:userTask>
+
+<bpmn:serviceTask id="task_b" name="Task B">
+  <bpmn:incoming>branch_b</bpmn:incoming>
+  <bpmn:outgoing>to_join_b</bpmn:outgoing>
+</bpmn:serviceTask>
+
+<!-- Join -->
+<bpmn:parallelGateway id="join" name="Join">
+  <bpmn:incoming>to_join_a</bpmn:incoming>
+  <bpmn:incoming>to_join_b</bpmn:incoming>
+  <bpmn:outgoing>flow_after_join</bpmn:outgoing>
+</bpmn:parallelGateway>
+```
+
+## Variable Merging at Join
+
+When multiple branches write to the same variable name, the last-arriving branch wins. To avoid conflicts, use distinct variable names per branch.
+
+## Notes
+
+- Each fork must be paired with a join that has the same number of incoming flows
+- The join uses an atomic counter internally — it is safe under concurrent execution
+- For branches where only some paths activate, use an [Inclusive Gateway](/docs/elements/inclusive-gateway/)
+- The join waits indefinitely — there is no timeout at the gateway itself. Attach a [Boundary Timer Event](/docs/elements/boundary-timer-event/) to a task within a branch if you need a timeout

@@ -1,0 +1,85 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Script Task'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# Script Task
+
+<SimpleFlowDiagram label="Script Task" icon="script" client:load />
+
+Evaluates an inline [FEEL](https://www.omg.org/spec/DMN/) expression and stores the result as process variables — no external worker or HTTP call needed. The engine runs the script synchronously before advancing the token.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+| Script | FEEL expression | yes | Expression to evaluate |
+| Result Variable | string | conditional | Variable name for scalar output (omit when using context output) |
+
+## Output Modes
+
+### Context output
+
+When the expression returns a context literal `{ key: value, ... }`, each key is stored as a separate process variable:
+
+```feel
+{ fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }
+```
+
+Both `fee` and `tier` become available to subsequent elements.
+
+### Scalar output
+
+When the expression returns a single value, set **Result Variable** to name where it is stored:
+
+```feel
+amount + shipping
+```
+
+If `resultVariable` is `totalCost`, the value is stored as the variable `totalCost`.
+
+## FEEL Quick Reference
+
+| Concept | Syntax |
+|---------|--------|
+| Equality | `=` (not `==`) |
+| Inequality | `!=` |
+| Boolean operators | `and`, `or`, `not(expr)` |
+| String literals | `"double quotes"` |
+| Context literal | `{ key: expr, key2: expr2 }` |
+| Conditional | `if condition then value1 else value2` |
+| List length | `count(myList)` |
+| List access | `myList[1]` (1-based index) |
+| Substring | `substring("hello", 1, 3)` → `"hel"` |
+
+## XML Example
+
+```xml
+<bpmn:scriptTask id="calc_fee" name="Calculate Fee" scriptFormat="FEEL">
+  <bpmn:script>
+    { fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }
+  </bpmn:script>
+  <bpmn:incoming>flow_to_calc</bpmn:incoming>
+  <bpmn:outgoing>flow_to_next</bpmn:outgoing>
+</bpmn:scriptTask>
+```
+
+```xml
+<!-- Scalar output with result variable -->
+<bpmn:scriptTask id="sum_total" name="Sum Total" scriptFormat="FEEL"
+  conduit:resultVariable="totalCost">
+  <bpmn:script>amount + shipping</bpmn:script>
+  <bpmn:incoming>flow_in</bpmn:incoming>
+  <bpmn:outgoing>flow_out</bpmn:outgoing>
+</bpmn:scriptTask>
+```
+
+## Notes
+
+Script tasks execute synchronously inside the engine — they are not suitable for I/O-bound work (HTTP calls, database queries). For those use cases, use a [Service Task](/docs/elements/service-task/) instead.

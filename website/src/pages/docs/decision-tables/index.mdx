@@ -1,0 +1,104 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Decision Tables'
+---
+
+# Decision Tables
+
+Decision tables let you encode business rules as a grid of inputs and outputs — without writing code. Each row is a rule; each column is an input test or output expression. The engine evaluates every rule and applies the configured **hit policy** to pick the final output.
+
+Conduit uses [DMN 1.5](https://www.omg.org/spec/DMN/) for decision tables and [FEEL](https://www.omg.org/spec/DMN/) for expressions.
+
+## Quick Start
+
+1. Design your table in the Conduit UI (Decision Table editor)
+2. Deploy it via `POST /api/v1/decisions` with the DMN XML body
+3. Reference it from a [Business Rule Task](/docs/elements/business-rule-task/) in your BPMN process using the decision's `id`
+
+## Deploying a Decision
+
+```http
+POST /api/v1/decisions
+Content-Type: application/xml
+
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             id="shipping-decisions" name="Shipping Decisions"
+             namespace="http://camunda.org/schema/1.0/dmn">
+  <decision id="shipping-cost" name="Shipping Cost">
+    <decisionTable hitPolicy="FIRST">
+      <input id="weight_in" label="Weight (kg)">
+        <inputExpression typeRef="number"><text>weight</text></inputExpression>
+      </input>
+      <input id="zone_in" label="Zone">
+        <inputExpression typeRef="string"><text>zone</text></inputExpression>
+      </input>
+      <output id="cost_out" label="Cost" name="shippingCost" typeRef="number"/>
+      <rule id="r1">
+        <inputEntry><text>&lt;= 1</text></inputEntry>
+        <inputEntry><text>"domestic"</text></inputEntry>
+        <outputEntry><text>5.00</text></outputEntry>
+      </rule>
+      <rule id="r2">
+        <inputEntry><text></text></inputEntry>
+        <inputEntry><text></text></inputEntry>
+        <outputEntry><text>weight * 2.5</text></outputEntry>
+      </rule>
+    </decisionTable>
+  </decision>
+</definitions>
+```
+
+The decision `id` (`shipping-cost`) is what you set as the **Decision Ref** in the Business Rule Task.
+
+## Data Wiring
+
+### Input columns
+
+Each input column's header expression is a **process variable name**. The engine looks up that variable in the current BPMN execution context and passes it as the input value for that column.
+
+Example: a column with expression `weight` reads the process variable `weight`.
+
+### Input entry cells — unary tests (mini-FEEL)
+
+Input cells contain unary tests — they are tested against the column's input value:
+
+| Cell | Matches when |
+|------|-------------|
+| `-` | Any value (always matches) |
+| (blank) | Same as `-` |
+| `> 100` | Value is greater than 100 |
+| `[10..50]` | Value is between 10 and 50 inclusive |
+| `"domestic"` | String equals "domestic" |
+| `"x","y"` | String is "x" or "y" |
+| `not("x","y")` | String is neither "x" nor "y" |
+
+See the [FEEL Reference](/docs/decision-tables/feel-reference/) for the full input syntax.
+
+### Output entry cells — full FEEL
+
+Output cells contain full FEEL expressions evaluated when a rule matches. They can reference process variables, call functions, or use conditionals:
+
+```feel
+weight * 2.5
+upper case(status)
+if amount > 1000 then "premium" else "standard"
+```
+
+### Result variables
+
+Each output column's **name** attribute is written back as a process variable after the decision runs. In the example above, the output column named `shippingCost` creates (or overwrites) the process variable `shippingCost`, available to all subsequent BPMN elements.
+
+## Hit Policies
+
+The hit policy controls what happens when multiple rules match. See [Hit Policies](/docs/decision-tables/hit-policies/) for the full reference.
+
+| Policy | Behavior |
+|--------|---------|
+| `UNIQUE` | Exactly one rule must match (error if multiple match) |
+| `FIRST` | First matching rule wins |
+| `ANY` | All matches must agree on the output value |
+| `COLLECT` | All matches collected; optional aggregation (SUM/MIN/MAX/COUNT) |
+| `RULE ORDER` | All matches returned in declaration order |
+| `PRIORITY` | Highest-priority output wins |
+| `OUTPUT ORDER` | Matches sorted by output priority list |

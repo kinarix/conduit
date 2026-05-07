@@ -1,0 +1,60 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'User Task'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# User Task
+
+<SimpleFlowDiagram label="User Task" icon="user" client:load />
+
+Creates a task item waiting for a human to complete it. The engine pauses the token here until your application calls the complete endpoint.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Task name shown to users |
+| Assignee | string | no | User ID or expression for auto-assignment |
+| Candidate Groups | string | no | Comma-separated group names |
+| Due Date | string | no | ISO 8601 datetime or FEEL expression |
+| Priority | integer | no | Numeric priority (higher = more urgent) |
+
+## XML Example
+
+```xml
+<bpmn:userTask id="review_order" name="Review Order">
+  <bpmn:incoming>flow_to_review</bpmn:incoming>
+  <bpmn:outgoing>flow_to_approve</bpmn:outgoing>
+</bpmn:userTask>
+```
+
+## API Integration
+
+**Poll for pending tasks:**
+
+```http
+GET /api/v1/tasks?org_id={org_id}
+```
+
+Response includes all waiting user tasks with their instance variables.
+
+**Complete a task:**
+
+```http
+POST /api/v1/tasks/{task_id}/complete
+Content-Type: application/json
+
+{
+  "variables": [
+    { "name": "approved", "value": true },
+    { "name": "reviewNote", "value": "Looks good" }
+  ]
+}
+```
+
+Variables submitted at completion are merged into the process instance and available to all subsequent elements. The token advances immediately after the call returns.

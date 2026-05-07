@@ -1,0 +1,142 @@
+<!DOCTYPE html><html lang="en" data-astro-cid-37fxchfa> <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title> — Conduit</title><meta name="description" content="Conduit — lightweight process orchestration engine"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><style>header[data-astro-cid-37fxchfa]{border-bottom:1px solid var(--color-border);background:var(--color-bg);position:sticky;top:0;z-index:100}nav[data-astro-cid-37fxchfa]{max-width:1200px;margin:0 auto;padding:0 1.5rem;height:56px;display:flex;align-items:center;justify-content:space-between}.logo[data-astro-cid-37fxchfa]{font-weight:700;font-size:1.1rem;color:#fff;letter-spacing:-.02em}.logo[data-astro-cid-37fxchfa]:hover{text-decoration:none}.nav-links[data-astro-cid-37fxchfa]{display:flex;gap:1.5rem}.nav-links[data-astro-cid-37fxchfa] a[data-astro-cid-37fxchfa]{color:var(--color-muted);font-size:.9rem}.nav-links[data-astro-cid-37fxchfa] a[data-astro-cid-37fxchfa]:hover{color:var(--color-text);text-decoration:none}main[data-astro-cid-37fxchfa]{min-height:calc(100vh - 112px)}footer[data-astro-cid-37fxchfa]{border-top:1px solid var(--color-border);text-align:center;padding:1.5rem;color:var(--color-muted);font-size:.85rem}*,*:before,*:after{box-sizing:border-box}:root{--color-bg: #0f1117;--color-surface: #1a1d27;--color-surface-2: #222536;--color-border: #2e3147;--color-text: #e2e4f0;--color-muted: #8b8fa8;--color-accent: #6366f1;--color-accent-light: #818cf8;--color-green: #22c55e;--color-amber: #f59e0b;--color-red: #ef4444;--font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;--font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;--sidebar-width: 240px}html{scroll-behavior:smooth}body{margin:0;font-family:var(--font-sans);background:var(--color-bg);color:var(--color-text);line-height:1.6;font-size:15px}a{color:var(--color-accent-light);text-decoration:none}a:hover{text-decoration:underline}h1,h2,h3,h4{color:#fff;line-height:1.25;margin-top:2rem;margin-bottom:.5rem}h1{font-size:2rem;margin-top:0}h2{font-size:1.4rem;border-bottom:1px solid var(--color-border);padding-bottom:.4rem}h3{font-size:1.1rem}p{margin:.75rem 0}code{font-family:var(--font-mono);font-size:.85em;background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:4px;padding:.15em .4em}pre{background:var(--color-surface-2);border:1px solid var(--color-border);border-radius:8px;padding:1rem 1.25rem;overflow-x:auto;margin:1rem 0}pre code{background:none;border:none;padding:0;font-size:.9em}table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.9em}th{background:var(--color-surface-2);padding:.5rem .75rem;text-align:left;font-weight:600;border:1px solid var(--color-border);color:var(--color-muted);text-transform:uppercase;font-size:.75em;letter-spacing:.05em}td{padding:.5rem .75rem;border:1px solid var(--color-border);vertical-align:top}tr:hover td{background:var(--color-surface)}blockquote{border-left:3px solid var(--color-accent);margin:1rem 0;padding:.5rem 1rem;background:var(--color-surface);border-radius:0 6px 6px 0;color:var(--color-muted)}.badge{display:inline-block;padding:.2em .6em;border-radius:4px;font-size:.75em;font-weight:600;text-transform:uppercase;letter-spacing:.04em}.badge-event{background:#1e3a5f;color:#60a5fa}.badge-task{background:#1a3a2a;color:#4ade80}.badge-gateway{background:#3a2a1a;color:#fb923c}.badge-boundary{background:#3a1a1a;color:#f87171}
+.docs-layout[data-astro-cid-mw7aashj]{display:flex;max-width:1200px;margin:0 auto;min-height:calc(100vh - 112px)}.sidebar[data-astro-cid-mw7aashj]{width:var(--sidebar-width);flex-shrink:0;border-right:1px solid var(--color-border);padding:1.5rem 0;position:sticky;top:56px;height:calc(100vh - 56px);overflow-y:auto}.sidebar[data-astro-cid-mw7aashj] nav[data-astro-cid-mw7aashj]{padding:0 .75rem}.nav-section[data-astro-cid-mw7aashj]{margin-bottom:.5rem}.nav-section-label[data-astro-cid-mw7aashj]{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--color-muted);padding:.5rem .5rem .25rem}.top-link[data-astro-cid-mw7aashj]{display:block;padding:.35rem .5rem;border-radius:6px;font-size:.875rem;color:var(--color-muted);font-weight:600}.top-link[data-astro-cid-mw7aashj]:hover,.top-link[data-astro-cid-mw7aashj].active{background:var(--color-surface-2);color:var(--color-text);text-decoration:none}ul[data-astro-cid-mw7aashj]{list-style:none;margin:0;padding:0}li[data-astro-cid-mw7aashj] a[data-astro-cid-mw7aashj]{display:block;padding:.3rem .5rem;border-radius:6px;font-size:.85rem;color:var(--color-muted)}li[data-astro-cid-mw7aashj] a[data-astro-cid-mw7aashj]:hover,li[data-astro-cid-mw7aashj] a[data-astro-cid-mw7aashj].active{background:var(--color-surface-2);color:var(--color-text);text-decoration:none}li[data-astro-cid-mw7aashj] a[data-astro-cid-mw7aashj].active{color:var(--color-accent-light)}.nav-divider[data-astro-cid-mw7aashj]{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--color-border);padding:.6rem .5rem .15rem;margin-top:.25rem}.content[data-astro-cid-mw7aashj]{flex:1;padding:2.5rem 3rem;min-width:0;max-width:800px}@media (max-width: 768px){.sidebar[data-astro-cid-mw7aashj]{display:none}.content[data-astro-cid-mw7aashj]{padding:1.5rem}}
+</style></head> <body data-astro-cid-37fxchfa> <header data-astro-cid-37fxchfa> <nav data-astro-cid-37fxchfa> <a href="/" class="logo" data-astro-cid-37fxchfa>Conduit</a> <div class="nav-links" data-astro-cid-37fxchfa> <a href="/docs/" data-astro-cid-37fxchfa>Docs</a> <a href="https://github.com/kinarix/conduit" target="_blank" rel="noopener" data-astro-cid-37fxchfa>GitHub</a> </div> </nav> </header> <main data-astro-cid-37fxchfa>  <div class="docs-layout" data-astro-cid-mw7aashj> <aside class="sidebar" data-astro-cid-mw7aashj> <nav data-astro-cid-mw7aashj> <div class="nav-section" data-astro-cid-mw7aashj> <a href="/docs/" class="top-link " data-astro-cid-mw7aashj> Overview </a> </div><div class="nav-section" data-astro-cid-mw7aashj>  <div class="nav-section-label" data-astro-cid-mw7aashj>BPMN Elements</div> <ul data-astro-cid-mw7aashj> <li data-astro-cid-mw7aashj> <a href="/docs/elements/" class="" data-astro-cid-mw7aashj> Overview </a> </li><li class="nav-divider" data-astro-cid-mw7aashj>— Events —</li><li data-astro-cid-mw7aashj> <a href="/docs/elements/start-event/" class="" data-astro-cid-mw7aashj> Start Event </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/message-start-event/" class="" data-astro-cid-mw7aashj> Message Start </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/timer-start-event/" class="" data-astro-cid-mw7aashj> Timer Start </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/end-event/" class="" data-astro-cid-mw7aashj> End Event </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/timer-catch-event/" class="" data-astro-cid-mw7aashj> Timer Catch </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/message-catch-event/" class="" data-astro-cid-mw7aashj> Message Catch </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/signal-catch-event/" class="" data-astro-cid-mw7aashj> Signal Catch </a> </li><li class="nav-divider" data-astro-cid-mw7aashj>— Tasks —</li><li data-astro-cid-mw7aashj> <a href="/docs/elements/user-task/" class="" data-astro-cid-mw7aashj> User Task </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/service-task/" class="" data-astro-cid-mw7aashj> Service Task </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/script-task/" class="" data-astro-cid-mw7aashj> Script Task </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/business-rule-task/" class="" data-astro-cid-mw7aashj> Business Rule Task </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/sub-process/" class="" data-astro-cid-mw7aashj> Sub-Process </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/send-task/" class="" data-astro-cid-mw7aashj> Send Task </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/receive-task/" class="" data-astro-cid-mw7aashj> Receive Task </a> </li><li class="nav-divider" data-astro-cid-mw7aashj>— Gateways —</li><li data-astro-cid-mw7aashj> <a href="/docs/elements/exclusive-gateway/" class="" data-astro-cid-mw7aashj> Exclusive Gateway </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/parallel-gateway/" class="" data-astro-cid-mw7aashj> Parallel Gateway </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/inclusive-gateway/" class="" data-astro-cid-mw7aashj> Inclusive Gateway </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/sequence-flow/" class="active" data-astro-cid-mw7aashj> Sequence Flow </a> </li><li class="nav-divider" data-astro-cid-mw7aashj>— Boundary Events —</li><li data-astro-cid-mw7aashj> <a href="/docs/elements/boundary-timer-event/" class="" data-astro-cid-mw7aashj> Boundary Timer </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/boundary-signal-event/" class="" data-astro-cid-mw7aashj> Boundary Signal </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/elements/boundary-error-event/" class="" data-astro-cid-mw7aashj> Boundary Error </a> </li> </ul>  </div><div class="nav-section" data-astro-cid-mw7aashj>  <div class="nav-section-label" data-astro-cid-mw7aashj>Decision Tables</div> <ul data-astro-cid-mw7aashj> <li data-astro-cid-mw7aashj> <a href="/docs/decision-tables/" class="" data-astro-cid-mw7aashj> Overview </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/decision-tables/hit-policies/" class="" data-astro-cid-mw7aashj> Hit Policies </a> </li><li data-astro-cid-mw7aashj> <a href="/docs/decision-tables/feel-reference/" class="" data-astro-cid-mw7aashj> FEEL Reference </a> </li> </ul>  </div> </nav> </aside> <article class="content" data-astro-cid-mw7aashj> <span class="badge-gateway">Flow</span>
+<h1 id="sequence-flow">Sequence Flow</h1>
+<p>A sequence flow is the arrow connecting elements. It carries the token from one element to the next. Most flows are unconditional — the token simply moves along them. Conditions are only evaluated when the source is a gateway.</p>
+<h2 id="properties">Properties</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td>ID</td><td>string</td><td>yes</td><td>Unique identifier</td></tr><tr><td>Source</td><td>element ID</td><td>yes</td><td>The element the arrow leaves</td></tr><tr><td>Target</td><td>element ID</td><td>yes</td><td>The element the arrow enters</td></tr><tr><td>Condition</td><td>FEEL expression</td><td>no</td><td>Only evaluated when source is an Exclusive or Inclusive Gateway</td></tr><tr><td>Name</td><td>string</td><td>no</td><td>Optional label shown on the arrow</td></tr></tbody></table>
+<h2 id="condition-expressions">Condition Expressions</h2>
+<p>Conditions are <a href="https://www.omg.org/spec/DMN/">FEEL</a> expressions referencing process variables by name:</p>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="plaintext"><code><span class="line"><span>approved</span></span>
+<span class="line"><span>score &gt;= 80</span></span>
+<span class="line"><span>tier = &quot;gold&quot; and amount &gt; 1000</span></span>
+<span class="line"><span>status = &quot;pending&quot; or status = &quot;in_review&quot;</span></span>
+<span class="line"><span>count(items) &gt; 0</span></span>
+<span class="line"><span></span></span></code></pre>
+<p>A flow without a condition is unconditional — always taken when the source element advances.</p>
+<h2 id="xml-example">XML Example</h2>
+<pre class="astro-code github-dark" style="background-color:#24292e;color:#e1e4e8;overflow-x:auto" tabindex="0" data-language="xml"><code><span class="line"><span style="color:#6A737D">&lt;!-- Unconditional flow --&gt;</span></span>
+<span class="line"><span style="color:#E1E4E8">&lt;</span><span style="color:#85E89D">bpmn:sequenceFlow</span><span style="color:#B392F0"> id</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;flow_1&quot;</span></span>
+<span class="line"><span style="color:#B392F0">  sourceRef</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;start&quot;</span><span style="color:#B392F0"> targetRef</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;first_task&quot;</span><span style="color:#E1E4E8">/&gt;</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">&lt;!-- Conditional flow from exclusive gateway --&gt;</span></span>
+<span class="line"><span style="color:#E1E4E8">&lt;</span><span style="color:#85E89D">bpmn:sequenceFlow</span><span style="color:#B392F0"> id</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;high_value_path&quot;</span></span>
+<span class="line"><span style="color:#B392F0">  sourceRef</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;amount_check&quot;</span><span style="color:#B392F0"> targetRef</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;manual_review&quot;</span><span style="color:#E1E4E8">&gt;</span></span>
+<span class="line"><span style="color:#E1E4E8">  &lt;</span><span style="color:#85E89D">bpmn:conditionExpression</span><span style="color:#E1E4E8">&gt;amount &gt; 1000&lt;/</span><span style="color:#85E89D">bpmn:conditionExpression</span><span style="color:#E1E4E8">&gt;</span></span>
+<span class="line"><span style="color:#E1E4E8">&lt;/</span><span style="color:#85E89D">bpmn:sequenceFlow</span><span style="color:#E1E4E8">&gt;</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">&lt;!-- Default fallback (no condition) --&gt;</span></span>
+<span class="line"><span style="color:#E1E4E8">&lt;</span><span style="color:#85E89D">bpmn:sequenceFlow</span><span style="color:#B392F0"> id</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;default_path&quot;</span></span>
+<span class="line"><span style="color:#B392F0">  sourceRef</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;amount_check&quot;</span><span style="color:#B392F0"> targetRef</span><span style="color:#E1E4E8">=</span><span style="color:#9ECBFF">&quot;auto_process&quot;</span><span style="color:#E1E4E8">/&gt;</span></span>
+<span class="line"></span></code></pre>
+<h2 id="where-conditions-are-used">Where Conditions Are Used</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Source Element</th><th>Condition Behavior</th></tr></thead><tbody><tr><td><a href="/docs/elements/exclusive-gateway/">Exclusive Gateway</a></td><td>First <code>true</code> condition wins; one unconditioned flow = default</td></tr><tr><td><a href="/docs/elements/inclusive-gateway/">Inclusive Gateway</a></td><td>All <code>true</code> conditions activate; at least one must match</td></tr><tr><td>Task / Event</td><td>Ignored — unconditional flow always taken</td></tr><tr><td>Parallel Gateway</td><td>Ignored — all outgoing flows always activated</td></tr></tbody></table>
+<h2 id="feel-quick-reference">FEEL Quick Reference</h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Concept</th><th>Syntax</th></tr></thead><tbody><tr><td>Equality</td><td><code>=</code></td></tr><tr><td>Inequality</td><td><code>!=</code>, <code>&lt;</code>, <code>&gt;</code>, <code>&lt;=</code>, <code>&gt;=</code></td></tr><tr><td>AND</td><td><code>and</code></td></tr><tr><td>OR</td><td><code>or</code></td></tr><tr><td>Negation</td><td><code>not(expr)</code></td></tr><tr><td>String</td><td><code>&quot;double quotes&quot;</code></td></tr><tr><td>List</td><td><code>[1, 2, 3]</code></td></tr><tr><td>List length</td><td><code>count(list)</code></td></tr></tbody></table> </article> </div>  </main> <footer data-astro-cid-37fxchfa> <p data-astro-cid-37fxchfa>© 2026 Kinarix · Built with <a href="https://astro.build" data-astro-cid-37fxchfa>Astro</a></p> </footer>  </body></html> 

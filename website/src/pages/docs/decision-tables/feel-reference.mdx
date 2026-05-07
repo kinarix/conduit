@@ -1,0 +1,168 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'FEEL Reference'
+---
+
+# FEEL Reference
+
+FEEL (Friendly Enough Expression Language) is the expression language used in Conduit for gateway conditions, script tasks, decision table input entries, and decision table output entries.
+
+## Input Entry Syntax (Unary Tests)
+
+Input cells in decision tables use **unary tests** — each cell is tested against the column's input value. Only a subset of FEEL is allowed here.
+
+| Entry | Matches when |
+|-------|-------------|
+| `-` | Any value (always passes) |
+| (blank) | Same as `-` |
+| `42` | Value equals 42 |
+| `> n` | Greater than n |
+| `< n` | Less than n |
+| `>= n` | Greater than or equal to n |
+| `<= n` | Less than or equal to n |
+| `!= n` | Not equal to n |
+| `[a..b]` | Inclusive range: a ≤ x ≤ b |
+| `(a..b)` | Exclusive range: a < x < b |
+| `[a..b)` | Half-open: a ≤ x < b |
+| `(a..b]` | Half-open: a < x ≤ b |
+| `"string"` | String equals "string" (exact) |
+| `"x","y"` | Value is any of x or y (OR) |
+| `not("x","y")` | Value is neither x nor y |
+| `true` | Boolean true |
+| `false` | Boolean false |
+| `null` | Value is null |
+| `date("2024-01-01")` | Date literal |
+
+## Operator Reference (Gateway Conditions & Script Tasks)
+
+Full FEEL is available in gateway conditions, script tasks, and output entries.
+
+### Comparison operators
+
+| Operator | Meaning |
+|----------|---------|
+| `=` | Equality (not `==`) |
+| `!=` | Inequality |
+| `<`, `>` | Less than, greater than |
+| `<=`, `>=` | Less than or equal, greater than or equal |
+
+### Boolean operators
+
+| Operator | Example |
+|----------|---------|
+| `and` | `amount > 0 and status = "active"` |
+| `or` | `tier = "gold" or tier = "platinum"` |
+| `not(expr)` | `not(status = "closed")` |
+
+### Context literals (Script Task output)
+
+```feel
+{ fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }
+```
+
+Each key is written as a separate process variable.
+
+### Conditionals
+
+```feel
+if amount > 1000 then "premium" else "standard"
+```
+
+---
+
+## Built-in Functions
+
+### Numeric
+
+| Function | Description |
+|----------|-------------|
+| `abs(n)` | Absolute value |
+| `floor(n)` | Round down to nearest integer |
+| `ceiling(n)` | Round up to nearest integer |
+| `decimal(n, scale)` | Round n to scale decimal places |
+| `modulo(n, d)` | Remainder of n ÷ d |
+| `sqrt(n)` | Square root |
+
+### String
+
+| Function | Description |
+|----------|-------------|
+| `string length(s)` | Length of string |
+| `upper case(s)` | Convert to uppercase |
+| `lower case(s)` | Convert to lowercase |
+| `substring(s, start)` | Substring from position (1-based) |
+| `substring(s, start, len)` | Substring with length |
+| `contains(s, sub)` | True if s contains sub |
+| `starts with(s, pre)` | True if s starts with pre |
+| `ends with(s, suf)` | True if s ends with suf |
+| `matches(s, pattern)` | True if s matches regex pattern |
+| `replace(s, pattern, rep)` | Replace regex matches |
+| `string join(list)` | Join list elements into a string |
+| `string join(list, sep)` | Join with separator |
+
+### List
+
+| Function | Description |
+|----------|-------------|
+| `count(list)` | Number of elements |
+| `min(list)` | Minimum value |
+| `max(list)` | Maximum value |
+| `sum(list)` | Sum of all values |
+| `mean(list)` | Arithmetic mean |
+| `list contains(list, item)` | True if list contains item |
+| `append(list, item)` | New list with item appended |
+| `flatten(list)` | Flatten nested lists one level |
+| `distinct values(list)` | Remove duplicates |
+| `reverse(list)` | Reversed list |
+| `sort(list, fn)` | Sort with comparator function |
+| `sublist(list, start)` | Sublist from position |
+| `sublist(list, start, len)` | Sublist with length |
+| `union(list1, list2)` | Merge two lists, deduplicated |
+
+### Date and Time
+
+| Function | Description |
+|----------|-------------|
+| `now()` | Current date and time |
+| `today()` | Current date |
+| `date("2024-01-01")` | Parse date literal |
+| `time("12:00:00")` | Parse time literal |
+| `date and time("2024-01-01T12:00:00Z")` | Parse datetime literal |
+| `duration("P1D")` | Parse ISO 8601 duration |
+
+### Context
+
+| Function | Description |
+|----------|-------------|
+| `get value(context, key)` | Get a value from a context by key |
+| `get entries(context)` | Get list of `{ key, value }` pairs |
+| `context(entries)` | Build a context from a list of key-value pairs |
+
+### Conversion
+
+| Function | Description |
+|----------|-------------|
+| `string(value)` | Convert to string |
+| `number(s)` | Parse string to number |
+| `not(bool)` | Negate a boolean |
+
+---
+
+## Examples
+
+```feel
+-- Gateway condition: route high-value orders
+amount > 1000 and tier = "gold"
+
+-- Script task: enrich order
+{ fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard", itemCount: count(items) }
+
+-- Decision table output: compute label
+if score >= 90 then "excellent" else if score >= 70 then "good" else "needs improvement"
+
+-- String manipulation
+upper case(substring(customerId, 1, 3))
+
+-- Date comparison
+date(orderDate) < today()
+```

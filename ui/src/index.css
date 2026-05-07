@@ -9,8 +9,8 @@ button {
   border: none;
   border-radius: var(--radius);
   font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
   padding: 6px 14px;
   transition: background 0.15s;
 }
@@ -42,7 +42,7 @@ input, select, textarea {
   border-radius: var(--radius);
   color: var(--color-text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-base);
   padding: 6px 10px;
   width: 100%;
   outline: none;
@@ -51,19 +51,19 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--color-primary);
 }
 
-label { display: block; font-size: 12px; color: var(--color-text-muted); margin-bottom: 4px; }
+label { display: block; font-size: var(--text-md); color: var(--color-text-muted); margin-bottom: var(--space-1); }
 
 .field { margin-bottom: 14px; }
 
 table { width: 100%; border-collapse: collapse; }
 th {
   text-align: left;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--color-text-muted);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 td { padding: 10px 12px; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
@@ -73,16 +73,16 @@ tr:hover td { background: var(--color-surface-2); }
 .badge {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.badge-running  { background: #dbeafe; color: #1d4ed8; }
-.badge-completed { background: #dcfce7; color: #15803d; }
-.badge-error    { background: #fee2e2; color: #b91c1c; }
-.badge-active   { background: #dbeafe; color: #1d4ed8; }
+.badge-running  { background: var(--status-info-soft); color: var(--status-info); }
+.badge-completed { background: var(--status-ok-soft); color: var(--status-ok); }
+.badge-error    { background: var(--status-error-soft); color: var(--status-error); }
+.badge-active   { background: var(--status-info-soft); color: var(--status-info); }
 
 .spinner {
   display: inline-block;
@@ -101,13 +101,13 @@ tr:hover td { background: var(--color-surface-2); }
 }
 
 .error-banner {
-  background: #fee2e2;
+  background: var(--status-error-soft);
   border: 1px solid #fca5a5;
   border-radius: var(--radius);
-  color: #b91c1c;
+  color: var(--status-error);
   padding: 10px 14px;
   margin-bottom: 16px;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .modal-overlay {
@@ -125,5 +125,5 @@ tr:hover td { background: var(--color-surface-2); }
   max-width: 520px;
   width: 100%;
 }
-.modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+.modal h3 { font-size: 15px; font-weight: var(--weight-semibold); margin-bottom: 16px; }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }

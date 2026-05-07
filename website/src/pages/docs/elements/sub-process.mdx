@@ -1,0 +1,69 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Sub-Process'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# Sub-Process
+
+<SimpleFlowDiagram label="Sub-Process" shape="subprocess" icon="sub" client:load />
+
+An embedded sub-process is a collapsible container that holds a complete inner flow (start event, tasks, gateways, end event). The outer token enters the sub-process and waits until the inner flow completes, then continues along the outgoing sequence flow.
+
+Sub-processes are useful for grouping related steps, applying boundary events to a whole block of work, or managing a scope of variables.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+
+## Scoping
+
+Variables defined inside a sub-process are in the same scope as the parent instance — they are visible to the outer process and persist after the sub-process completes. There is no variable isolation between the sub-process and its parent.
+
+## Boundary Events on Sub-Processes
+
+Boundary events can be attached to a sub-process just like a task. A [Boundary Timer Event](/docs/elements/boundary-timer-event/) attached to a sub-process will fire if the entire inner flow takes too long, cancelling all active inner tokens (when interrupting).
+
+## XML Example
+
+```xml
+<bpmn:subProcess id="approval_flow" name="Approval Flow">
+  <bpmn:incoming>flow_to_approval</bpmn:incoming>
+  <bpmn:outgoing>flow_after_approval</bpmn:outgoing>
+
+  <!-- Inner start event -->
+  <bpmn:startEvent id="inner_start">
+    <bpmn:outgoing>inner_flow_1</bpmn:outgoing>
+  </bpmn:startEvent>
+
+  <!-- Inner task -->
+  <bpmn:userTask id="manager_review" name="Manager Review">
+    <bpmn:incoming>inner_flow_1</bpmn:incoming>
+    <bpmn:outgoing>inner_flow_2</bpmn:outgoing>
+  </bpmn:userTask>
+
+  <!-- Inner end event -->
+  <bpmn:endEvent id="inner_end">
+    <bpmn:incoming>inner_flow_2</bpmn:incoming>
+  </bpmn:endEvent>
+
+  <bpmn:sequenceFlow id="inner_flow_1" sourceRef="inner_start" targetRef="manager_review"/>
+  <bpmn:sequenceFlow id="inner_flow_2" sourceRef="manager_review" targetRef="inner_end"/>
+</bpmn:subProcess>
+```
+
+## Nesting
+
+Sub-processes can be nested — a sub-process can contain another sub-process. The engine resolves element references recursively.
+
+## Notes
+
+- Each sub-process must contain exactly one start event (no timer/message variants) and at least one end event
+- Parallel and inclusive gateways inside a sub-process work normally; all inner tokens must reach an end event before the outer token is released
+- For independently-running child processes, use a separate process definition started via `POST /api/v1/instances` instead

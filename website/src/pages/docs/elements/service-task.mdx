@@ -1,0 +1,126 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Service Task'
+group: 'Tasks'
+---
+import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.tsx';
+
+<span class="badge-task">Task</span>
+
+# Service Task
+
+<SimpleFlowDiagram label="Service Task" icon="gear" client:load />
+
+Executes work outside the engine. Two modes: **external worker** (poll-based) or **HTTP push** (engine calls your URL).
+
+## Properties
+
+### External Worker Mode
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+| Topic | string | yes | Worker queue name workers poll for |
+| Retries | integer | no | How many times to retry on failure (default: 3) |
+| Timeout (ms) | integer | no | Lock duration — worker must complete within this window |
+
+### HTTP Push Mode
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | yes | Display label |
+| URL | string | yes | Endpoint the engine POSTs to with instance variables |
+| Method | string | no | HTTP method (default: POST) |
+| Timeout (ms) | integer | no | Request timeout in milliseconds |
+| Auth Type | `none` \| `bearer` \| `api_key` | no | Authentication mode |
+| Secret Ref | string | no | Secret name (when auth type is `bearer` or `api_key`) |
+| Request Transform | FEEL | no | FEEL expression to reshape the request body |
+| Response Transform | FEEL | no | FEEL expression to extract variables from response |
+| Error Code Expression | FEEL | no | FEEL expression — if truthy, throws a BPMN error |
+| Retry | object | no | `{ maxAttempts, initialDelayMs, backoffMultiplier }` |
+
+## XML Example
+
+```xml
+<!-- External worker mode -->
+<bpmn:serviceTask id="process_payment" name="Process Payment">
+  <bpmn:extensionElements>
+    <conduit:taskTopic>payment-worker</conduit:taskTopic>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_payment</bpmn:incoming>
+  <bpmn:outgoing>flow_to_confirm</bpmn:outgoing>
+</bpmn:serviceTask>
+```
+
+```xml
+<!-- HTTP push mode -->
+<bpmn:serviceTask id="notify_crm" name="Notify CRM">
+  <bpmn:extensionElements>
+    <conduit:httpConnector>
+      <conduit:url>https://crm.example.com/api/orders</conduit:url>
+      <conduit:method>POST</conduit:method>
+    </conduit:httpConnector>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_crm</bpmn:incoming>
+  <bpmn:outgoing>flow_done</bpmn:outgoing>
+</bpmn:serviceTask>
+```
+
+## API Integration — External Worker
+
+**Fetch and lock available tasks:**
+
+```http
+POST /api/v1/external-tasks/fetch-and-lock
+Content-Type: application/json
+
+{
+  "worker_id": "my-worker-1",
+  "topics": [{ "topic_name": "payment-worker", "lock_duration": 30000 }],
+  "max_tasks": 5
+}
+```
+
+**Complete a task:**
+
+```http
+POST /api/v1/external-tasks/{task_id}/complete
+Content-Type: application/json
+
+{
+  "worker_id": "my-worker-1",
+  "variables": [
+    { "name": "paymentId", "value": "PAY-999" },
+    { "name": "status", "value": "success" }
+  ]
+}
+```
+
+**Report a failure:**
+
+```http
+POST /api/v1/external-tasks/{task_id}/failure
+Content-Type: application/json
+
+{
+  "worker_id": "my-worker-1",
+  "error_message": "Payment gateway timeout",
+  "retries": 2,
+  "retry_timeout": 5000
+}
+```
+
+**Throw a BPMN error** (routes to [Boundary Error Event](/docs/elements/boundary-error-event/)):
+
+```http
+POST /api/v1/external-tasks/{task_id}/bpmn-error
+Content-Type: application/json
+
+{
+  "worker_id": "my-worker-1",
+  "error_code": "PAYMENT_DECLINED",
+  "error_message": "Card declined"
+}
+```

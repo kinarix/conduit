@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { createContext, useContext, useState } from 'react'
 import Layout from './components/Layout'
 import Welcome from './pages/Welcome'
-import DefinitionsList from './pages/DefinitionsList'
+import OrgDashboard from './pages/OrgDashboard'
+import ProcessGroupDashboard from './pages/ProcessGroupDashboard'
 import Modeller from './pages/Modeller'
 import ProcessDashboard from './pages/Process/ProcessDashboard'
 import InstancesList from './pages/InstancesList'
@@ -29,14 +30,6 @@ interface OrgContextValue {
 export const OrgContext = createContext<OrgContextValue>({ org: null, setOrg: () => {} })
 export const useOrg = () => useContext(OrgContext)
 
-function HomeIndex() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--color-text-muted)', fontSize: 14 }}>
-      Select a process from the sidebar to get started.
-    </div>
-  )
-}
-
 function DefinitionRedirect() {
   const { id = '' } = useParams<{ id: string }>()
   const { data, isLoading, error } = useQuery({
@@ -61,12 +54,12 @@ export default function App() {
     <OrgContext.Provider value={{ org, setOrg }}>
       <Routes>
         <Route path="/" element={<Layout />}>
-          <Route index element={<HomeIndex />} />
+          <Route index element={<OrgDashboard />} />
           <Route path="definitions" element={<Navigate to="/" replace />} />
           {/* Legacy /definitions/:id resolves to the new Process Dashboard. */}
           <Route path="definitions/:id" element={<DefinitionRedirect />} />
           <Route path="definitions/:id/edit" element={<Modeller />} />
-          <Route path="process-groups/:groupId" element={<DefinitionsList />} />
+          <Route path="process-groups/:groupId" element={<ProcessGroupDashboard />} />
           <Route path="process-groups/:groupId/definitions/new" element={<Modeller />} />
           <Route
             path="groups/:groupId/processes/:processKey"

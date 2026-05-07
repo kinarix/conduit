@@ -1,0 +1,56 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Message Start Event'
+group: 'Events'
+---
+import StartEventDiagram from '../../../components/diagrams/StartEventDiagram.tsx';
+
+<span class="badge-event">Event</span>
+
+# Message Start Event
+
+<StartEventDiagram variant="message" client:load />
+
+Starts a new process instance when a message with a matching name is received via the API. Unlike a plain start event, the instance is not created until the message arrives.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique identifier |
+| Name | string | no | Display label |
+| Message Name | string | yes | Must match the `message_name` field in the POST body |
+
+## XML Example
+
+```xml
+<bpmn:startEvent id="msg_start" name="Order Received">
+  <bpmn:messageEventDefinition messageRef="msg_order_received"/>
+  <bpmn:outgoing>flow_to_validate</bpmn:outgoing>
+</bpmn:startEvent>
+
+<bpmn:message id="msg_order_received" name="OrderReceived"/>
+```
+
+## API Integration
+
+**Trigger the message start event:**
+
+```http
+POST /api/v1/messages
+Content-Type: application/json
+
+{
+  "org_id": "your-org-id",
+  "message_name": "OrderReceived",
+  "correlation_key": null,
+  "variables": [
+    { "name": "orderId", "value": "ORD-001" },
+    { "name": "amount", "value": 250.00 }
+  ]
+}
+```
+
+The `message_name` value must exactly match the **Message Name** configured on the start event. Variables passed in the payload become available as process variables from the first task onward.
+
+When `correlation_key` is `null`, the engine creates a new instance. To deliver to an existing waiting instance instead, use a [Message Catch Event](/docs/elements/message-catch-event/) or [Receive Task](/docs/elements/receive-task/) with a non-null correlation key.

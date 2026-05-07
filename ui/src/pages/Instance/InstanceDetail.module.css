@@ -90,7 +90,7 @@
   word-break: break-word;
   font-family: var(--font-mono);
   font-size: var(--text-md);
-  color: #991b1b;
+  color: var(--status-error);
 }
 
 .tasksTable,

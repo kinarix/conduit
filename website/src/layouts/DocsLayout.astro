@@ -1,0 +1,171 @@
+---
+import BaseLayout from './BaseLayout.astro';
+
+export interface Props {
+  title: string;
+  description?: string;
+}
+const { title, description } = Astro.props;
+const currentPath = Astro.url.pathname;
+
+const nav = [
+  { label: 'Overview', href: '/docs/' },
+  {
+    label: 'BPMN Elements',
+    href: '/docs/elements/',
+    children: [
+      { label: 'Overview', href: '/docs/elements/' },
+      { label: '— Events —', divider: true },
+      { label: 'Start Event', href: '/docs/elements/start-event/' },
+      { label: 'Message Start', href: '/docs/elements/message-start-event/' },
+      { label: 'Timer Start', href: '/docs/elements/timer-start-event/' },
+      { label: 'End Event', href: '/docs/elements/end-event/' },
+      { label: 'Timer Catch', href: '/docs/elements/timer-catch-event/' },
+      { label: 'Message Catch', href: '/docs/elements/message-catch-event/' },
+      { label: 'Signal Catch', href: '/docs/elements/signal-catch-event/' },
+      { label: '— Tasks —', divider: true },
+      { label: 'User Task', href: '/docs/elements/user-task/' },
+      { label: 'Service Task', href: '/docs/elements/service-task/' },
+      { label: 'Script Task', href: '/docs/elements/script-task/' },
+      { label: 'Business Rule Task', href: '/docs/elements/business-rule-task/' },
+      { label: 'Sub-Process', href: '/docs/elements/sub-process/' },
+      { label: 'Send Task', href: '/docs/elements/send-task/' },
+      { label: 'Receive Task', href: '/docs/elements/receive-task/' },
+      { label: '— Gateways —', divider: true },
+      { label: 'Exclusive Gateway', href: '/docs/elements/exclusive-gateway/' },
+      { label: 'Parallel Gateway', href: '/docs/elements/parallel-gateway/' },
+      { label: 'Inclusive Gateway', href: '/docs/elements/inclusive-gateway/' },
+      { label: 'Sequence Flow', href: '/docs/elements/sequence-flow/' },
+      { label: '— Boundary Events —', divider: true },
+      { label: 'Boundary Timer', href: '/docs/elements/boundary-timer-event/' },
+      { label: 'Boundary Signal', href: '/docs/elements/boundary-signal-event/' },
+      { label: 'Boundary Error', href: '/docs/elements/boundary-error-event/' },
+    ],
+  },
+  {
+    label: 'Decision Tables',
+    href: '/docs/decision-tables/',
+    children: [
+      { label: 'Overview', href: '/docs/decision-tables/' },
+      { label: 'Hit Policies', href: '/docs/decision-tables/hit-policies/' },
+      { label: 'FEEL Reference', href: '/docs/decision-tables/feel-reference/' },
+    ],
+  },
+];
+---
+<BaseLayout title={title} description={description}>
+  <div class="docs-layout">
+    <aside class="sidebar">
+      <nav>
+        {nav.map(section => (
+          <div class="nav-section">
+            {section.children ? (
+              <>
+                <div class="nav-section-label">{section.label}</div>
+                <ul>
+                  {section.children.map(item =>
+                    item.divider ? (
+                      <li class="nav-divider">{item.label}</li>
+                    ) : (
+                      <li>
+                        <a href={item.href} class={currentPath === item.href ? 'active' : ''}>
+                          {item.label}
+                        </a>
+                      </li>
+                    )
+                  )}
+                </ul>
+              </>
+            ) : (
+              <a href={section.href} class={`top-link ${currentPath === section.href ? 'active' : ''}`}>
+                {section.label}
+              </a>
+            )}
+          </div>
+        ))}
+      </nav>
+    </aside>
+    <article class="content">
+      <slot />
+    </article>
+  </div>
+</BaseLayout>
+
+<style>
+  .docs-layout {
+    display: flex;
+    max-width: 1200px;
+    margin: 0 auto;
+    min-height: calc(100vh - 112px);
+  }
+
+  .sidebar {
+    width: var(--sidebar-width);
+    flex-shrink: 0;
+    border-right: 1px solid var(--color-border);
+    padding: 1.5rem 0;
+    position: sticky;
+    top: 56px;
+    height: calc(100vh - 56px);
+    overflow-y: auto;
+  }
+
+  .sidebar nav { padding: 0 0.75rem; }
+
+  .nav-section { margin-bottom: 0.5rem; }
+  .nav-section-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    padding: 0.5rem 0.5rem 0.25rem;
+  }
+  .top-link {
+    display: block;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: var(--color-muted);
+    font-weight: 600;
+  }
+  .top-link:hover, .top-link.active { background: var(--color-surface-2); color: var(--color-text); text-decoration: none; }
+
+  ul { list-style: none; margin: 0; padding: 0; }
+
+  li a {
+    display: block;
+    padding: 0.3rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: var(--color-muted);
+  }
+  li a:hover, li a.active {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+    text-decoration: none;
+  }
+  li a.active { color: var(--color-accent-light); }
+
+  .nav-divider {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-border);
+    padding: 0.6rem 0.5rem 0.15rem;
+    margin-top: 0.25rem;
+  }
+
+  .content {
+    flex: 1;
+    padding: 2.5rem 3rem;
+    min-width: 0;
+    max-width: 800px;
+  }
+
+  @media (max-width: 768px) {
+    .sidebar { display: none; }
+    .content { padding: 1.5rem; }
+  }
+</style>

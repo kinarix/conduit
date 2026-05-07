@@ -1,0 +1,69 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Exclusive Gateway'
+group: 'Gateways'
+---
+import GatewayDiagram from '../../../components/diagrams/GatewayDiagram.tsx';
+
+<span class="badge-gateway">Gateway</span>
+
+# Exclusive Gateway
+
+<GatewayDiagram variant="exclusive" client:load />
+
+Routes to **exactly one** outgoing flow. Each outgoing flow can have a FEEL condition expression. The first flow whose condition evaluates to `true` is taken. Leave one flow without a condition as a default fallback — it is taken when no other condition matches.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique element identifier |
+| Name | string | no | Display label (shown on the diamond) |
+
+Conditions are set on the outgoing **Sequence Flows**, not on the gateway itself. Select a sequence flow from the gateway to edit its condition.
+
+## Condition Expressions (FEEL)
+
+Conditions reference process variables by name:
+
+```feel
+approved
+amount > 1000
+status = "pending"
+amount > 1000 and tier = "gold"
+count(items) >= 3
+customer.tier = "gold"
+```
+
+| Concept | Syntax |
+|---------|--------|
+| Equality | `=` (not `==`) |
+| Inequality | `!=`, `<`, `>`, `<=`, `>=` |
+| Boolean AND | `and` |
+| Boolean OR | `or` |
+| Negation | `not(expr)` |
+| List length | `count(list)` |
+| List access | `list[1]` (1-based) |
+| String literal | `"double quotes"` |
+
+## XML Example
+
+```xml
+<bpmn:exclusiveGateway id="check_amount" name="Amount Check?"/>
+
+<bpmn:sequenceFlow id="high_value_flow" sourceRef="check_amount" targetRef="manual_review">
+  <bpmn:conditionExpression>amount > 1000</bpmn:conditionExpression>
+</bpmn:sequenceFlow>
+
+<bpmn:sequenceFlow id="default_flow" sourceRef="check_amount" targetRef="auto_approve"/>
+```
+
+## Default Flow
+
+Mark one outgoing flow as the default by omitting the condition (or setting the `default` attribute). It is taken when all conditional flows evaluate to `false`. If no flow matches and there is no default, the engine throws an error.
+
+## Notes
+
+- Evaluation order follows the XML document order of outgoing flows
+- A flow with no condition is treated as the default (always matches) — put it last
+- For OR routing (activate multiple matching branches), use an [Inclusive Gateway](/docs/elements/inclusive-gateway/)

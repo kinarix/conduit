@@ -1,0 +1,75 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Sequence Flow'
+group: 'Gateways'
+---
+
+<span class="badge-gateway">Flow</span>
+
+# Sequence Flow
+
+A sequence flow is the arrow connecting elements. It carries the token from one element to the next. Most flows are unconditional — the token simply moves along them. Conditions are only evaluated when the source is a gateway.
+
+## Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| ID | string | yes | Unique identifier |
+| Source | element ID | yes | The element the arrow leaves |
+| Target | element ID | yes | The element the arrow enters |
+| Condition | FEEL expression | no | Only evaluated when source is an Exclusive or Inclusive Gateway |
+| Name | string | no | Optional label shown on the arrow |
+
+## Condition Expressions
+
+Conditions are [FEEL](https://www.omg.org/spec/DMN/) expressions referencing process variables by name:
+
+```feel
+approved
+score >= 80
+tier = "gold" and amount > 1000
+status = "pending" or status = "in_review"
+count(items) > 0
+```
+
+A flow without a condition is unconditional — always taken when the source element advances.
+
+## XML Example
+
+```xml
+<!-- Unconditional flow -->
+<bpmn:sequenceFlow id="flow_1"
+  sourceRef="start" targetRef="first_task"/>
+
+<!-- Conditional flow from exclusive gateway -->
+<bpmn:sequenceFlow id="high_value_path"
+  sourceRef="amount_check" targetRef="manual_review">
+  <bpmn:conditionExpression>amount > 1000</bpmn:conditionExpression>
+</bpmn:sequenceFlow>
+
+<!-- Default fallback (no condition) -->
+<bpmn:sequenceFlow id="default_path"
+  sourceRef="amount_check" targetRef="auto_process"/>
+```
+
+## Where Conditions Are Used
+
+| Source Element | Condition Behavior |
+|---------------|-------------------|
+| [Exclusive Gateway](/docs/elements/exclusive-gateway/) | First `true` condition wins; one unconditioned flow = default |
+| [Inclusive Gateway](/docs/elements/inclusive-gateway/) | All `true` conditions activate; at least one must match |
+| Task / Event | Ignored — unconditional flow always taken |
+| Parallel Gateway | Ignored — all outgoing flows always activated |
+
+## FEEL Quick Reference
+
+| Concept | Syntax |
+|---------|--------|
+| Equality | `=` |
+| Inequality | `!=`, `<`, `>`, `<=`, `>=` |
+| AND | `and` |
+| OR | `or` |
+| Negation | `not(expr)` |
+| String | `"double quotes"` |
+| List | `[1, 2, 3]` |
+| List length | `count(list)` |

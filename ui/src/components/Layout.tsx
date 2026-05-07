@@ -5,12 +5,48 @@ import { fetchOrgs } from '../api/orgs'
 import Sidebar from './Sidebar/Sidebar'
 import Welcome from '../pages/Welcome'
 
+const SIDEBAR_MIN = 160
+const SIDEBAR_MAX = 520
+const SIDEBAR_DEFAULT = 260
+const SIDEBAR_STORAGE_KEY = 'sidebar.width'
+
+function readSavedWidth() {
+  const raw = localStorage.getItem(SIDEBAR_STORAGE_KEY)
+  if (!raw) return SIDEBAR_DEFAULT
+  const n = parseInt(raw, 10)
+  return isNaN(n) ? SIDEBAR_DEFAULT : Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, n))
+}
+
 export default function Layout() {
   const { data: orgs = [], isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['orgs'],
     queryFn: fetchOrgs,
     retry: 1,
   })
+
+  const [sidebarWidth, setSidebarWidth] = useState(readSavedWidth)
+  const [dragging, setDragging] = useState(false)
+  const dragStart = useRef<{ x: number; width: number } | null>(null)
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragStart.current = { x: e.clientX, width: sidebarWidth }
+    setDragging(true)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStart.current) return
+    const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStart.current.width + e.clientX - dragStart.current.x))
+    setSidebarWidth(next)
+  }
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStart.current) return
+    const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStart.current.width + e.clientX - dragStart.current.x))
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next))
+    dragStart.current = null
+    setDragging(false)
+  }
 
   if (isLoading) {
     return (
@@ -25,10 +61,27 @@ export default function Layout() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
-      <Sidebar />
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', cursor: dragging ? 'col-resize' : undefined }}>
+      <Sidebar width={sidebarWidth} />
 
-      <main style={{ flex: 1, overflow: 'auto' }}>
+      <div
+        style={{
+          width: 4,
+          flexShrink: 0,
+          cursor: 'col-resize',
+          background: dragging ? 'var(--accent)' : 'transparent',
+          transition: dragging ? 'none' : 'background 0.15s',
+          userSelect: 'none',
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onMouseEnter={e => { if (!dragging) (e.currentTarget as HTMLDivElement).style.background = 'var(--border-primary)' }}
+        onMouseLeave={e => { if (!dragging) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
+      />
+
+      <main style={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
         {orgs.length === 0 ? <Welcome /> : <Outlet />}
       </main>
     </div>

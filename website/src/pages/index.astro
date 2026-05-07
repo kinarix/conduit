@@ -42,7 +42,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       <div class="feature-card">
         <div class="icon">📐</div>
         <h3>BPMN 2.0 + DMN</h3>
-        <p>Full BPMN 2.0 element support including subprocesses, boundary events, message/signal correlation, and DMN decision tables.</p>
+        <p>20+ element kinds: user / service / script / send / business-rule tasks, embedded subprocesses, boundary events (timer, signal, error), inclusive / parallel gateways, message and signal correlation, DMN decision tables.</p>
       </div>
       <div class="feature-card">
         <div class="icon">🔢</div>
@@ -51,8 +51,28 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       </div>
       <div class="feature-card">
         <div class="icon">📊</div>
-        <h3>Observability built-in</h3>
-        <p>Prometheus metrics, structured JSON logs, and a health endpoint. Leader election for clustered deployments via PostgreSQL advisory locks.</p>
+        <h3>Observability + safe rollouts</h3>
+        <p>Prometheus metrics, structured JSON logs, leader election via PostgreSQL advisory locks. Per-version enable/disable lets you stop new instances on a bad deploy while in-flight ones finish cleanly.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="extras">
+    <div class="extras-inner">
+      <h2>What you also get</h2>
+      <div class="extra-cards">
+        <div class="extra-card">
+          <h4>HTTP push connector</h4>
+          <p>Mark a service task with <code>&lt;conduit:http&gt;</code> and the engine calls your endpoint directly &mdash; no worker required. Headers, body templates, retries, and timeouts are configured per task.</p>
+        </div>
+        <div class="extra-card">
+          <h4>Encrypted secrets</h4>
+          <p>Reference secrets as <code>&#123;&#123;secret:my-api-key&#125;&#125;</code> inside connector configs. Secrets are stored encrypted, scoped per organisation, and never logged.</p>
+        </div>
+        <div class="extra-card">
+          <h4>Org &amp; group hierarchy</h4>
+          <p>Multi-tenant out of the box. Organisations contain process groups; groups contain processes and decisions. The web UI ships with a tree sidebar, inline rename, and a draft / promote workflow.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -169,6 +189,29 @@ cargo sqlx migrate run</code></pre>
   .icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
   .feature-card h3 { margin: 0 0 0.5rem; font-size: 1rem; }
   .feature-card p { margin: 0; color: var(--color-muted); font-size: 0.9rem; }
+
+  .extras { background: var(--color-bg); }
+  .extras-inner { max-width: 1100px; margin: 0 auto; }
+  .extras-inner h2 { margin: 0 0 1.5rem; text-align: center; }
+  .extra-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.25rem;
+  }
+  .extra-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 1.5rem;
+  }
+  .extra-card h4 { margin: 0 0 0.5rem; font-size: 1rem; color: #fff; }
+  .extra-card p { margin: 0; color: var(--color-muted); font-size: 0.9rem; }
+  .extra-card code {
+    background: var(--color-surface-2);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.85em;
+  }
 
   .arch-inner { max-width: 720px; margin: 0 auto; }
   .arch-inner h2 { margin-top: 0; }

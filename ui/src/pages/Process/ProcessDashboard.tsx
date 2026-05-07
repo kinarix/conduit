@@ -1,17 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchDeployments,
   groupByProcessKey,
+  setDeploymentDisabled,
+  deleteDeployment,
   type ProcessDefinition,
   type LogicalProcess,
 } from '../../api/deployments'
 import { fetchProcessGroups } from '../../api/processGroups'
-import { fetchInstances, type ProcessInstance } from '../../api/instances'
+import { fetchInstances, fetchInstancesPage, type ProcessInstance } from '../../api/instances'
 import { fetchTasks } from '../../api/tasks'
 import { useOrg } from '../../App'
 import StartInstancePanel from './StartInstancePanel'
+import { PowerIcon, PencilIcon, TrashIcon } from '../../components/Sidebar/SidebarIcons'
+import tabStyles from '../Instance/InstanceTabs.module.css'
 import {
   bucketThroughput,
   bucketElapsed,
@@ -38,6 +42,7 @@ export default function ProcessDashboard() {
   const { org } = useOrg()
 
   const decodedKey = decodeURIComponent(processKey)
+  const [tab, setTab] = useState<'dashboard' | 'instances'>('dashboard')
 
   const groupsQ = useQuery({
     queryKey: ['process-groups', org?.id],
@@ -108,66 +113,107 @@ export default function ProcessDashboard() {
         onNavigateGroup={() => navigate(`/process-groups/${groupId}`)}
       />
 
-      <AggregateKpis instances={aggregateInstances} versionCount={proc.versions.length} />
+      <div className={tabStyles.tabBar}>
+        <button
+          type="button"
+          className={`${tabStyles.tab} ${tab === 'dashboard' ? tabStyles.active : ''}`}
+          onClick={() => setTab('dashboard')}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          className={`${tabStyles.tab} ${tab === 'instances' ? tabStyles.active : ''}`}
+          onClick={() => setTab('instances')}
+        >
+          All instances
+          {aggregateInstances.length > 0 && (
+            <span className={tabStyles.badge}>{aggregateInstances.length}</span>
+          )}
+        </button>
+      </div>
 
-      <Section title="Versions">
-        <div className={styles.versions}>
-          {proc.versions.map(v => (
-            <VersionCard
-              key={v.id}
-              version={v}
-              instanceCount={allInstances.filter(i => i.definition_id === v.id).length}
-              selected={selectedVersion!.id === v.id}
-              onSelect={() => setSelectedVersionId(v.id)}
-              onEdit={() => navigate(`/definitions/${v.id}/edit`)}
-            />
-          ))}
-        </div>
-      </Section>
+      {tab === 'dashboard' && (
+        <>
+          <AggregateKpis instances={aggregateInstances} versionCount={proc.versions.length} />
 
-      <Section
-        title={`Selected: v${selectedVersion!.version} (${selectedVersion!.status})`}
-        right={
-          <div className={styles.bucketToggle}>
-            {WINDOW_OPTIONS.map(w => (
-              <button
-                key={w.id}
-                type="button"
-                className={windowOpt.id === w.id ? styles.active : ''}
-                onClick={() => setWindowOpt(w)}
+          <Section title="Versions">
+            <div className={styles.versions}>
+              {proc.versions.map(v => (
+                <VersionCard
+                  key={v.id}
+                  version={v}
+                  instanceCount={allInstances.filter(i => i.definition_id === v.id).length}
+                  selected={selectedVersion!.id === v.id}
+                  onSelect={() => setSelectedVersionId(v.id)}
+                  onEdit={() => navigate(`/definitions/${v.id}/edit`)}
+                />
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            title={`Selected: v${selectedVersion!.version} (${selectedVersion!.status})`}
+            right={
+              <div className={styles.bucketToggle}>
+                {WINDOW_OPTIONS.map(w => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    className={windowOpt.id === w.id ? styles.active : ''}
+                    onClick={() => setWindowOpt(w)}
+                  >
+                    {w.label}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            <VersionKpis instances={versionInstances} tasks={versionTasks.length} />
+
+            <div className={styles.chartsGrid}>
+              <ChartCard title="Throughput">
+                <ThroughputChart
+                  data={bucketThroughput(versionInstances, chooseBucket(windowOpt.ms), windowOpt.ms)}
+                />
+              </ChartCard>
+              <ChartCard title="Elapsed time (P50 / P95 / P99)">
+                <ElapsedTimeChart
+                  data={bucketElapsed(versionInstances, chooseBucket(windowOpt.ms), windowOpt.ms)}
+                />
+              </ChartCard>
+              <ChartCard title="Outcomes">
+                <ErrorRateChart
+                  data={bucketThroughput(versionInstances, chooseBucket(windowOpt.ms), windowOpt.ms)}
+                />
+              </ChartCard>
+            </div>
+          </Section>
+
+          <Section
+            title={`Recent instances (v${selectedVersion!.version})`}
+            right={
+              <a
+                className={styles.crumbLink}
+                style={{ fontSize: 12 }}
+                onClick={() => setTab('instances')}
               >
-                {w.label}
-              </button>
-            ))}
-          </div>
-        }
-      >
-        <VersionKpis instances={versionInstances} tasks={versionTasks.length} />
+                All instances →
+              </a>
+            }
+          >
+            <RecentInstances orgId={org.id} definitionId={selectedVersion!.id} />
+          </Section>
 
-        <div className={styles.chartsGrid}>
-          <ChartCard title="Throughput">
-            <ThroughputChart
-              data={bucketThroughput(versionInstances, chooseBucket(windowOpt.ms), windowOpt.ms)}
-            />
-          </ChartCard>
-          <ChartCard title="Elapsed time (P50 / P95 / P99)">
-            <ElapsedTimeChart
-              data={bucketElapsed(versionInstances, chooseBucket(windowOpt.ms), windowOpt.ms)}
-            />
-          </ChartCard>
-          <ChartCard title="Outcomes">
-            <ErrorRateChart
-              data={bucketThroughput(versionInstances, chooseBucket(windowOpt.ms), windowOpt.ms)}
-            />
-          </ChartCard>
-        </div>
-      </Section>
+          <StartInstanceLauncher org={org.id} version={selectedVersion!} />
+        </>
+      )}
 
-      <Section title={`Recent instances (v${selectedVersion!.version})`}>
-        <RecentInstances instances={versionInstances.slice(0, 50)} />
-      </Section>
-
-      <StartInstanceLauncher org={org.id} version={selectedVersion!} />
+      {tab === 'instances' && (
+        <Section title={`All instances (v${selectedVersion!.version})`}>
+          <AllInstances orgId={org.id} definitionId={selectedVersion!.id} />
+        </Section>
+      )}
     </div>
   )
 }
@@ -283,17 +329,34 @@ function VersionCard({
   onSelect: () => void
   onEdit: () => void
 }) {
+  const qc = useQueryClient()
+  const disabled = !!version.disabled_at
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const toggleMut = useMutation({
+    mutationFn: () => setDeploymentDisabled(version.id, !disabled),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['deployments'] }),
+  })
+  const deleteMut = useMutation({
+    mutationFn: () => deleteDeployment(version.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deployments'] })
+      setConfirmOpen(false)
+    },
+  })
   return (
     <div
       className={`${styles.versionCard} ${selected ? styles.selected : ''} ${
         version.status === 'draft' ? styles.draft : ''
       }`}
       onClick={onSelect}
+      style={disabled ? { opacity: 0.6 } : undefined}
     >
       <div className={styles.versionLabel}>
         <span>v{version.version}</span>
         {version.status === 'draft' ? (
           <span className={styles.draftPill}>Draft</span>
+        ) : disabled ? (
+          <span className={styles.statusPill} style={{ background: 'rgba(148,163,184,0.18)', color: '#94a3b8' }}>Disabled</span>
         ) : (
           <span className={`${styles.statusPill} ${styles.deployed}`}>Deployed</span>
         )}
@@ -302,15 +365,73 @@ function VersionCard({
         {new Date(version.deployed_at).toLocaleDateString()} · {instanceCount}{' '}
         {instanceCount === 1 ? 'instance' : 'instances'}
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-        <a
-          className={styles.crumbLink}
-          style={{ fontSize: 11 }}
+      <div style={{ display: 'flex', gap: 4, marginTop: 4, alignItems: 'center' }}>
+        <button
+          type="button"
           onClick={e => { e.stopPropagation(); onEdit() }}
+          title="Open in modeller"
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 4,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            color: 'var(--text-secondary)',
+          }}
         >
-          Open in modeller
-        </a>
+          <PencilIcon size={18} />
+        </button>
+        {version.status === 'deployed' && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); toggleMut.mutate() }}
+            disabled={toggleMut.isPending}
+            title={disabled ? 'Enable: allow new instances of this version' : 'Disable: block new instances of this version'}
+            style={{
+              marginLeft: 'auto',
+              background: 'none',
+              border: 'none',
+              padding: 4,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              color: disabled ? 'var(--color-error)' : 'var(--color-success)',
+              opacity: toggleMut.isPending ? 0.5 : 1,
+            }}
+          >
+            <PowerIcon size={18} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); setConfirmOpen(true) }}
+          disabled={deleteMut.isPending}
+          title="Delete this version (only allowed if it has no instances)"
+          style={{
+            marginLeft: version.status === 'deployed' ? 0 : 'auto',
+            background: 'none',
+            border: 'none',
+            padding: 4,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            color: 'var(--text-tertiary)',
+            opacity: deleteMut.isPending ? 0.5 : 1,
+          }}
+        >
+          <TrashIcon size={18} />
+        </button>
       </div>
+      {confirmOpen && (
+        <DeleteVersionModal
+          label={version.status === 'draft' ? 'draft' : `v${version.version}`}
+          pending={deleteMut.isPending}
+          error={deleteMut.error}
+          onCancel={() => { deleteMut.reset(); setConfirmOpen(false) }}
+          onConfirm={() => deleteMut.mutate()}
+        />
+      )}
     </div>
   )
 }
@@ -344,8 +465,15 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
   )
 }
 
-function RecentInstances({ instances }: { instances: ProcessInstance[] }) {
+function RecentInstances({ orgId, definitionId }: { orgId: string; definitionId: string }) {
   const navigate = useNavigate()
+  const { data } = useQuery({
+    queryKey: ['instances-page', orgId, definitionId, 'recent'],
+    queryFn: () => fetchInstancesPage({ org_id: orgId, definition_id: definitionId, limit: 10, offset: 0 }),
+    refetchInterval: 5_000,
+    placeholderData: prev => prev,
+  })
+  const instances = data?.instances ?? []
   if (instances.length === 0) {
     return <div className={`${styles.tableWrap} ${styles.empty}`}>No instances yet for this version.</div>
   }
@@ -354,7 +482,7 @@ function RecentInstances({ instances }: { instances: ProcessInstance[] }) {
       <table className={styles.table}>
         <thead>
           <tr>
-            <th>ID</th>
+            <th>#</th>
             <th>State</th>
             <th>Started</th>
             <th>Ended</th>
@@ -362,28 +490,148 @@ function RecentInstances({ instances }: { instances: ProcessInstance[] }) {
           </tr>
         </thead>
         <tbody>
-          {instances.map(i => (
-            <tr key={i.id} onClick={() => navigate(`/instances/${i.id}`)}>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{i.id.slice(0, 8)}…</td>
-              <td>
-                <StateBadge state={i.state} />
-              </td>
-              <td style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-                {new Date(i.started_at).toLocaleString()}
-              </td>
-              <td style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-                {i.ended_at ? new Date(i.ended_at).toLocaleString() : '—'}
-              </td>
-              <td style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
-                {i.ended_at
-                  ? formatDurationSec((new Date(i.ended_at).getTime() - new Date(i.started_at).getTime()) / 1000)
-                  : '—'}
-              </td>
-            </tr>
-          ))}
+          {instances.map(i => <InstanceRow key={i.id} inst={i} onClick={() => navigate(`/instances/${i.id}`)} />)}
         </tbody>
       </table>
     </div>
+  )
+}
+
+function AllInstances({ orgId, definitionId }: { orgId: string; definitionId: string }) {
+  const navigate = useNavigate()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [pageSize, setPageSize] = useState(25)
+  const [offset, setOffset] = useState(0)
+  const [panelHeight, setPanelHeight] = useState<number>(0)
+
+  useLayoutEffect(() => {
+    const ROW_HEIGHT = 40       // approx from styles.table td padding + line-height
+    const HEADER_H = 36         // table thead row
+    const FOOTER_H = 40         // pagination footer
+    const BOTTOM_GAP = 24       // breathing room below the panel
+    const MIN_ROWS = 10
+    const MAX_ROWS = 100
+    const recalc = () => {
+      const el = containerRef.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top
+      const height = Math.max(200, window.innerHeight - top - BOTTOM_GAP)
+      setPanelHeight(prev => (prev === height ? prev : height))
+      const available = height - HEADER_H - FOOTER_H
+      const rows = Math.max(MIN_ROWS, Math.min(MAX_ROWS, Math.floor(available / ROW_HEIGHT)))
+      setPageSize(prev => (prev === rows ? prev : rows))
+    }
+    recalc()
+    window.addEventListener('resize', recalc)
+    return () => window.removeEventListener('resize', recalc)
+  }, [])
+
+  const { data } = useQuery({
+    queryKey: ['instances-page', orgId, definitionId, pageSize, offset],
+    queryFn: () => fetchInstancesPage({ org_id: orgId, definition_id: definitionId, limit: pageSize, offset }),
+    refetchInterval: 5_000,
+    placeholderData: prev => prev,
+  })
+  const instances = data?.instances ?? []
+  const total = data?.total ?? 0
+
+  // If total shrank below current offset (e.g. after deletes), step back.
+  useEffect(() => {
+    if (total > 0 && offset >= total) setOffset(Math.max(0, total - pageSize))
+  }, [total, offset, pageSize])
+
+  if (total === 0) {
+    return (
+      <div
+        ref={containerRef}
+        className={`${styles.tableWrap} ${styles.empty}`}
+        style={panelHeight ? { height: panelHeight } : undefined}
+      >
+        No instances yet for this version.
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className={styles.tableWrap}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        ...(panelHeight ? { height: panelHeight } : {}),
+      }}
+    >
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>State</th>
+              <th>Started</th>
+              <th>Ended</th>
+              <th>Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            {instances.map(i => <InstanceRow key={i.id} inst={i} onClick={() => navigate(`/instances/${i.id}`)} />)}
+          </tbody>
+        </table>
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '8px 12px',
+          fontSize: 12,
+          color: 'var(--text-tertiary)',
+          borderTop: '1px solid var(--border)',
+          background: 'var(--bg-secondary)',
+          flexShrink: 0,
+        }}
+      >
+        <span>
+          {offset + 1}–{Math.min(offset + pageSize, total)} of {total}
+        </span>
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button disabled={offset === 0} onClick={() => setOffset(o => Math.max(0, o - pageSize))} style={{ fontSize: 11, padding: '3px 10px' }}>
+            ← Prev
+          </button>
+          <button disabled={offset + pageSize >= total} onClick={() => setOffset(o => o + pageSize)} style={{ fontSize: 11, padding: '3px 10px' }}>
+            Next →
+          </button>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function InstanceRow({
+  inst,
+  onClick,
+}: {
+  inst: ProcessInstance
+  onClick: () => void
+}) {
+  return (
+    <tr onClick={onClick}>
+      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500 }}>#{inst.counter}</td>
+      <td>
+        <StateBadge state={inst.state} />
+      </td>
+      <td style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+        {new Date(inst.started_at).toLocaleString()}
+      </td>
+      <td style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+        {inst.ended_at ? new Date(inst.ended_at).toLocaleString() : '—'}
+      </td>
+      <td style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>
+        {inst.ended_at
+          ? formatDurationSec((new Date(inst.ended_at).getTime() - new Date(inst.started_at).getTime()) / 1000)
+          : '—'}
+      </td>
+    </tr>
   )
 }
 
@@ -416,8 +664,14 @@ function StartInstanceLauncher({ org, version }: { org: string; version: Process
       <div style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 30 }}>
         <button
           className="btn-primary"
-          disabled={version.status !== 'deployed'}
-          title={version.status !== 'deployed' ? 'Deploy this version before starting' : ''}
+          disabled={version.status !== 'deployed' || !!version.disabled_at}
+          title={
+            version.status !== 'deployed'
+              ? 'Deploy this version before starting'
+              : version.disabled_at
+              ? 'This version is disabled — enable it to start new instances'
+              : ''
+          }
           onClick={() => setOpen(true)}
           style={{ padding: '10px 20px', fontSize: 14, boxShadow: 'var(--shadow-md)' }}
         >
@@ -429,9 +683,40 @@ function StartInstanceLauncher({ org, version }: { org: string; version: Process
           org={org}
           version={version}
           onClose={() => setOpen(false)}
-          onStarted={id => navigate(`/instances/${id}`)}
         />
       )}
     </>
+  )
+}
+
+function DeleteVersionModal({
+  label,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  label: string
+  pending: boolean
+  error: unknown
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h3>Delete version</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0 16px' }}>
+          Delete <strong>{label}</strong>? This cannot be undone. The version must have no instances.
+        </p>
+        {error ? <div className="error-banner">{String((error as Error).message ?? error)}</div> : null}
+        <div className="modal-actions">
+          <button className="btn-ghost" disabled={pending} onClick={onCancel}>Cancel</button>
+          <button className="btn-danger" disabled={pending} onClick={onConfirm}>
+            {pending ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

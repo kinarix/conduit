@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
 use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 use tracing::{debug, info};
 
-use crate::db::models::{DecisionDefinition, Execution, Variable};
+use crate::db::models::{DecisionDefinition, Execution};
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph};
 
@@ -568,7 +566,7 @@ impl Engine {
                     stack.push((inner_start.id.clone(), Some(execution.id)));
                 }
 
-                FlowNodeKind::BusinessRuleTask { decision_ref } => {
+                FlowNodeKind::BusinessRuleTask { decision_ref, decision_version } => {
                     crate::db::execution_history::record_entry(
                         tx,
                         instance_id,
@@ -585,24 +583,29 @@ impl Engine {
                             .fetch_one(&mut **tx)
                             .await?;
 
-                    let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
-                        "SELECT * FROM variables WHERE instance_id = $1",
-                    )
-                    .bind(instance_id)
-                    .fetch_all(&mut **tx)
-                    .await?;
-                    let var_map: HashMap<String, JsonValue> =
-                        vars.into_iter().map(|v| (v.name, v.value)).collect();
+                    let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
-                    let def_opt = sqlx::query_as::<_, DecisionDefinition>(
-                        "SELECT * FROM decision_definitions \
-                         WHERE org_id = $1 AND decision_key = $2 \
-                         ORDER BY version DESC LIMIT 1",
-                    )
-                    .bind(org_id)
-                    .bind(decision_ref)
-                    .fetch_optional(&mut **tx)
-                    .await?;
+                    let def_opt = if let Some(pinned) = decision_version {
+                        sqlx::query_as::<_, DecisionDefinition>(
+                            "SELECT * FROM decision_definitions \
+                             WHERE org_id = $1 AND decision_key = $2 AND version = $3",
+                        )
+                        .bind(org_id)
+                        .bind(decision_ref)
+                        .bind(*pinned)
+                        .fetch_optional(&mut **tx)
+                        .await?
+                    } else {
+                        sqlx::query_as::<_, DecisionDefinition>(
+                            "SELECT * FROM decision_definitions \
+                             WHERE org_id = $1 AND decision_key = $2 \
+                             ORDER BY version DESC LIMIT 1",
+                        )
+                        .bind(org_id)
+                        .bind(decision_ref)
+                        .fetch_optional(&mut **tx)
+                        .await?
+                    };
 
                     let dmn_def = match def_opt {
                         Some(d) => d,
@@ -614,7 +617,10 @@ impl Engine {
                                 Some(node.id.as_str()),
                                 "error_raised",
                                 None,
-                                &format!("decision definition '{}' not found", decision_ref),
+                                &match decision_version {
+                                    Some(v) => format!("decision definition '{}' v{} not found", decision_ref, v),
+                                    None => format!("decision definition '{}' not found", decision_ref),
+                                },
                             )
                             .await?;
                             sqlx::query(
@@ -752,14 +758,7 @@ impl Engine {
                     )
                     .await?;
 
-                    let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
-                        "SELECT * FROM variables WHERE instance_id = $1",
-                    )
-                    .bind(instance_id)
-                    .fetch_all(&mut **tx)
-                    .await?;
-                    let var_map: HashMap<String, JsonValue> =
-                        vars.into_iter().map(|v| (v.name, v.value)).collect();
+                    let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
                     let output =
                         match crate::engine::evaluator::evaluate_expression(script, &var_map) {
@@ -962,15 +961,7 @@ impl Engine {
                     // Scope: instance_id (not execution_id) so a gateway inside a
                     // subprocess sees variables written at the parent/instance level. BPMN
                     // visibility lets nested scopes read enclosing-scope variables.
-                    let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
-                        "SELECT * FROM variables WHERE instance_id = $1",
-                    )
-                    .bind(instance_id)
-                    .fetch_all(&mut **tx)
-                    .await?;
-
-                    let var_map: HashMap<String, JsonValue> =
-                        vars.into_iter().map(|v| (v.name, v.value)).collect();
+                    let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
                     let outgoing_flows: Vec<_> = current_graph
                         .flows
@@ -1165,15 +1156,7 @@ impl Engine {
 
                     if incoming_count <= 1 {
                         // Fork: evaluate all conditions, activate every matching path.
-                        let vars: Vec<Variable> = sqlx::query_as::<_, Variable>(
-                            "SELECT * FROM variables WHERE instance_id = $1",
-                        )
-                        .bind(instance_id)
-                        .fetch_all(&mut **tx)
-                        .await?;
-
-                        let var_map: HashMap<String, JsonValue> =
-                            vars.into_iter().map(|v| (v.name, v.value)).collect();
+                        let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
                         let outgoing_flows: Vec<_> = current_graph
                             .flows

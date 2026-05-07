@@ -273,6 +273,71 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> Result<()> {
     Ok(())
 }
 
+/// Rename all versions (drafts + deployed) that share (org_id, process_key).
+/// Enforces uniqueness: no other process_key in the same group may have the same name.
+pub async fn rename_all_versions(
+    pool: &PgPool,
+    org_id: Uuid,
+    process_group_id: Uuid,
+    process_key: &str,
+    name: &str,
+) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(EngineError::Validation("name must not be empty".to_string()));
+    }
+    let (name_clash,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM process_definitions WHERE org_id = $1 AND process_group_id = $2 AND name = $3 AND process_key <> $4)",
+    )
+    .bind(org_id)
+    .bind(process_group_id)
+    .bind(name)
+    .bind(process_key)
+    .fetch_one(pool)
+    .await?;
+    if name_clash {
+        return Err(EngineError::Conflict(format!(
+            "A different process named '{name}' already exists in this process group"
+        )));
+    }
+    sqlx::query(
+        "UPDATE process_definitions SET name = $1 WHERE org_id = $2 AND process_key = $3",
+    )
+    .bind(name)
+    .bind(org_id)
+    .bind(process_key)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Mark a deployed process definition as disabled / enabled.
+/// Disabling sets `disabled_at = NOW()`; enabling clears it.
+/// Drafts cannot be disabled (they are not runnable anyway).
+pub async fn set_disabled(
+    pool: &PgPool,
+    id: Uuid,
+    disabled: bool,
+) -> Result<ProcessDefinition> {
+    let row = sqlx::query_as::<_, ProcessDefinition>(
+        if disabled {
+            "UPDATE process_definitions SET disabled_at = NOW() \
+             WHERE id = $1 AND status = 'deployed' RETURNING *"
+        } else {
+            "UPDATE process_definitions SET disabled_at = NULL \
+             WHERE id = $1 AND status = 'deployed' RETURNING *"
+        },
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| {
+        EngineError::NotFound(format!(
+            "Deployed process definition {id} not found (drafts cannot be disabled)"
+        ))
+    })?;
+    Ok(row)
+}
+
 pub async fn next_version(pool: &PgPool, org_id: Uuid, process_key: &str) -> Result<i32> {
     let row: (Option<i32>,) = sqlx::query_as(
         "SELECT MAX(version) FROM process_definitions WHERE org_id = $1 AND process_key = $2",

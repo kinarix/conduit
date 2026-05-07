@@ -128,6 +128,25 @@ export function UploadIcon({ size = 12 }: IconProps) {
   )
 }
 
+export function ConflictIcon({ size = 12 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M6 1.5L11 10.5H1L6 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round" />
+      <line x1="6" y1="5" x2="6" y2="7.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="6" cy="9" r="0.65" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function PowerIcon({ size = 12 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <path d="M4 2.5a3.5 3.5 0 1 0 4 0" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+      <line x1="6" y1="1.5" x2="6" y2="6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function TableNavIcon({ size = 13, color = '#f59e0b' }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>

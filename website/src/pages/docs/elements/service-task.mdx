@@ -124,3 +124,23 @@ Content-Type: application/json
   "error_message": "Card declined"
 }
 ```
+
+## Secrets in HTTP push connectors
+
+Header values, URLs, and bearer tokens can reference secrets stored in Conduit by name. Secrets are encrypted at rest, scoped per organisation, and never logged.
+
+```xml
+<bpmn:serviceTask id="notify_crm" name="Notify CRM">
+  <bpmn:extensionElements>
+    <conduit:httpConnector>
+      <conduit:url>https://crm.example.com/api/orders</conduit:url>
+      <conduit:method>POST</conduit:method>
+      <conduit:headers>
+        <conduit:header name="Authorization">Bearer {{secret:crm-api-key}}</conduit:header>
+      </conduit:headers>
+    </conduit:httpConnector>
+  </bpmn:extensionElements>
+</bpmn:serviceTask>
+```
+
+The `{{secret:name}}` placeholder is resolved at request time. Manage secrets through `POST /api/v1/secrets` and `GET /api/v1/secrets`.

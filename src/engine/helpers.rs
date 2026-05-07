@@ -1,11 +1,44 @@
 use chrono::{DateTime, Duration, Utc};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
+use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::db::models::Variable;
 use crate::error::{EngineError, Result};
 use crate::parser::{FlowNodeKind, ProcessGraph, TimerSpec};
 
 use super::Engine;
+
+/// Build the variable context for expression / FEEL / DMN evaluation.
+///
+/// Loads every persisted variable for the instance, then injects two
+/// system-provided identifiers so user expressions can reference them:
+/// - `instanceId`      — UUID of the running process instance (string)
+/// - `instanceCounter` — per-(org, process_key) sequential counter (number)
+///
+/// User variables of the same name are overwritten by the system values so
+/// semantics stay consistent across the engine.
+pub async fn load_instance_var_context(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instance_id: Uuid,
+) -> Result<HashMap<String, JsonValue>> {
+    let vars: Vec<Variable> =
+        sqlx::query_as::<_, Variable>("SELECT * FROM variables WHERE instance_id = $1")
+            .bind(instance_id)
+            .fetch_all(&mut **tx)
+            .await?;
+    let (counter,): (i64,) =
+        sqlx::query_as("SELECT counter FROM process_instances WHERE id = $1")
+            .bind(instance_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    let mut map: HashMap<String, JsonValue> =
+        vars.into_iter().map(|v| (v.name, v.value)).collect();
+    map.insert("instanceId".to_string(), json!(instance_id.to_string()));
+    map.insert("instanceCounter".to_string(), json!(counter));
+    Ok(map)
+}
 
 /// Supported forms: PT<n>S, PT<n>M, PT<n>H, P<n>D, and combinations like PT1H30M.
 pub fn parse_duration(s: &str) -> Result<Duration> {

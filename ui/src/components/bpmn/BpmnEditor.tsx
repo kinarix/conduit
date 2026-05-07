@@ -167,9 +167,10 @@ interface Props {
   onProcessNameChange?: (name: string) => void;
   initialLayout?: LayoutData;
   onLayoutChange?: (layout: LayoutData) => void;
+  groupId?: string;
 }
 
-function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onProcessNameChange, initialLayout, onLayoutChange }: Props, ref: React.Ref<BpmnEditorHandle>) {
+function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onProcessNameChange, initialLayout, onLayoutChange, groupId }: Props, ref: React.Ref<BpmnEditorHandle>) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(DEFAULT_NODES);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selected, setSelected] = useState<Node | Edge | null>(null);
@@ -520,6 +521,7 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
           }}
           processSchema={processSchema}
           onProcessSchemaChange={setProcessSchema}
+          groupId={groupId}
         />
       </div>
     </div>

@@ -356,7 +356,7 @@ function ModellerEdit({ defId }: { defId: string }) {
         overflow: 'hidden',
         background: 'var(--color-surface-2)',
       }}>
-        <BpmnEditor ref={modRef} xml={existing?.bpmn_xml} initialLayout={savedLayout} onLayoutChange={handleLayoutChange} onProcessNameChange={setName} />
+        <BpmnEditor ref={modRef} xml={existing?.bpmn_xml} initialLayout={savedLayout} onLayoutChange={handleLayoutChange} onProcessNameChange={setName} groupId={existing?.process_group_id} />
       </div>
 
       {savePrompt && (

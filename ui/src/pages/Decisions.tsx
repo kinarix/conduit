@@ -59,10 +59,22 @@ export default function Decisions() {
   const { groupId } = useParams<{ groupId?: string }>()
 
   const { data: decisions = [], isLoading } = useQuery({
-    queryKey: ['decisions', org?.id, groupId],
-    queryFn: () => fetchDecisions(org!.id, groupId),
+    queryKey: ['decisions', org?.id, groupId, 'all'],
+    queryFn: () => fetchDecisions(org!.id, groupId, true),
     enabled: !!org,
   })
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, DecisionSummary[]>()
+    for (const d of decisions) {
+      const arr = map.get(d.decision_key) ?? []
+      arr.push(d)
+      map.set(d.decision_key, arr)
+    }
+    return [...map.values()]
+  }, [decisions])
+
+  const latestDecisions = useMemo(() => grouped.map(g => g[0]), [grouped])
 
   const newHref = groupId ? `/process-groups/${groupId}/decisions/new` : '/decisions/new'
   const editBase = groupId ? `/process-groups/${groupId}/decisions` : '/decisions'
@@ -96,9 +108,9 @@ export default function Decisions() {
         </Link>
       </div>
 
-      {decisions.length > 1 && <DrdGraph decisions={decisions} groupId={groupId} />}
+      {latestDecisions.length > 1 && <DrdGraph decisions={latestDecisions} groupId={groupId} />}
 
-      {decisions.length === 0 ? (
+      {grouped.length === 0 ? (
         <div className="empty-state">
           <p>No decision tables yet. Click <strong>+ New decision</strong> to create one.</p>
         </div>
@@ -115,40 +127,55 @@ export default function Decisions() {
             </tr>
           </thead>
           <tbody>
-            {decisions.map(d => (
-              <tr key={d.id}>
+            {grouped.map(versions => versions.map((d, vi) => (
+              <tr key={d.id} style={vi > 0 ? { opacity: 0.55 } : undefined}>
                 <td style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <TableNavIcon size={13} />
-                  {d.name ?? d.decision_key}
+                  {vi === 0 && <TableNavIcon size={13} />}
+                  {vi === 0 ? (d.name ?? d.decision_key) : ''}
                 </td>
                 <td>
-                  <code style={{ fontSize: 11, background: 'var(--color-bg-secondary, #1e1e2e)', padding: '2px 6px', borderRadius: 4 }}>
-                    {d.decision_key}
-                  </code>
+                  {vi === 0 && (
+                    <code style={{ fontSize: 11, background: 'var(--color-bg-secondary, #1e1e2e)', padding: '2px 6px', borderRadius: 4 }}>
+                      {d.decision_key}
+                    </code>
+                  )}
                 </td>
-                <td>v{d.version}</td>
                 <td>
-                  <span style={{
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    background: d.process_group_id ? 'rgba(245,158,11,0.12)' : 'rgba(100,116,139,0.15)',
-                    color: d.process_group_id ? '#f59e0b' : 'var(--text-tertiary)',
-                    fontWeight: 500,
-                  }}>
-                    {d.process_group_id ? 'Group' : 'Org-wide'}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    v{d.version}
+                    {vi === 0 && (
+                      <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontWeight: 600 }}>
+                        latest
+                      </span>
+                    )}
                   </span>
+                </td>
+                <td>
+                  {vi === 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      background: d.process_group_id ? 'rgba(245,158,11,0.12)' : 'rgba(100,116,139,0.15)',
+                      color: d.process_group_id ? '#f59e0b' : 'var(--text-tertiary)',
+                      fontWeight: 500,
+                    }}>
+                      {d.process_group_id ? 'Group' : 'Org-wide'}
+                    </span>
+                  )}
                 </td>
                 <td style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                   {new Date(d.deployed_at).toLocaleDateString()}
                 </td>
                 <td>
-                  <Link to={`${editBase}/${d.decision_key}/edit`}>
-                    <button style={{ fontSize: 11, padding: '3px 10px' }}>Edit</button>
-                  </Link>
+                  {vi === 0 && (
+                    <Link to={`${editBase}/${d.decision_key}/edit`}>
+                      <button style={{ fontSize: 11, padding: '3px 10px' }}>Edit</button>
+                    </Link>
+                  )}
                 </td>
               </tr>
-            ))}
+            )))}
           </tbody>
         </table>
       )}

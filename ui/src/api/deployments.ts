@@ -10,7 +10,14 @@ export interface ProcessDefinition {
   deployed_at: string
   status: 'draft' | 'deployed'
   process_group_id: string
+  disabled_at: string | null
 }
+
+export const setDeploymentDisabled = (id: string, disabled: boolean) =>
+  apiFetch<ProcessDefinition>(`/api/v1/deployments/${id}/disabled`, {
+    method: 'PATCH',
+    body: JSON.stringify({ disabled }),
+  })
 
 export const fetchDeployments = (org_id: string) =>
   apiFetch<ProcessDefinition[]>(`/api/v1/deployments?org_id=${org_id}`)
@@ -47,6 +54,13 @@ export const promoteDraft = (id: string) =>
 
 export const deleteDeployment = (id: string) =>
   apiFetch<void>(`/api/v1/deployments/${id}`, { method: 'DELETE' })
+
+export const renameProcess = (body: {
+  org_id: string
+  process_group_id: string
+  process_key: string
+  name: string
+}) => apiFetch<void>('/api/v1/deployments/by-key', { method: 'PATCH', body: JSON.stringify(body) })
 
 /**
  * Logical "process" — a `process_key` within a group, with all of its

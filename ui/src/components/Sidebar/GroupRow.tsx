@@ -4,7 +4,6 @@ import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { renameProcessGroup, assignProcessGroup, type ProcessGroup } from '../../api/processGroups'
 import { groupByProcessKey, createDraft, type ProcessDefinition, type LogicalProcess } from '../../api/deployments'
 import { fetchDecisions, deployDecision, makeStubDmn, nextDecisionName, type DecisionSummary } from '../../api/decisions'
-import { useExpansion } from './useExpansion'
 import { fromXml } from '../bpmn/bpmnXml'
 import { useOrg, type Org } from '../../App'
 import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon, TableNavIcon } from './SidebarIcons'
@@ -22,6 +21,7 @@ interface Props {
   onConfirmDeleteGroup: (group: ProcessGroup) => void
   onConfirmDeleteProcess: (proc: LogicalProcess) => void
   onConfirmDeleteDecision: (orgId: string, decision: DecisionSummary) => void
+  onExpand?: () => void
   autoEdit?: boolean
   onEditDone?: () => void
 }
@@ -35,6 +35,7 @@ export default function GroupRow({
   onConfirmDeleteGroup,
   onConfirmDeleteProcess,
   onConfirmDeleteDecision,
+  onExpand,
   autoEdit = false,
   onEditDone,
 }: Props) {
@@ -46,7 +47,6 @@ export default function GroupRow({
   const [dropping, setDropping] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const orgId = org.id
-  const groupsExp = useExpansion(`sidebar.groups.${orgId}`)
 
   const renameMut = useMutation({
     mutationFn: (name: string) => renameProcessGroup(group.id, name),
@@ -81,7 +81,7 @@ export default function GroupRow({
     },
     onSuccess: key => {
       qc.invalidateQueries({ queryKey: ['decisions', orgId] })
-      groupsExp.expand(group.id)
+      onExpand?.()
       navigate(`/process-groups/${group.id}/decisions/${key}/edit`)
     },
   })
@@ -233,6 +233,7 @@ export default function GroupRow({
                 <DecisionRow
                   key={dec.id}
                   decision={dec}
+                  orgId={orgId}
                   editBase={`/process-groups/${group.id}/decisions`}
                   onSelect={() => setOrg(org)}
                   onConfirmDelete={() => onConfirmDeleteDecision(orgId, dec)}

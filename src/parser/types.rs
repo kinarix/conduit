@@ -158,6 +158,8 @@ pub enum FlowNodeKind {
     },
     BusinessRuleTask {
         decision_ref: String,
+        /// Pin to a specific deployed version of the decision. None = latest.
+        decision_version: Option<i32>,
     },
     SendTask {
         message_name: String,

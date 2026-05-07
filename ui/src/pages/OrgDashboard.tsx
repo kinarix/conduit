@@ -110,7 +110,7 @@ function ErrorInstancesPanel({
             {instances.map(i => (
               <tr key={i.id} onClick={() => onNavigate(`/instances/${i.id}`)}>
                 <td>{defName(defs, i.definition_id)}</td>
-                <td><span className={styles.mono}>{i.id.slice(0, 8)}</span></td>
+                <td><span className={styles.mono}>#{i.counter}</span></td>
                 <td className={styles.muted}>{fmt(i.started_at)}</td>
               </tr>
             ))}

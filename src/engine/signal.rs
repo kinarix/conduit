@@ -235,12 +235,15 @@ impl Engine {
             tx.commit().await?;
         }
 
-        // Phase 2: start new instances from matching SignalStartEvent definitions.
-        let defs: Vec<(Uuid, String)> =
-            sqlx::query_as("SELECT id, bpmn_xml FROM process_definitions WHERE org_id = $1")
-                .bind(org_id)
-                .fetch_all(&self.pool)
-                .await?;
+        // Phase 2: start new instances from matching SignalStartEvent definitions
+        // (deployed and not disabled).
+        let defs: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, bpmn_xml FROM process_definitions \
+             WHERE org_id = $1 AND status = 'deployed' AND disabled_at IS NULL",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         for (def_id, bpmn_xml) in &defs {
             let graph = match crate::parser::parse(bpmn_xml) {

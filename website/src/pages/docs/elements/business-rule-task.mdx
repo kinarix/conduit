@@ -74,3 +74,19 @@ Content-Type: application/xml
 After this request, the variable `tier` is available to all subsequent elements in the instance.
 
 See the [Decision Tables docs](/docs/decision-tables/) for hit policies, FEEL input syntax, and full reference.
+
+## Pinning to a specific decision version
+
+By default the engine evaluates the **latest** deployed version of the referenced decision. If a process needs to keep using a specific version even after a newer one is deployed, pin it with the `version` attribute:
+
+```xml
+<bpmn:businessRuleTask id="classify_order" name="Classify Order">
+  <bpmn:extensionElements>
+    <conduit:decisionRef version="3">order-classification</conduit:decisionRef>
+  </bpmn:extensionElements>
+  <bpmn:incoming>flow_to_classify</bpmn:incoming>
+  <bpmn:outgoing>flow_to_route</bpmn:outgoing>
+</bpmn:businessRuleTask>
+```
+
+Omit `version` (or set it to an empty string) to fall back to "latest". Pinning is useful when you want to roll out a new decision version gradually — deploy the new version, then update individual processes to reference it, leaving older processes on the version they were tested against.

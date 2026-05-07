@@ -119,7 +119,10 @@ export function toXml(
     }
 
     if (d.bpmnType === 'businessRuleTask' && d.decisionRef) {
-      attrs.push(`camunda:decisionRef="${esc(d.decisionRef)}"`);
+      attrs.push(`conduit:decisionRef="${esc(d.decisionRef)}"`);
+      if (d.decisionVersion != null) {
+        attrs.push(`conduit:decisionVersion="${d.decisionVersion}"`);
+      }
     }
 
     if (d.bpmnType === 'receiveTask' && d.correlationKey) {
@@ -397,9 +400,19 @@ export function fromXml(xml: string): ParsedBpmn {
       }
 
       if (bpmnType === 'businessRuleTask') {
-        const ref = child.getAttributeNS(CAMUNDA_NS, 'decisionRef')
+        const ref = child.getAttributeNS(CONDUIT_NS, 'decisionRef')
+          ?? child.getAttribute('conduit:decisionRef')
+          ?? child.getAttributeNS(CAMUNDA_NS, 'decisionRef')
           ?? child.getAttribute('camunda:decisionRef');
         if (ref) data.decisionRef = ref;
+        const ver = child.getAttributeNS(CONDUIT_NS, 'decisionVersion')
+          ?? child.getAttribute('conduit:decisionVersion')
+          ?? child.getAttributeNS(CAMUNDA_NS, 'decisionVersion')
+          ?? child.getAttribute('camunda:decisionVersion');
+        if (ver) {
+          const n = Number(ver);
+          if (Number.isFinite(n) && n > 0) data.decisionVersion = n;
+        }
       }
 
       if (bpmnType === 'scriptTask') {

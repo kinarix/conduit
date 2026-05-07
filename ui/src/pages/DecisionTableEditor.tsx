@@ -234,6 +234,9 @@ function validateInputEntry(cell: string): boolean {
 
 function validateEditorState(s: EditorState): Record<string, string> {
   const errors: Record<string, string> = {}
+  if (!s.name.trim()) {
+    errors['name'] = 'Required'
+  }
   if (!s.decisionKey.trim()) {
     errors['key'] = 'Required'
   } else if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(s.decisionKey)) {
@@ -441,6 +444,16 @@ export default function DecisionTableEditor() {
     queryKey: ['decisions', org?.id],
     queryFn: () => fetchDecisions(org!.id),
     enabled: !!org,
+  })
+
+  // All versions of the current decision key — for version history panel
+  const { data: versionHistory = [] } = useQuery({
+    queryKey: ['decisions', org?.id, key, 'versions'],
+    queryFn: async () => {
+      const all = await fetchDecisions(org!.id, groupId, true)
+      return all.filter(d => d.decision_key === key)
+    },
+    enabled: !!org && !isNew,
   })
 
   useEffect(() => {
@@ -711,9 +724,9 @@ export default function DecisionTableEditor() {
           <div>
             <label style={{ display: 'block', fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Name</label>
             <input
-              style={{ width: '100%' }}
+              style={{ width: '100%', outline: cellErrors['name'] ? '1px solid var(--color-error, #f38ba8)' : undefined }}
               value={state.name}
-              onChange={e => setField('name', e.target.value)}
+              onChange={e => { setField('name', e.target.value); setCellErrors(e => { const n = { ...e }; delete n['name']; return n }) }}
               placeholder="e.g. Age Category"
               autoFocus={isNew}
             />
@@ -1004,6 +1017,28 @@ export default function DecisionTableEditor() {
             </tbody>
           </table>
         </div>
+
+        {/* Version history */}
+        {!isNew && versionHistory.length > 0 && (
+          <div style={{ marginTop: 20, padding: 16, border: '1px solid var(--color-border, #45475a)', borderRadius: 8 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: '0 0 12px 0' }}>Version history</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {versionHistory.map((v, i) => (
+                <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                  <span style={{ fontFamily: 'var(--font-mono, monospace)', color: 'var(--text-tertiary)', minWidth: 24 }}>v{v.version}</span>
+                  {i === 0 && (
+                    <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontWeight: 600 }}>
+                      latest
+                    </span>
+                  )}
+                  <span style={{ color: 'var(--text-tertiary)' }}>
+                    {new Date(v.deployed_at).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Test panel */}
         {showTest && (

@@ -157,6 +157,7 @@ export default function OrgRow({
                 onConfirmDeleteGroup={onConfirmDeleteGroup}
                 onConfirmDeleteProcess={onConfirmDeleteProcess}
                 onConfirmDeleteDecision={onConfirmDeleteDecision}
+                onExpand={() => groupsExp.expand(group.id)}
                 autoEdit={group.id === newGroupId}
                 onEditDone={() => setNewGroupId(null)}
               />
@@ -166,6 +167,7 @@ export default function OrgRow({
             <DecisionRow
               key={dec.id}
               decision={dec}
+              orgId={org.id}
               editBase="/decisions"
               indentClass={styles.indent1}
               onSelect={() => setOrg(org)}

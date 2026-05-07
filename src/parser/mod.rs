@@ -351,19 +351,34 @@ fn parse_children(
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
                 let decision_ref = child
-                    .attribute((CAMUNDA_NS, "decisionRef"))
+                    .attribute((CONDUIT_NS, "decisionRef"))
+                    .or_else(|| child.attribute((CAMUNDA_NS, "decisionRef")))
                     .ok_or_else(|| {
                         EngineError::Parse(format!(
-                            "businessRuleTask '{id}' missing camunda:decisionRef"
+                            "businessRuleTask '{id}' missing decisionRef"
                         ))
                     })?
                     .to_string();
+                let decision_version = child
+                    .attribute((CONDUIT_NS, "decisionVersion"))
+                    .or_else(|| child.attribute((CAMUNDA_NS, "decisionVersion")))
+                    .map(|v| {
+                        v.parse::<i32>().map_err(|_| {
+                            EngineError::Parse(format!(
+                                "businessRuleTask '{id}' has invalid decisionVersion '{v}'"
+                            ))
+                        })
+                    })
+                    .transpose()?;
                 nodes.insert(
                     id.clone(),
                     FlowNode {
                         id,
                         name,
-                        kind: FlowNodeKind::BusinessRuleTask { decision_ref },
+                        kind: FlowNodeKind::BusinessRuleTask {
+                            decision_ref,
+                            decision_version,
+                        },
                     },
                 );
             }

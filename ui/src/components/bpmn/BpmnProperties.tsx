@@ -23,6 +23,7 @@ import BpmnSchemaBuilder from './BpmnSchemaBuilder';
 import { computeNodeWarnings } from './bpmnValidation';
 import { useOrg } from '../../App';
 import { fetchSecrets } from '../../api/secrets';
+import { fetchDecisions, type DecisionSummary } from '../../api/decisions';
 import { DOCS_BASE_URL, ELEMENT_DOC_SLUGS, helpIconStyle, helpIconHover } from '../../lib/docs';
 
 interface Props {
@@ -36,6 +37,7 @@ interface Props {
   onProcessNameChange?: (name: string) => void;
   processSchema?: string;
   onProcessSchemaChange?: (schema: string | undefined) => void;
+  groupId?: string;
 }
 
 
@@ -187,6 +189,7 @@ export default function BpmnProperties({
   onProcessNameChange,
   processSchema,
   onProcessSchemaChange,
+  groupId,
 }: Props) {
   const [httpModalOpen, setHttpModalOpen] = useState(false);
   if (!selected) {
@@ -338,16 +341,12 @@ export default function BpmnProperties({
           )}
 
           {d.bpmnType === 'businessRuleTask' && (
-            <Field label="Decision">
-              <input
-                style={inputStyle}
-                value={d.decisionRef ?? ''}
-                placeholder="e.g. credit-score"
-                onChange={e => onNodeChange(selected.id, { decisionRef: e.target.value || undefined })}
-                onFocus={e => (e.target.style.borderColor = accentColor)}
-                onBlur={e => (e.target.style.borderColor = '#e2e8f0')}
-              />
-            </Field>
+            <DecisionRefField
+              value={d.decisionRef}
+              version={d.decisionVersion}
+              onChange={(ref, ver) => onNodeChange(selected.id, { decisionRef: ref, decisionVersion: ver })}
+              groupId={groupId}
+            />
           )}
 
           {d.bpmnType === 'scriptTask' && (
@@ -1160,6 +1159,85 @@ function HttpConnectorModal({
         )}
       </div>
     </div>
+  );
+}
+
+function DecisionRefField({
+  value,
+  version,
+  onChange,
+  groupId,
+}: {
+  value: string | undefined;
+  version: number | undefined;
+  onChange: (ref: string | undefined, version: number | undefined) => void;
+  groupId?: string;
+}) {
+  const { org } = useOrg();
+  const { data: latestByKey = [] } = useQuery({
+    queryKey: ['decisions', org?.id],
+    queryFn: () => fetchDecisions(org!.id),
+    enabled: !!org,
+  });
+  const { data: allVersions = [] } = useQuery({
+    queryKey: ['decisions', org?.id, 'all-versions'],
+    queryFn: () => fetchDecisions(org!.id, undefined, true),
+    enabled: !!org && !!value,
+  });
+
+  const groupDecisions = groupId ? latestByKey.filter((d: DecisionSummary) => d.process_group_id === groupId) : [];
+  const orgDecisions = latestByKey.filter((d: DecisionSummary) => d.process_group_id === null);
+
+  const versionsForKey = value
+    ? allVersions.filter((d: DecisionSummary) => d.decision_key === value).sort((a, b) => b.version - a.version)
+    : [];
+
+  return (
+    <>
+      <Field label="Decision">
+        <select
+          style={selectStyle}
+          value={value ?? ''}
+          onChange={e => onChange(e.target.value || undefined, undefined)}
+        >
+          <option value="">(select decision)</option>
+          {groupId && groupDecisions.length > 0 && (
+            <optgroup label="This process group">
+              {groupDecisions.map((d: DecisionSummary) => (
+                <option key={d.id} value={d.decision_key}>
+                  {d.name!}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {orgDecisions.length > 0 && (
+            <optgroup label="Org-wide">
+              {orgDecisions.map((d: DecisionSummary) => (
+                <option key={d.id} value={d.decision_key}>
+                  {d.name!}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </Field>
+      {value && (
+        <Field label="Version">
+          <select
+            style={selectStyle}
+            value={version != null ? String(version) : ''}
+            onChange={e => onChange(value, e.target.value ? Number(e.target.value) : undefined)}
+          >
+            <option value="">Latest (auto-update)</option>
+            {versionsForKey.map((d: DecisionSummary) => (
+              <option key={d.id} value={d.version}>
+                v{d.version} — {new Date(d.deployed_at).toLocaleDateString()}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+    </>
   );
 }
 

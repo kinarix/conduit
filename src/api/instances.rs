@@ -30,7 +30,12 @@ pub struct StartInstanceRequest {
 #[derive(Debug, Deserialize)]
 pub struct ListInstancesQuery {
     pub org_id: Uuid,
+    pub definition_id: Option<Uuid>,
+    pub process_key: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
+
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
@@ -55,9 +60,27 @@ pub fn routes() -> Router<Arc<AppState>> {
 async fn list_instances(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListInstancesQuery>,
-) -> Result<Json<Vec<ProcessInstance>>> {
-    let instances = process_instances::list_by_org(&state.pool, params.org_id).await?;
-    Ok(Json(instances))
+) -> Result<axum::response::Response> {
+    use axum::response::IntoResponse;
+
+    let limit = params.limit.unwrap_or(100).clamp(1, 500);
+    let offset = params.offset.unwrap_or(0).max(0);
+
+    let (instances, total) = process_instances::list_paginated(
+        &state.pool,
+        params.org_id,
+        params.definition_id,
+        params.process_key.as_deref(),
+        limit,
+        offset,
+    )
+    .await?;
+
+    let mut resp = Json(instances).into_response();
+    if let Ok(val) = total.to_string().parse() {
+        resp.headers_mut().insert("X-Total-Count", val);
+    }
+    Ok(resp)
 }
 
 async fn start_instance(

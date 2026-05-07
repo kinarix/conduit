@@ -55,7 +55,21 @@ The engine is being built incrementally. Each phase is working and deployable be
 | 13 | Inclusive gateway | ✅ |
 | 14 | DMN decision tables | ✅ |
 | 15 | Clustering + observability | ✅ |
-| 16 | Decision Table UI + Full FEEL (DRD, all hit policies) | 🔜 |
+| 16 | Decision Table UI + Full FEEL (DRD, all hit policies) | 🚧 In progress |
+
+### Beyond core phases (shipped)
+
+In parallel with Phase 16 work, the engine and UI have grown several operational features:
+
+- **HTTP push connector** for `serviceTask` — engine calls your URL directly via `<conduit:http>` (no worker needed)
+- **Encrypted secrets** — referenced as `{{secret:name}}` inside connector configs and templated values
+- **Per-version enable/disable** of process definitions for safe rollback (`PATCH /deployments/{id}/disabled`)
+- **Human-friendly instance counter** — sequential per `(org, process_key)` ID alongside the UUID
+- **Pagination** on the instances list endpoint (`limit`, `offset`, `X-Total-Count`)
+- **Rename across all versions** of a process or decision in one call (`PATCH .../by-key`)
+- **Decision version pinning** on `businessRuleTask` (`<conduit:decisionRef version="3">`)
+- **Sidebar UI** — orgs → process groups → processes & decisions tree, inline rename, draft/promote workflow
+- **Visual BPMN editor** — ReactFlow-based modeller with elbow connectors, fit-on-open, schema builder
 
 ## Supported BPMN Elements
 
@@ -64,9 +78,11 @@ The engine is being built incrementally. Each phase is working and deployable be
 | `startEvent` | Phase 3 |
 | `endEvent` | Phase 3 |
 | `userTask` | Phase 3 |
-| `serviceTask` (with `topic` / `conduit:topic` for external workers) | Phase 3 |
+| `serviceTask` (external worker via `conduit:taskTopic`, **or** HTTP push via `<conduit:http>`) | Phase 3 / 16 |
+| `scriptTask` (FEEL expression body, optional `result_variable`) | Phase 16 |
+| `sendTask` (publishes a message by name) | Phase 16 |
 | `sequenceFlow` | Phase 3 |
-| `exclusiveGateway` (with FEEL condition expressions, default flow) | Phase 6 |
+| `exclusiveGateway` (FEEL conditions, default flow) | Phase 6 |
 | `intermediateCatchEvent` — timer (`timeDuration` ISO 8601) | Phase 8 |
 | `boundaryEvent` — interrupting timer on tasks | Phase 8 |
 | `parallelGateway` (fork + join) | Phase 9 |
@@ -74,11 +90,13 @@ The engine is being built incrementally. Each phase is working and deployable be
 | `receiveTask` | Phase 10 |
 | `intermediateCatchEvent` — signal (broadcast) | Phase 11 |
 | `boundaryEvent` — interrupting / non-interrupting signal | Phase 11 |
+| `boundaryEvent` — error (interrupting; `errorCode` optional) | Phase 14 |
 | `startEvent` — message start | Phase 10 |
 | `startEvent` — signal start | Phase 11 |
+| `startEvent` — timer start (re-armed on deploy/enable) | Phase 8 |
 | `subProcess` (embedded, nested) | Phase 12 |
 | `inclusiveGateway` (OR routing with selective join) | Phase 13 |
-| `businessRuleTask` (with `conduit:decisionRef`) | Phase 14 |
+| `businessRuleTask` (with `conduit:decisionRef`, optional `version` pin) | Phase 14 |
 
 Standard BPMN 2.0 is supported, with `bpmn:` as the prefix and Conduit's own `conduit:` namespace (`http://conduit.io/bpmn`) for extension attributes such as `conduit:topic`, `conduit:assignee`, and `conduit:decisionRef`.
 
@@ -123,6 +141,61 @@ curl -X POST http://localhost:8080/api/v1/deployments \
 ```
 
 Deploying the same `key` again creates version 2, 3, etc.
+
+### Disable / re-enable a deployed version
+
+```bash
+curl -X PATCH http://localhost:8080/api/v1/deployments/{id}/disabled \
+  -H 'Content-Type: application/json' \
+  -d '{"disabled": true}'
+```
+
+A disabled version cannot start **new** instances (manual, message, signal, or timer). Existing instances keep running on whichever version they were started on. The engine cancels timer-start jobs when a version is disabled and re-arms them when it is re-enabled. Drafts cannot be disabled.
+
+### Rename across all versions
+
+A process key or decision key has many versions. Renaming the *display name* once updates every version in the org / group:
+
+```bash
+curl -X PATCH http://localhost:8080/api/v1/deployments/by-key \
+  -H 'Content-Type: application/json' \
+  -d '{"org_id":"...","process_group_id":"...","process_key":"order-fulfillment","name":"Order Fulfillment v2"}'
+
+curl -X PATCH http://localhost:8080/api/v1/decisions/by-key \
+  -H 'Content-Type: application/json' \
+  -H 'x-org-id: <org-uuid>' \
+  -d '{"decision_key":"order-classification","name":"Order Classification"}'
+```
+
+### Pin a `businessRuleTask` to a specific decision version
+
+By default, a `businessRuleTask` evaluates the latest deployed version of its decision. Add `version` to pin:
+
+```xml
+<bpmn:businessRuleTask id="classify_order">
+  <bpmn:extensionElements>
+    <conduit:decisionRef version="3">order-classification</conduit:decisionRef>
+  </bpmn:extensionElements>
+</bpmn:businessRuleTask>
+```
+
+### List instances with pagination
+
+```bash
+curl 'http://localhost:8080/api/v1/process-instances?org_id=<uuid>&process_key=order-fulfillment&limit=50&offset=0'
+```
+
+| Query param | Description |
+|---|---|
+| `org_id` | required |
+| `definition_id` | restrict to a specific deployed version |
+| `process_key` | restrict to a process key across all versions |
+| `limit` | 1–500, default 100 |
+| `offset` | default 0 |
+
+The total row count is returned in the `X-Total-Count` response header.
+
+Each `ProcessInstance` carries a `counter` field — a sequential per-(org, process_key) integer (1, 2, 3, …) assigned by the database. It's the human-friendly identifier shown in the UI in place of the UUID.
 
 ### Health check
 

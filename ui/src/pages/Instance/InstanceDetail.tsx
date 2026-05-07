@@ -138,7 +138,10 @@ function Header({
   return (
     <header className={styles.header}>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <h1 className={styles.title}>{def?.name || def?.process_key || 'Instance'}</h1>
+        <h1 className={styles.title}>
+          {def?.name || def?.process_key || 'Instance'}
+          <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 8 }}>#{instance.counter}</span>
+        </h1>
         <div className={styles.metaRow}>
           {def && (
             <span style={{ fontFamily: 'var(--font-mono)' }}>

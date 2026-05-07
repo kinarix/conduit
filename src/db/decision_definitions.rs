@@ -77,11 +77,12 @@ pub async fn delete(pool: &PgPool, org_id: Uuid, decision_key: &str) -> Result<(
         )));
     }
 
-    // Check BusinessRuleTask references in process definitions
+    // Check BusinessRuleTask references in process definitions (accept both namespaces)
     let brt_ref: Option<(String,)> = sqlx::query_as(
         "SELECT process_key FROM process_definitions
          WHERE org_id = $1
-           AND strpos(bpmn_xml, 'camunda:decisionRef=\"' || $2 || '\"') > 0
+           AND (strpos(bpmn_xml, 'conduit:decisionRef=\"' || $2 || '\"') > 0
+                OR strpos(bpmn_xml, 'camunda:decisionRef=\"' || $2 || '\"') > 0)
          LIMIT 1",
     )
     .bind(org_id)
@@ -102,6 +103,70 @@ pub async fn delete(pool: &PgPool, org_id: Uuid, decision_key: &str) -> Result<(
         .await?;
 
     Ok(())
+}
+
+/// Rename every version of a decision to `name`, scoped to the same (org, group) bucket.
+pub async fn rename_all_versions(
+    pool: &PgPool,
+    org_id: Uuid,
+    process_group_id: Option<Uuid>,
+    decision_key: &str,
+    name: &str,
+) -> Result<()> {
+    if name.trim().is_empty() {
+        return Err(EngineError::Validation("name must not be empty".to_string()));
+    }
+    let (name_clash,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS(
+           SELECT 1 FROM decision_definitions
+           WHERE org_id = $1
+             AND (($2::uuid IS NULL AND process_group_id IS NULL) OR process_group_id = $2)
+             AND name = $3
+             AND decision_key <> $4
+         )",
+    )
+    .bind(org_id)
+    .bind(process_group_id)
+    .bind(name)
+    .bind(decision_key)
+    .fetch_one(pool)
+    .await?;
+    if name_clash {
+        return Err(EngineError::Conflict(format!(
+            "A different decision named '{name}' already exists in this scope"
+        )));
+    }
+    sqlx::query(
+        "UPDATE decision_definitions SET name = $1 WHERE org_id = $2 AND decision_key = $3",
+    )
+    .bind(name)
+    .bind(org_id)
+    .bind(decision_key)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// List every version of every decision for an org, optionally filtered to a process group.
+/// Ordered by decision_key ASC, version DESC.
+pub async fn list_all_versions(
+    pool: &PgPool,
+    org_id: Uuid,
+    process_group_id: Option<Uuid>,
+) -> Result<Vec<DecisionDefinition>> {
+    let rows = sqlx::query_as::<_, DecisionDefinition>(
+        "SELECT *
+         FROM decision_definitions
+         WHERE org_id = $1
+           AND ($2::uuid IS NULL OR process_group_id = $2)
+         ORDER BY decision_key ASC, version DESC",
+    )
+    .bind(org_id)
+    .bind(process_group_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
 }
 
 /// List the latest version of each decision for an org, optionally filtered to a process group.

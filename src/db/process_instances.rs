@@ -34,6 +34,48 @@ pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<ProcessInstance> {
         .ok_or_else(|| EngineError::NotFound(format!("Process instance {id} not found")))
 }
 
+/// Paginated list with optional filters on definition_id and/or process_key.
+/// Returns (rows, total_count).
+pub async fn list_paginated(
+    pool: &PgPool,
+    org_id: Uuid,
+    definition_id: Option<Uuid>,
+    process_key: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<ProcessInstance>, i64)> {
+    let rows = sqlx::query_as::<_, ProcessInstance>(
+        "SELECT pi.* FROM process_instances pi \
+         JOIN process_definitions pd ON pd.id = pi.definition_id \
+         WHERE pi.org_id = $1 \
+           AND ($2::uuid IS NULL OR pi.definition_id = $2) \
+           AND ($3::text IS NULL OR pd.process_key = $3) \
+         ORDER BY pi.started_at DESC LIMIT $4 OFFSET $5",
+    )
+    .bind(org_id)
+    .bind(definition_id)
+    .bind(process_key)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    let (total,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM process_instances pi \
+         JOIN process_definitions pd ON pd.id = pi.definition_id \
+         WHERE pi.org_id = $1 \
+           AND ($2::uuid IS NULL OR pi.definition_id = $2) \
+           AND ($3::text IS NULL OR pd.process_key = $3)",
+    )
+    .bind(org_id)
+    .bind(definition_id)
+    .bind(process_key)
+    .fetch_one(pool)
+    .await?;
+
+    Ok((rows, total))
+}
+
 pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessInstance>> {
     let rows = sqlx::query_as::<_, ProcessInstance>(
         "SELECT * FROM process_instances WHERE org_id = $1 ORDER BY started_at DESC LIMIT 100",

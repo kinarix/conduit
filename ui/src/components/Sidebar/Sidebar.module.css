@@ -260,4 +260,20 @@
   outline: none;
   color: var(--text-primary);
   min-width: 0;
+  user-select: text;
+}
+
+.inlineInputError {
+  border-color: var(--status-error);
+  color: var(--status-error);
+}
+
+.actionBtn.conflict {
+  color: var(--status-error);
+  cursor: default;
+}
+
+.actionBtn.conflict:hover {
+  color: var(--status-error);
+  background: var(--status-error-soft);
 }

@@ -69,42 +69,61 @@ conduit/
 │       ├── PHASE-18-element-documentation.md
 │       └── PHASE-19-instance-notes.md
 │
-├── migrations/                  ← SQL migrations (SQLx)
+├── migrations/                  ← SQL migrations (SQLx) — 001..023
 │   ├── 001_initial.sql          ← uuid-ossp, schema_info, orgs
-│   ├── 002_core_schema.sql      ← users, process_definitions, process_instances, executions, variables, tasks, jobs, event_subscriptions
-│   └── 003_execution_history.sql ← execution_history audit table
+│   ├── 002_users.sql            ← users + auth
+│   ├── 003_orgs_users.sql
+│   ├── 004_process_groups.sql   ← orgs → groups → processes/decisions hierarchy
+│   ├── 005_process_definitions.sql
+│   ├── 006_process_instances.sql
+│   ├── 007–013                  ← executions, variables, tasks, jobs, event_subscriptions, history, parallel_join_state
+│   ├── 014_decision_definitions.sql
+│   ├── 015_timer_start_triggers.sql
+│   ├── 016_process_events.sql
+│   ├── 017_secrets.sql          ← encrypted secret storage
+│   ├── 018_jobs_http_config.sql ← HTTP connector job config
+│   ├── 019_event_subscriptions_error_type.sql
+│   ├── 020_process_layouts.sql  ← persisted modeller positions
+│   ├── 021_decision_group_scoping.sql
+│   ├── 022_process_definition_disabled.sql ← per-version disable
+│   └── 023_process_instance_counter.sql    ← human-friendly sequential ID
 │
 ├── src/
 │   ├── main.rs                  ← Entry point
 │   ├── config.rs                ← Environment config
 │   ├── error.rs                 ← Unified error type
+│   ├── error_codes.toml         ← U/S structured error codes
 │   ├── db.rs                    ← DB pool setup
 │   ├── api/                     ← HTTP handlers (Axum)
-│   │   ├── mod.rs
-│   │   ├── health.rs
-│   │   ├── orgs.rs
-│   │   ├── users.rs
-│   │   ├── deployments.rs
-│   │   ├── instances.rs
-│   │   ├── tasks.rs
-│   │   └── external_tasks.rs
+│   │   ├── mod.rs, extractors.rs, health.rs
+│   │   ├── orgs.rs, users.rs, process_groups.rs
+│   │   ├── deployments.rs       ← deploy + disable + rename-by-key
+│   │   ├── instances.rs         ← paginated list, start, cancel
+│   │   ├── tasks.rs, external_tasks.rs
+│   │   ├── decisions.rs         ← deploy DMN + rename-by-key + test
+│   │   ├── messages.rs, signals.rs
+│   │   ├── process_layouts.rs   ← modeller layout persistence
+│   │   └── secrets.rs           ← secret CRUD
 │   ├── engine/                  ← Core execution engine
-│   │   └── mod.rs
+│   │   ├── mod.rs, instance.rs, token.rs, helpers.rs
+│   │   ├── timer.rs, message.rs, signal.rs
+│   │   ├── send_message.rs, user_task.rs, external_task.rs
+│   │   ├── http.rs              ← HTTP push connector runtime
+│   │   ├── evaluator.rs         ← FEEL evaluator wrapper
+│   │   └── jq.rs                ← jq-style transforms
 │   ├── parser/                  ← BPMN XML parser
-│   │   └── mod.rs
+│   │   ├── mod.rs
+│   │   └── types.rs             ← FlowNodeKind, ProcessGraph
 │   └── db/                      ← DB query modules
-│       ├── mod.rs
-│       ├── models.rs
-│       ├── orgs.rs
-│       ├── users.rs
-│       ├── process_definitions.rs
-│       ├── process_instances.rs
-│       ├── executions.rs
-│       ├── execution_history.rs
-│       ├── variables.rs
-│       ├── tasks.rs
-│       ├── jobs.rs
-│       └── event_subscriptions.rs
+│       ├── mod.rs, models.rs
+│       ├── orgs.rs, users.rs, process_groups.rs
+│       ├── process_definitions.rs, process_instances.rs
+│       ├── executions.rs, execution_history.rs
+│       ├── variables.rs, tasks.rs, jobs.rs
+│       ├── event_subscriptions.rs, process_events.rs
+│       ├── decision_definitions.rs
+│       ├── process_layouts.rs
+│       └── secrets.rs
 │
 └── tests/
     ├── common/
@@ -120,9 +139,23 @@ conduit/
 
 ## Current Phase
 
-**Phase 16 — Decision Table UI + Full FEEL** (next up)
+**Phase 16 — Decision Table UI + Full FEEL** (in progress)
 
-Phases 0–15 are complete. See `docs/phases/PHASE-16-decision-table-ui.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–15 are complete. Phase 16 work is underway in parallel with several operational improvements that have already shipped past the core phase line:
+
+### Active workstreams (shipped or in flight beyond Phase 15)
+- **HTTP push connector** for `serviceTask` (`<conduit:http>`); engine calls your URL directly
+- **Encrypted secrets** referenced as `{{secret:name}}` in connector configs
+- **Per-version enable/disable** for process definitions (`PATCH /deployments/{id}/disabled`)
+- **Process instance counter** — sequential per-(org, process_key) human-friendly ID
+- **List pagination** on instances (`limit`, `offset`, `X-Total-Count`)
+- **Rename across versions** for processes and decisions (`PATCH .../by-key`)
+- **Decision version pinning** on `businessRuleTask` (`<conduit:decisionRef version="N">`)
+- **ScriptTask** (FEEL body, optional result variable) and **SendTask** (publish a named message)
+- **BoundaryErrorEvent** (interrupting; pairs with worker-thrown BPMN errors)
+- **Sidebar UI** — orgs → process groups → processes & decisions tree, inline rename, draft/promote
+- **Visual BPMN editor** — ReactFlow modeller with elbow connectors, fit-on-open, schema builder
+- **Decision Table editor** scaffolding for the Phase 16 UI
 
 ### Completed phases
 | Phase | What was built |

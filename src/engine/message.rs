@@ -128,12 +128,14 @@ impl Engine {
 
         tx.rollback().await.ok();
 
-        // Attempt 2: MessageStartEvent — scan deployed definitions for the org.
-        let defs: Vec<(Uuid, String)> =
-            sqlx::query_as("SELECT id, bpmn_xml FROM process_definitions WHERE org_id = $1")
-                .bind(org_id)
-                .fetch_all(&self.pool)
-                .await?;
+        // Attempt 2: MessageStartEvent — scan deployed, enabled definitions for the org.
+        let defs: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, bpmn_xml FROM process_definitions \
+             WHERE org_id = $1 AND status = 'deployed' AND disabled_at IS NULL",
+        )
+        .bind(org_id)
+        .fetch_all(&self.pool)
+        .await?;
 
         for (def_id, bpmn_xml) in &defs {
             let graph = match crate::parser::parse(bpmn_xml) {

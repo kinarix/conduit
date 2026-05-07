@@ -1,7 +1,7 @@
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use serde::Deserialize;
@@ -19,7 +19,8 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/decisions", post(deploy_decisions))
         .route("/api/v1/decisions", get(list_decisions))
-        .route("/api/v1/decisions/test", post(test_decision))
+        .route("/api/v1/decisions/by-key", patch(rename_by_key))
+    .route("/api/v1/decisions/test", post(test_decision))
         .route("/api/v1/decisions/{key}", get(get_decision))
         .route("/api/v1/decisions/{key}", delete(delete_decision))
 }
@@ -32,6 +33,8 @@ struct DeployDecisionsQuery {
 #[derive(Debug, Deserialize)]
 struct ListDecisionsQuery {
     process_group_id: Option<Uuid>,
+    #[serde(default)]
+    all_versions: bool,
 }
 
 /// POST /api/v1/decisions
@@ -85,7 +88,11 @@ async fn list_decisions(
     Query(q): Query<ListDecisionsQuery>,
 ) -> Result<Json<serde_json::Value>> {
     let org_id = extract_org_id(&headers)?;
-    let defs = decision_definitions::list(&state.pool, org_id, q.process_group_id).await?;
+    let defs = if q.all_versions {
+        decision_definitions::list_all_versions(&state.pool, org_id, q.process_group_id).await?
+    } else {
+        decision_definitions::list(&state.pool, org_id, q.process_group_id).await?
+    };
 
     let list: Vec<serde_json::Value> = defs
         .iter()
@@ -175,6 +182,30 @@ async fn delete_decision(
 ) -> Result<StatusCode> {
     let org_id = extract_org_id(&headers)?;
     decision_definitions::delete(&state.pool, org_id, &key).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct RenameDecisionRequest {
+    decision_key: String,
+    name: String,
+}
+
+async fn rename_by_key(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<RenameDecisionRequest>,
+) -> Result<StatusCode> {
+    let org_id = extract_org_id(&headers)?;
+    let def = decision_definitions::get_latest(&state.pool, org_id, &req.decision_key).await?;
+    decision_definitions::rename_all_versions(
+        &state.pool,
+        org_id,
+        def.process_group_id,
+        &req.decision_key,
+        req.name.trim(),
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

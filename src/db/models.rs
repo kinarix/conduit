@@ -42,6 +42,7 @@ pub struct ProcessDefinition {
     pub deployed_at: DateTime<Utc>,
     pub status: String,
     pub process_group_id: Uuid,
+    pub disabled_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -53,6 +54,9 @@ pub struct ProcessInstance {
     pub labels: JsonValue,
     pub started_at: DateTime<Utc>,
     pub ended_at: Option<DateTime<Utc>>,
+    /// Sequential per-(org_id, process_key) human-friendly identifier.
+    /// Assigned by a BEFORE INSERT trigger; never null for inserted rows.
+    pub counter: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

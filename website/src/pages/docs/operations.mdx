@@ -1,0 +1,130 @@
+---
+layout: '../../layouts/DocsLayout.astro'
+title: 'Operations & API'
+---
+
+# Operations & API
+
+Day-2 features for running Conduit in production. These complement the per-element BPMN docs and cover the operational endpoints that don't belong on a single element page.
+
+All endpoints are scoped to an organisation. Pass the org ID either via the `org_id` query / body parameter or the `x-org-id` header, depending on the endpoint.
+
+## Disable a version
+
+A process key has many deployed versions. To stop a specific version from starting **new** instances — without affecting in-flight work — toggle its `disabled` flag.
+
+```http
+PATCH /api/v1/deployments/{id}/disabled
+Content-Type: application/json
+
+{ "disabled": true }
+```
+
+What happens:
+
+- New starts are blocked: manual `POST /instances`, message-start, signal-start, and timer-start triggers all skip a disabled version.
+- In-flight instances continue executing on the version they were started on.
+- Timer-start jobs are **cancelled** when the version is disabled, and **re-armed** when it is re-enabled.
+- Drafts cannot be disabled (they are not yet eligible to start anything).
+
+Re-enable by sending `{ "disabled": false }`. The endpoint returns the updated `ProcessDefinition` JSON.
+
+## Instance counter
+
+Every process instance has two identifiers:
+
+- `id` — UUID, globally unique, used by all APIs.
+- `counter` — a `BIGINT`, sequential per `(org_id, process_key)` starting at `1`. Assigned by a database trigger; never null.
+
+The counter is the human-friendly handle the UI shows. It is stable: the second instance of `order-fulfillment` is always `#2`, regardless of how many other process keys you run.
+
+```json
+{
+  "id": "018e1b2c-3d4e-7f8a-9b0c-1d2e3f4a5b6c",
+  "counter": 47,
+  "process_key": "order-fulfillment",
+  ...
+}
+```
+
+## List pagination
+
+`GET /api/v1/process-instances` supports query-based pagination and filtering.
+
+| Param | Default | Description |
+|---|---|---|
+| `org_id` | — | required |
+| `definition_id` | — | restrict to one deployed version |
+| `process_key` | — | restrict to one process key (across all versions) |
+| `limit` | 100 | clamped to 1–500 |
+| `offset` | 0 | non-negative |
+
+```bash
+curl 'http://localhost:8080/api/v1/process-instances?org_id=...&process_key=order-fulfillment&limit=50&offset=100'
+```
+
+The total row count is returned in the **`X-Total-Count`** response header — use it to drive page navigation without a second `count(*)` request.
+
+## Rename across versions
+
+The user-visible `name` of a process or decision is shared across all versions of the same key. To rename in one call:
+
+```http
+PATCH /api/v1/deployments/by-key
+Content-Type: application/json
+
+{
+  "org_id": "...",
+  "process_group_id": "...",
+  "process_key": "order-fulfillment",
+  "name": "Order Fulfillment v2"
+}
+```
+
+```http
+PATCH /api/v1/decisions/by-key
+Content-Type: application/json
+x-org-id: <uuid>
+
+{
+  "decision_key": "order-classification",
+  "name": "Order Classification"
+}
+```
+
+Both endpoints update every deployed version (and any drafts) for the given key in one transaction. They return `204 No Content`.
+
+## Listing all versions of a decision
+
+By default `GET /api/v1/decisions` returns only the **latest** version per key. To see the full version history, add `all_versions=true`:
+
+```bash
+curl 'http://localhost:8080/api/v1/decisions?all_versions=true' \
+  -H 'x-org-id: <uuid>'
+```
+
+## Secrets
+
+Secrets are encrypted, organisation-scoped values that you can reference inside connector configs (most commonly HTTP headers) using the `{{secret:name}}` placeholder.
+
+```bash
+# Create
+curl -X POST http://localhost:8080/api/v1/secrets \
+  -H 'Content-Type: application/json' \
+  -H 'x-org-id: <uuid>' \
+  -d '{"name":"crm-api-key","value":"sk_live_..."}'
+
+# List names (values are never returned)
+curl http://localhost:8080/api/v1/secrets -H 'x-org-id: <uuid>'
+```
+
+Secrets are resolved at request time inside HTTP push connectors. They are never written to logs, traces, or the execution history audit table.
+
+## Health and metrics
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Liveness + DB connectivity check |
+| `GET /metrics` | Prometheus exposition (instance counts, job rates, timer firings) |
+
+The leader instance is determined by a PostgreSQL advisory lock; only the leader runs the timer-firing loop. All instances serve API traffic.

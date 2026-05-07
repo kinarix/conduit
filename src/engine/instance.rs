@@ -20,6 +20,26 @@ impl Engine {
         labels: &JsonValue,
         initial_variables: &[VariableInput],
     ) -> Result<ProcessInstance> {
+        let (status, disabled): (String, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+            "SELECT status, disabled_at FROM process_definitions WHERE id = $1",
+        )
+        .bind(definition_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            EngineError::NotFound(format!("Process definition {definition_id} not found"))
+        })?;
+        if status != "deployed" {
+            return Err(EngineError::Validation(format!(
+                "Process definition {definition_id} is not deployed (status: {status})"
+            )));
+        }
+        if disabled.is_some() {
+            return Err(EngineError::Validation(format!(
+                "Process definition {definition_id} is disabled — new instances cannot be started"
+            )));
+        }
+
         let graph = self.load_graph(definition_id).await?;
 
         if let Some(ref schema) = graph.input_schema {

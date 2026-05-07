@@ -14,7 +14,7 @@ import FooterNav from './FooterNav'
 import { useExpansion } from './useExpansion'
 import styles from './Sidebar.module.css'
 
-export default function Sidebar() {
+export default function Sidebar({ width }: { width?: number }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
@@ -105,7 +105,7 @@ export default function Sidebar() {
   })
 
   return (
-    <aside className={styles.sidebar}>
+    <aside className={styles.sidebar} style={width !== undefined ? { width } : undefined}>
       <WorkspaceHeader />
 
       <div className={styles.addOrgArea}>

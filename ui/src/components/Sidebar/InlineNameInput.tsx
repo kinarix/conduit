@@ -5,14 +5,12 @@ interface Props {
   initial: string
   onSubmit: (next: string) => void
   onCancel: () => void
+  onValueChange?: (value: string) => void
   placeholder?: string
+  isInvalid?: boolean
 }
 
-/**
- * Inline rename input. Submits on Enter / blur, cancels on Escape.
- * Re-uses the sidebar's --accent border for focus.
- */
-export default function InlineNameInput({ initial, onSubmit, onCancel, placeholder }: Props) {
+export default function InlineNameInput({ initial, onSubmit, onCancel, onValueChange, placeholder, isInvalid }: Props) {
   const [value, setValue] = useState(initial)
   const ref = useRef<HTMLInputElement>(null)
 
@@ -22,6 +20,7 @@ export default function InlineNameInput({ initial, onSubmit, onCancel, placehold
   }, [])
 
   const commit = () => {
+    if (isInvalid) { onCancel(); return }
     const trimmed = value.trim()
     if (!trimmed || trimmed === initial) onCancel()
     else onSubmit(trimmed)
@@ -30,12 +29,15 @@ export default function InlineNameInput({ initial, onSubmit, onCancel, placehold
   return (
     <input
       ref={ref}
-      className={styles.inlineInput}
+      className={`${styles.inlineInput}${isInvalid ? ` ${styles.inlineInputError}` : ''}`}
       value={value}
       placeholder={placeholder}
-      onChange={e => setValue(e.target.value)}
+      onChange={e => {
+        setValue(e.target.value)
+        onValueChange?.(e.target.value)
+      }}
       onKeyDown={e => {
-        if (e.key === 'Enter') commit()
+        if (e.key === 'Enter') { if (!isInvalid) commit() }
         else if (e.key === 'Escape') onCancel()
       }}
       onBlur={commit}

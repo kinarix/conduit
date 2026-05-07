@@ -62,6 +62,8 @@ export interface BpmnNodeData extends Record<string, unknown> {
   errorCode?: string;
   cancelling?: boolean;
   decisionRef?: string;
+  /** Pin to a specific deployed version of the decision. Omitted = latest. */
+  decisionVersion?: number;
   script?: string;
   resultVariable?: string;
   /** Phase 16: HTTP connector config for service tasks. */

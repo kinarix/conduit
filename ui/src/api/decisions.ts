@@ -39,11 +39,18 @@ export interface DecisionDetail extends DecisionSummary {
   table: DecisionTable
 }
 
-export const fetchDecisions = (orgId: string, processGroupId?: string): Promise<DecisionSummary[]> => {
-  const url = processGroupId
-    ? `/api/v1/decisions?process_group_id=${encodeURIComponent(processGroupId)}`
-    : `/api/v1/decisions`
-  return apiFetch<DecisionSummary[]>(url, { headers: { 'X-Org-Id': orgId } })
+export const fetchDecisions = (
+  orgId: string,
+  processGroupId?: string,
+  allVersions?: boolean,
+): Promise<DecisionSummary[]> => {
+  const params = new URLSearchParams()
+  if (processGroupId) params.set('process_group_id', processGroupId)
+  if (allVersions) params.set('all_versions', 'true')
+  const qs = params.toString()
+  return apiFetch<DecisionSummary[]>(`/api/v1/decisions${qs ? `?${qs}` : ''}`, {
+    headers: { 'X-Org-Id': orgId },
+  })
 }
 
 export const fetchDecision = (orgId: string, key: string): Promise<DecisionDetail> =>
@@ -96,6 +103,13 @@ export function makeStubDmn(key: string, name: string): string {
   </decision>
 </definitions>`
 }
+
+export const renameDecision = (orgId: string, decisionKey: string, name: string): Promise<void> =>
+  apiFetch<void>('/api/v1/decisions/by-key', {
+    method: 'PATCH',
+    headers: { 'X-Org-Id': orgId, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ decision_key: decisionKey, name }),
+  })
 
 export const deleteDecision = (orgId: string, key: string): Promise<void> =>
   apiFetch<void>(`/api/v1/decisions/${encodeURIComponent(key)}`, {

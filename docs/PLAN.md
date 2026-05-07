@@ -1,4 +1,4 @@
-# Takt — Incremental Build Plan
+# Conduit — Incremental Build Plan
 
 ## Philosophy
 
@@ -37,6 +37,8 @@ Every phase follows this pattern:
 | 17 | External Task Long-Polling | — | LISTEN/NOTIFY-driven fetch-and-lock |
 | 18 | Element Documentation + Attachments | — | Per-element rich-text docs and file attachments (PDF/DOC/XLS/PPT) |
 | 19 | Instance Notes + Attachments | — | User-authored notes and attachments on running instances and steps |
+
+> **Beyond the phase line:** several operational features have shipped alongside Phase 16 prep — HTTP push connector for `serviceTask`, encrypted secrets, per-version enable/disable, sequential instance counter, instances-list pagination, rename-across-versions, `businessRuleTask` version pinning, `scriptTask`, `sendTask`, and `boundaryEvent` of type error. See `README.md` for usage.
 
 ---
 

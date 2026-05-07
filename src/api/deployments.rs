@@ -2,7 +2,7 @@ use super::extractors::{Json, Path, Query};
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use chrono::{DateTime, Utc};
@@ -82,9 +82,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/deployments", post(deploy))
         .route("/api/v1/deployments/draft", post(save_draft))
         .route("/api/v1/deployments/draft/new", post(create_draft))
+        .route("/api/v1/deployments/by-key", patch(rename_by_key))
         .route("/api/v1/deployments/{id}", get(get_deployment))
         .route("/api/v1/deployments/{id}", delete(delete_deployment))
         .route("/api/v1/deployments/{id}/promote", post(promote_draft))
+        .route("/api/v1/deployments/{id}/disabled", patch(set_disabled))
 }
 
 async fn list_deployments(
@@ -281,6 +283,30 @@ async fn create_draft(
     ))
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RenameByKeyRequest {
+    pub org_id: Uuid,
+    pub process_group_id: Uuid,
+    pub process_key: String,
+    pub name: String,
+}
+
+async fn rename_by_key(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RenameByKeyRequest>,
+) -> Result<StatusCode> {
+    ensure_process_group_in_org(&state.pool, req.process_group_id, req.org_id).await?;
+    process_definitions::rename_all_versions(
+        &state.pool,
+        req.org_id,
+        req.process_group_id,
+        &req.process_key,
+        &req.name,
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn delete_deployment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -382,4 +408,27 @@ async fn promote_draft(
         status: def.status,
         deployed_at: def.deployed_at,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+struct SetDisabledRequest {
+    disabled: bool,
+}
+
+/// PATCH /api/v1/deployments/{id}/disabled
+/// Body: { "disabled": true | false }
+/// Toggles whether a deployed version can start NEW instances.
+/// Existing instances are unaffected. Drafts cannot be disabled.
+async fn set_disabled(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<SetDisabledRequest>,
+) -> Result<Json<ProcessDefinition>> {
+    let def = process_definitions::set_disabled(&state.pool, id, req.disabled).await?;
+    if req.disabled {
+        state.engine.cancel_timer_start_jobs(def.id).await?;
+    } else {
+        state.engine.schedule_timer_start_events(def.id).await?;
+    }
+    Ok(Json(def))
 }

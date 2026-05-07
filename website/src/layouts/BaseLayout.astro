@@ -4,6 +4,7 @@ export interface Props {
   description?: string;
 }
 const { title, description = 'Conduit — lightweight process orchestration engine' } = Astro.props;
+const canonicalUrl = Astro.url;
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -12,12 +13,39 @@ const { title, description = 'Conduit — lightweight process orchestration engi
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title} — Conduit</title>
   <meta name="description" content={description} />
+  <link rel="canonical" href={canonicalUrl} />
+
+  <!-- Brand font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
+
+  <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.svg" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={`${title} — Conduit`} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content="https://conduit.kinarix.com/og-image.svg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:url" content={canonicalUrl} />
+
+  <!-- Twitter / X card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content={`${title} — Conduit`} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content="https://conduit.kinarix.com/og-image.svg" />
 </head>
 <body>
   <header>
     <nav>
-      <a href="/" class="logo">Conduit</a>
+      <a href="/" class="logo">
+        <img src="/favicon.svg" width="24" height="24" alt="" aria-hidden="true" />
+        Conduit
+      </a>
       <div class="nav-links">
         <a href="/docs/">Docs</a>
         <a href="https://github.com/kinarix/conduit" target="_blank" rel="noopener">GitHub</a>
@@ -55,12 +83,17 @@ const { title, description = 'Conduit — lightweight process orchestration engi
     justify-content: space-between;
   }
   .logo {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
     font-weight: 700;
     font-size: 1.1rem;
     color: #fff;
     letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
   }
   .logo:hover { text-decoration: none; }
+  .logo img { border-radius: 5px; }
   .nav-links { display: flex; gap: 1.5rem; }
   .nav-links a { color: var(--color-muted); font-size: 0.9rem; }
   .nav-links a:hover { color: var(--color-text); text-decoration: none; }

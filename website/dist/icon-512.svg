@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#0d1b2e"/>
+      <stop offset="100%" stop-color="#020917"/>
+    </radialGradient>
+    <linearGradient id="pipe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#4e6070"/>
+      <stop offset="18%"  stop-color="#3a4f63"/>
+      <stop offset="50%"  stop-color="#243347"/>
+      <stop offset="82%"  stop-color="#1a2533"/>
+      <stop offset="100%" stop-color="#0f1a28"/>
+    </linearGradient>
+    <radialGradient id="cap" cx="50%" cy="35%" r="65%">
+      <stop offset="0%"   stop-color="#1e3a5f"/>
+      <stop offset="60%"  stop-color="#0d2035"/>
+      <stop offset="100%" stop-color="#060f1a"/>
+    </radialGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="ambient" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <linearGradient id="trail1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.6"/>
+    </linearGradient>
+    <linearGradient id="trail2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.5"/>
+    </linearGradient>
+    <linearGradient id="trail3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="white" stop-opacity="0"/>
+      <stop offset="100%" stop-color="white" stop-opacity="0.5"/>
+    </linearGradient>
+    <mask id="m1"><rect x="90" y="161" width="116" height="22" rx="4" fill="url(#trail1)"/></mask>
+    <mask id="m2"><rect x="140" y="241" width="126" height="22" rx="4" fill="url(#trail2)"/></mask>
+    <mask id="m3"><rect x="80" y="321" width="96" height="22" rx="4" fill="url(#trail3)"/></mask>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="url(#bg)"/>
+  <ellipse cx="256" cy="256" rx="200" ry="130" fill="#1a3a6e" filter="url(#ambient)" opacity="0.18"/>
+  <!-- Pipe 1 -->
+  <rect x="86" y="152" width="340" height="48" rx="24" fill="url(#pipe)"/>
+  <rect x="110" y="155" width="292" height="7" rx="3.5" fill="#7a9ab5" opacity="0.35"/>
+  <rect x="110" y="191" width="292" height="3" rx="1.5" fill="#000" opacity="0.25"/>
+  <!-- Pipe 2 -->
+  <rect x="86" y="232" width="340" height="48" rx="24" fill="url(#pipe)"/>
+  <rect x="110" y="235" width="292" height="7" rx="3.5" fill="#7a9ab5" opacity="0.35"/>
+  <rect x="110" y="271" width="292" height="3" rx="1.5" fill="#000" opacity="0.25"/>
+  <!-- Pipe 3 -->
+  <rect x="86" y="312" width="340" height="48" rx="24" fill="url(#pipe)"/>
+  <rect x="110" y="315" width="292" height="7" rx="3.5" fill="#7a9ab5" opacity="0.35"/>
+  <rect x="110" y="351" width="292" height="3" rx="1.5" fill="#000" opacity="0.25"/>
+  <!-- Left caps -->
+  <ellipse cx="86" cy="176" rx="24" ry="24" fill="url(#cap)" stroke="#3a5068" stroke-width="2.5"/>
+  <ellipse cx="86" cy="176" rx="14" ry="14" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="86" cy="256" rx="24" ry="24" fill="url(#cap)" stroke="#3a5068" stroke-width="2.5"/>
+  <ellipse cx="86" cy="256" rx="14" ry="14" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="86" cy="336" rx="24" ry="24" fill="url(#cap)" stroke="#3a5068" stroke-width="2.5"/>
+  <ellipse cx="86" cy="336" rx="14" ry="14" fill="#0a1a2e" opacity="0.8"/>
+  <!-- Right caps -->
+  <ellipse cx="426" cy="176" rx="24" ry="24" fill="url(#cap)" stroke="#3a5068" stroke-width="2.5"/>
+  <ellipse cx="426" cy="176" rx="14" ry="14" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="426" cy="256" rx="24" ry="24" fill="url(#cap)" stroke="#3a5068" stroke-width="2.5"/>
+  <ellipse cx="426" cy="256" rx="14" ry="14" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="426" cy="336" rx="24" ry="24" fill="url(#cap)" stroke="#3a5068" stroke-width="2.5"/>
+  <ellipse cx="426" cy="336" rx="14" ry="14" fill="#0a1a2e" opacity="0.8"/>
+  <!-- Pipe 1 tokens -->
+  <ellipse cx="210" cy="176" rx="28" ry="13" fill="#6366f1" filter="url(#ambient)" opacity="0.9"/>
+  <rect x="90" y="168" width="116" height="16" rx="8" fill="#6366f1" mask="url(#m1)" opacity="0.4"/>
+  <circle cx="148" cy="176" r="5" fill="#6366f1" opacity="0.45"/>
+  <circle cx="210" cy="176" r="15" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="210" cy="176" r="7"  fill="#c7d2fe"/>
+  <circle cx="348" cy="176" r="9" fill="#22d3ee" filter="url(#glow)"/>
+  <circle cx="348" cy="176" r="4" fill="#e0f9ff"/>
+  <circle cx="396" cy="176" r="5" fill="#22d3ee" opacity="0.3"/>
+  <!-- Pipe 2 tokens -->
+  <ellipse cx="270" cy="256" rx="28" ry="13" fill="#22d3ee" filter="url(#ambient)" opacity="0.9"/>
+  <rect x="140" y="248" width="126" height="16" rx="8" fill="#22d3ee" mask="url(#m2)" opacity="0.4"/>
+  <circle cx="200" cy="256" r="5" fill="#22d3ee" opacity="0.45"/>
+  <circle cx="110" cy="256" r="4" fill="#22d3ee" opacity="0.2"/>
+  <circle cx="270" cy="256" r="15" fill="#22d3ee" filter="url(#glow)"/>
+  <circle cx="270" cy="256" r="7"  fill="#e0f9ff"/>
+  <circle cx="390" cy="256" r="9" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="390" cy="256" r="4" fill="#c7d2fe"/>
+  <!-- Pipe 3 tokens -->
+  <ellipse cx="178" cy="336" rx="24" ry="12" fill="#a78bfa" filter="url(#ambient)" opacity="0.85"/>
+  <rect x="80" y="328" width="96" height="16" rx="8" fill="#a78bfa" mask="url(#m3)" opacity="0.4"/>
+  <circle cx="130" cy="336" r="5" fill="#a78bfa" opacity="0.4"/>
+  <circle cx="178" cy="336" r="11" fill="#a78bfa" filter="url(#glow)"/>
+  <circle cx="178" cy="336" r="5"  fill="#ede9fe"/>
+  <circle cx="318" cy="336" r="15" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="318" cy="336" r="7"  fill="#c7d2fe"/>
+  <circle cx="400" cy="336" r="5"  fill="#6366f1" opacity="0.35"/>
+</svg>

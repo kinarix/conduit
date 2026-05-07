@@ -1,0 +1,64 @@
+<!-- icon-180.svg — 180×180 Apple touch icon; reuses 128 design at larger size -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="180" height="180">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#0d1b2e"/>
+      <stop offset="100%" stop-color="#020917"/>
+    </radialGradient>
+    <linearGradient id="pipe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#4e6070"/>
+      <stop offset="18%"  stop-color="#3a4f63"/>
+      <stop offset="50%"  stop-color="#243347"/>
+      <stop offset="82%"  stop-color="#1a2533"/>
+      <stop offset="100%" stop-color="#0f1a28"/>
+    </linearGradient>
+    <radialGradient id="cap" cx="50%" cy="35%" r="65%">
+      <stop offset="0%"   stop-color="#1e3a5f"/>
+      <stop offset="60%"  stop-color="#0d2035"/>
+      <stop offset="100%" stop-color="#060f1a"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="ambient"><feGaussianBlur stdDeviation="7"/></filter>
+  </defs>
+  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
+  <ellipse cx="64" cy="64" rx="52" ry="34" fill="#1a3a6e" filter="url(#ambient)" opacity="0.2"/>
+  <rect x="20" y="28" width="88" height="18" rx="9" fill="url(#pipe)"/>
+  <rect x="26" y="30" width="76" height="3"  rx="1.5" fill="#7a9ab5" opacity="0.35"/>
+  <rect x="26" y="43" width="76" height="1.5" rx="0.75" fill="#000" opacity="0.25"/>
+  <rect x="20" y="55" width="88" height="18" rx="9" fill="url(#pipe)"/>
+  <rect x="26" y="57" width="76" height="3"  rx="1.5" fill="#7a9ab5" opacity="0.35"/>
+  <rect x="26" y="70" width="76" height="1.5" rx="0.75" fill="#000" opacity="0.25"/>
+  <rect x="20" y="82" width="88" height="18" rx="9" fill="url(#pipe)"/>
+  <rect x="26" y="84" width="76" height="3"  rx="1.5" fill="#7a9ab5" opacity="0.35"/>
+  <rect x="26" y="97" width="76" height="1.5" rx="0.75" fill="#000" opacity="0.25"/>
+  <ellipse cx="20" cy="37"  rx="9" ry="9" fill="url(#cap)" stroke="#3a5068" stroke-width="1"/>
+  <ellipse cx="20" cy="37"  rx="5" ry="5" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="20" cy="64"  rx="9" ry="9" fill="url(#cap)" stroke="#3a5068" stroke-width="1"/>
+  <ellipse cx="20" cy="64"  rx="5" ry="5" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="20" cy="91"  rx="9" ry="9" fill="url(#cap)" stroke="#3a5068" stroke-width="1"/>
+  <ellipse cx="20" cy="91"  rx="5" ry="5" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="108" cy="37"  rx="9" ry="9" fill="url(#cap)" stroke="#3a5068" stroke-width="1"/>
+  <ellipse cx="108" cy="37"  rx="5" ry="5" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="108" cy="64"  rx="9" ry="9" fill="url(#cap)" stroke="#3a5068" stroke-width="1"/>
+  <ellipse cx="108" cy="64"  rx="5" ry="5" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="108" cy="91"  rx="9" ry="9" fill="url(#cap)" stroke="#3a5068" stroke-width="1"/>
+  <ellipse cx="108" cy="91"  rx="5" ry="5" fill="#0a1a2e" opacity="0.8"/>
+  <ellipse cx="52" cy="37" rx="10" ry="5" fill="#6366f1" filter="url(#ambient)" opacity="0.9"/>
+  <circle cx="52" cy="37" r="6.5" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="52" cy="37" r="3"   fill="#c7d2fe"/>
+  <circle cx="80" cy="37" r="4.5" fill="#22d3ee" filter="url(#glow)"/>
+  <circle cx="80" cy="37" r="2"   fill="#e0f9ff"/>
+  <ellipse cx="62" cy="64" rx="10" ry="5" fill="#22d3ee" filter="url(#ambient)" opacity="0.9"/>
+  <circle cx="62" cy="64" r="6.5" fill="#22d3ee" filter="url(#glow)"/>
+  <circle cx="62" cy="64" r="3"   fill="#e0f9ff"/>
+  <circle cx="88" cy="64" r="4.5" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="88" cy="64" r="2"   fill="#c7d2fe"/>
+  <ellipse cx="44" cy="91" rx="10" ry="5" fill="#a78bfa" filter="url(#ambient)" opacity="0.85"/>
+  <circle cx="44" cy="91" r="5.5" fill="#a78bfa" filter="url(#glow)"/>
+  <circle cx="44" cy="91" r="2.5" fill="#ede9fe"/>
+  <circle cx="76" cy="91" r="6.5" fill="#6366f1" filter="url(#glow)"/>
+  <circle cx="76" cy="91" r="3"   fill="#c7d2fe"/>
+</svg>

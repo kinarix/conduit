@@ -34,7 +34,7 @@ import {
   useReactFlow,
   useViewport,
   BaseEdge,
-  getBezierPath,
+  getSmoothStepPath,
   ConnectionMode,
   MarkerType,
 } from '@xyflow/react';
@@ -49,7 +49,6 @@ import { toXml, fromXml } from './bpmnXml';
 import type { BpmnNodeData, BpmnEdgeData, BpmnElementType } from './bpmnTypes';
 import type { LayoutData } from '../../api/deployments';
 import { NODE_DIMENSIONS } from './bpmnTypes';
-import { applyAutoLayout, recomputeAllEdgeHandles, spreadGatewayHandles } from './autoLayout';
 
 function ZoomDisplay() {
   const { zoom } = useViewport();
@@ -74,7 +73,7 @@ function ZoomDisplay() {
 }
 
 function AttachmentEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected }: EdgeProps) {
-  const [edgePath] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition });
+  const [edgePath] = getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, borderRadius: 8 });
   return (
     <BaseEdge
       id={id}
@@ -108,9 +107,10 @@ function CustomConnectionLine({ fromX, fromY, toX, toY, fromPosition, toPosition
   const fromType = (fromNode?.data as BpmnNodeData | undefined)?.bpmnType;
   const isBoundarySrc = fromType && BOUNDARY_TYPES.has(fromType as BpmnElementType);
   const stroke = isInvalid ? '#ef4444' : '#94a3b8';
-  const [edgePath] = getBezierPath({
+  const [edgePath] = getSmoothStepPath({
     sourceX: fromX, sourceY: fromY, sourcePosition: fromPosition,
     targetX: toX, targetY: toY, targetPosition: toPosition,
+    borderRadius: 8,
   });
   return (
     <path
@@ -198,6 +198,7 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
 
   const suppressLayoutSave = useRef(false);
   const layoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fitViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const warningsMap = useMemo(() => computeWarningsMap(nodes, edges), [nodes, edges]);
   const invalidEdgeIds = useMemo(() => computeInvalidEdgeIds(nodes, edges), [nodes, edges]);
@@ -210,6 +211,8 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
       const strokeWidth = e.selected ? 2.5 : 1.5;
       return {
         ...e,
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 8 },
         style: {
           stroke,
           strokeWidth,
@@ -255,6 +258,9 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
       setProcessName(parsed.processName);
       onProcessNameChange?.(parsed.processName);
       setProcessSchema(parsed.inputSchema);
+      // Schedule fit; initialLayout effect will cancel and reschedule if it also fires.
+      if (fitViewTimerRef.current) clearTimeout(fitViewTimerRef.current);
+      fitViewTimerRef.current = setTimeout(() => reactFlow.fitView({ padding: 0.15, duration: 300 }), 80);
     } catch (e) {
       console.error('Failed to parse BPMN XML', e);
     }
@@ -277,6 +283,9 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
         ...(el.targetHandle !== undefined ? { targetHandle: el.targetHandle } : {}),
       };
     }));
+    // Reset timer from xml effect so fitView fires after positions are applied.
+    if (fitViewTimerRef.current) clearTimeout(fitViewTimerRef.current);
+    fitViewTimerRef.current = setTimeout(() => reactFlow.fitView({ padding: 0.15, duration: 300 }), 80);
   }, [initialLayout]);
 
   // Debounced layout save — skipped immediately after XML load or layout overlay.
@@ -418,14 +427,6 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
     );
   }, [setNodes]);
 
-  const onAutoLayout = useCallback(() => {
-    const newNodes = applyAutoLayout(nodes, edges);
-    const recomputed = recomputeAllEdgeHandles(newNodes, edges);
-    const newEdges = spreadGatewayHandles(newNodes, recomputed);
-    setNodes(newNodes);
-    setEdges(newEdges);
-    setTimeout(() => reactFlow.fitView({ padding: 0.15, duration: 300 }), 50);
-  }, [edges, nodes, setNodes, setEdges, reactFlow]);
 
   const onEdgeChange = useCallback((id: string, patch: Partial<BpmnEdgeData>) => {
     setEdges(es =>
@@ -483,38 +484,6 @@ function BpmnEditorInner({ xml, processId: initPid, processName: initPname, onPr
           <Background variant={BackgroundVariant.Dots} color="#cbd5e1" gap={20} size={1.5} />
           <Controls position="bottom-right" style={{ right: 12, bottom: 34 }} />
           <MiniMap nodeColor={() => '#cbd5e1'} maskColor="rgba(248,250,252,0.7)" position="bottom-left" />
-          <Panel position="top-right">
-            <button
-              onClick={onAutoLayout}
-              title="Auto-arrange nodes using left-to-right layout"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '5px 10px',
-                fontSize: 'var(--text-md)',
-                fontWeight: 'var(--weight-medium)',
-                color: 'var(--text-secondary)',
-                background: 'rgba(255,255,255,0.97)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: 6,
-                cursor: 'pointer',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.07)',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-tertiary)'; e.currentTarget.style.borderColor = 'var(--text-tertiary)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.97)'; e.currentTarget.style.borderColor = 'var(--border-primary)'; }}
-            >
-              <svg width={13} height={13} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.6}>
-                <rect x={1} y={1} width={4} height={4} rx={1}/>
-                <rect x={1} y={6} width={4} height={4} rx={1}/>
-                <rect x={1} y={11} width={4} height={4} rx={1}/>
-                <rect x={6} y={3.5} width={4} height={4} rx={1}/>
-                <rect x={6} y={8.5} width={4} height={4} rx={1}/>
-                <rect x={11} y={6} width={4} height={4} rx={1}/>
-              </svg>
-              Auto Arrange
-            </button>
-          </Panel>
         </ReactFlow>
         <BpmnPalette />
         <ZoomDisplay />

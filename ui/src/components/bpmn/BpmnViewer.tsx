@@ -135,6 +135,7 @@ function ViewerInner({ xml, elementStates }: { xml: string; elementStates?: Map<
         return {
           ...e,
           type: 'smoothstep',
+          pathOptions: { borderRadius: 8 },
           animated: isActive,
           style: { stroke, strokeWidth: isTraversed || isActive || isError ? 2 : 1.2 },
           markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: stroke },

@@ -23,7 +23,7 @@ import BpmnSchemaBuilder from './BpmnSchemaBuilder';
 import { computeNodeWarnings } from './bpmnValidation';
 import { useOrg } from '../../App';
 import { fetchSecrets } from '../../api/secrets';
-import { DOCS_BASE_URL, ELEMENT_DOC_SLUGS } from '../../lib/docs';
+import { DOCS_BASE_URL, ELEMENT_DOC_SLUGS, helpIconStyle, helpIconHover } from '../../lib/docs';
 
 interface Props {
   selected: Node | Edge | null;
@@ -124,6 +124,7 @@ const readonlyStyle: React.CSSProperties = {
   fontSize: 'var(--text-sm)',
   fontFamily: 'ui-monospace, monospace',
 };
+
 
 const selectStyle: React.CSSProperties = {
   ...inputStyle,
@@ -240,7 +241,25 @@ export default function BpmnProperties({
     return (
       <div style={panelStyle}>
         <div style={scrollableStyle}>
-          <div style={{ ...headingStyle, color: accentColor }}>{ELEMENT_LABELS[d.bpmnType] ?? 'Properties'}</div>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ ...headingStyle, marginBottom: 0, flex: 1, color: accentColor }}>{ELEMENT_LABELS[d.bpmnType] ?? 'Properties'}</div>
+            {(() => {
+              const slug = ELEMENT_DOC_SLUGS[d.bpmnType];
+              return slug ? (
+                <a
+                  href={`${DOCS_BASE_URL}/docs/elements/${slug}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open documentation"
+                  style={helpIconStyle}
+                  onMouseEnter={e => helpIconHover(e.currentTarget as HTMLAnchorElement, true)}
+                  onMouseLeave={e => helpIconHover(e.currentTarget as HTMLAnchorElement, false)}
+                >
+                  ?
+                </a>
+              ) : null;
+            })()}
+          </div>
           <ValidationWarnings warnings={warnings} />
 
           <Field label="ID">
@@ -562,19 +581,6 @@ export default function BpmnProperties({
           })()}
         </div>
 
-        {(() => {
-          const slug = ELEMENT_DOC_SLUGS[d.bpmnType];
-          return slug ? (
-            <a
-              href={`${DOCS_BASE_URL}/docs/elements/${slug}/`}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: 'block', padding: '8px 12px', fontSize: 12, color: '#6366f1', textAlign: 'right', borderTop: '1px solid #e2e8f0' }}
-            >
-              Open docs →
-            </a>
-          ) : null;
-        })()}
 
         {httpModalOpen && d.bpmnType === 'serviceTask' && (
           <HttpConnectorModal
@@ -632,7 +638,20 @@ export default function BpmnProperties({
   return (
     <div style={panelStyle}>
       <div style={scrollableStyle}>
-        <div style={headingStyle}>Flow</div>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ ...headingStyle, marginBottom: 0, flex: 1 }}>Flow</div>
+          <a
+            href={`${DOCS_BASE_URL}/docs/elements/sequence-flow/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Open documentation"
+            style={helpIconStyle}
+            onMouseEnter={e => helpIconHover(e.currentTarget as HTMLAnchorElement, true)}
+            onMouseLeave={e => helpIconHover(e.currentTarget as HTMLAnchorElement, false)}
+          >
+            ?
+          </a>
+        </div>
 
         <Field label="ID">
           <input style={readonlyStyle} value={selected.id} readOnly />
@@ -677,14 +696,6 @@ export default function BpmnProperties({
         )}
       </div>
 
-      <a
-        href={`${DOCS_BASE_URL}/docs/elements/sequence-flow/`}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{ display: 'block', padding: '8px 12px', fontSize: 12, color: '#6366f1', textAlign: 'right', borderTop: '1px solid #e2e8f0' }}
-      >
-        Open docs →
-      </a>
     </div>
   );
 }

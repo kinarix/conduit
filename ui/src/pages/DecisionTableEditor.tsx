@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, KeyboardEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useOrg } from '../App'
+import { helpIconStyle, helpIconHover } from '../lib/docs'
 import {
   fetchDecision,
   fetchDecisions,
@@ -651,9 +652,12 @@ export default function DecisionTableEditor() {
               href="https://conduit.kinarix.com/docs/decision-tables/"
               target="_blank"
               rel="noopener noreferrer"
-              style={{ fontSize: 11, color: '#6366f1', textDecoration: 'none' }}
+              title="Open documentation"
+              style={helpIconStyle}
+              onMouseEnter={e => helpIconHover(e.currentTarget as HTMLAnchorElement, true)}
+              onMouseLeave={e => helpIconHover(e.currentTarget as HTMLAnchorElement, false)}
             >
-              Open docs →
+              ?
             </a>
             <button
               onClick={() => setShowTest(t => !t)}

@@ -145,9 +145,10 @@ function ModellerEdit({ defId }: { defId: string }) {
 
   const saveMut = useMutation({
     mutationFn: async (overrides: { name: string; key: string } | void) => {
+      if (!org) throw new Error('No organisation selected')
       if (!process_group_id) throw new Error('Process is not assigned to a process group')
       const bpmn_xml = await modRef.current!.getXml()
-      return saveDraft({ org_id: org!.id, process_group_id, key: overrides?.key ?? key, name: overrides?.name ?? name, bpmn_xml })
+      return saveDraft({ org_id: org.id, process_group_id, key: overrides?.key ?? key, name: overrides?.name ?? name, bpmn_xml })
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['deployments'] })
@@ -162,15 +163,16 @@ function ModellerEdit({ defId }: { defId: string }) {
 
   const deployMut = useMutation({
     mutationFn: async () => {
+      if (!org) throw new Error('No organisation selected')
       if (!process_group_id) throw new Error('Process is not assigned to a process group')
       const bpmn_xml = await modRef.current!.getXml()
 
       const existingDraftId = draftId ?? (existing?.status === 'draft' ? existing.id : null)
       if (existingDraftId) {
-        await saveDraft({ org_id: org!.id, process_group_id, key, name, bpmn_xml })
+        await saveDraft({ org_id: org.id, process_group_id, key, name, bpmn_xml })
         return promoteDraft(existingDraftId)
       }
-      return deployProcess({ org_id: org!.id, process_group_id, key, name, bpmn_xml })
+      return deployProcess({ org_id: org.id, process_group_id, key, name, bpmn_xml })
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['deployments'] })

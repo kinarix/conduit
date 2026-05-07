@@ -463,7 +463,10 @@ export default function DecisionTableEditor() {
   }, [draftKey])
 
   const deploy = useMutation({
-    mutationFn: (xml: string) => deployDecision(org!.id, xml, groupId),
+    mutationFn: (xml: string) => {
+      if (!org) throw new Error('No organisation selected')
+      return deployDecision(org.id, xml, groupId)
+    },
     onSuccess: () => {
       if (draftKey) localStorage.removeItem(draftKey)
       qc.invalidateQueries({ queryKey: ['decisions', org?.id] })

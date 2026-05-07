@@ -662,7 +662,10 @@ impl Engine {
                                 Some(node.id.as_str()),
                                 "error_raised",
                                 None,
-                                &format!("decision key '{}' not found in DMN definition", decision_ref),
+                                &format!(
+                                    "decision key '{}' not found in DMN definition",
+                                    decision_ref
+                                ),
                             )
                             .await?;
                             sqlx::query(

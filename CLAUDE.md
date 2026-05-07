@@ -64,6 +64,7 @@ conduit/
 │       ├── PHASE-13-inclusive-gateway.md
 │       ├── PHASE-14-dmn.md
 │       ├── PHASE-15-clustering.md
+│       ├── PHASE-16-decision-table-ui.md
 │       ├── PHASE-17-external-task-long-polling.md
 │       ├── PHASE-18-element-documentation.md
 │       └── PHASE-19-instance-notes.md
@@ -119,9 +120,9 @@ conduit/
 
 ## Current Phase
 
-**Phase 15 — Clustering + Observability** (next up)
+**Phase 16 — Decision Table UI + Full FEEL** (next up)
 
-Phases 0–14 are complete. See `docs/phases/PHASE-15-clustering.md` and `docs/PLAN.md` for the next phase spec.
+Phases 0–15 are complete. See `docs/phases/PHASE-16-decision-table-ui.md` and `docs/PLAN.md` for the next phase spec.
 
 ### Completed phases
 | Phase | What was built |
@@ -142,6 +143,7 @@ Phases 0–14 are complete. See `docs/phases/PHASE-15-clustering.md` and `docs/P
 | 12 | Embedded subprocess — SubProcess variant, `find_element_graph` recursive lookup, subprocess scoping, nested subprocess support |
 | 13 | Inclusive gateway — OR routing with selective join, condition evaluation on all outgoing flows, `parallel_join_state` reuse with `expected_count = matched.len()` |
 | 14 | DMN integration — decision_definitions table, DMN XML parser, mini FEEL evaluator, BusinessRuleTask engine arm, `POST /api/v1/decisions` |
+| 15 | Clustering + Observability — leader election (pg_try_advisory_lock), Prometheus /metrics, graceful shutdown (CancellationToken), JSON logging, enhanced health endpoint |
 
 ## How to Work Through the Phases
 

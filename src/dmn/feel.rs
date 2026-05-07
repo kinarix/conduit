@@ -37,11 +37,14 @@ pub fn eval_input_entry(cell: &str, value: &Value) -> Result<bool, EngineError> 
     eval_single_entry(cell, value)
 }
 
-/// Split `cell` by commas that are NOT inside double-quoted strings.
-fn split_or_list(cell: &str) -> Vec<String> {
+/// Split `cell` by top-level commas — i.e., commas NOT inside double-quoted
+/// strings and NOT inside parentheses. This ensures `not("a","b")` is treated
+/// as a single entry rather than two.
+pub fn split_or_list(cell: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
+    let mut paren_depth: usize = 0;
 
     for ch in cell.chars() {
         match ch {
@@ -49,7 +52,15 @@ fn split_or_list(cell: &str) -> Vec<String> {
                 in_string = !in_string;
                 current.push(ch);
             }
-            ',' if !in_string => {
+            '(' if !in_string => {
+                paren_depth += 1;
+                current.push(ch);
+            }
+            ')' if !in_string => {
+                paren_depth = paren_depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' if !in_string && paren_depth == 0 => {
                 parts.push(current.trim().to_string());
                 current = String::new();
             }
@@ -85,6 +96,16 @@ fn eval_single_entry(cell: &str, value: &Value) -> Result<bool, EngineError> {
     }
     if cell == "false" {
         return Ok(value.as_bool() == Some(false));
+    }
+
+    // not(...) negation — DMN 1.5 §10.3.2.7
+    if let Some(inner) = cell.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
+        return Ok(!eval_input_entry(inner.trim(), value)?);
+    }
+
+    // null literal — matches JSON null exactly
+    if cell == "null" {
+        return Ok(value.is_null());
     }
 
     // Number literal
@@ -419,6 +440,43 @@ mod tests {
     #[test]
     fn null_against_string_literal_is_false() {
         assert!(!eval_input_entry(r#""foo""#, &Value::Null).unwrap());
+    }
+
+    // ── not(...) negation ─────────────────────────────────────────────────────
+
+    #[test]
+    fn not_string_literal_inverts() {
+        assert!(eval_input_entry(r#"not("inactive")"#, &json!("active")).unwrap());
+        assert!(!eval_input_entry(r#"not("inactive")"#, &json!("inactive")).unwrap());
+    }
+
+    #[test]
+    fn not_unary_gte_inverts() {
+        assert!(eval_input_entry("not(>= 18)", &json!(15)).unwrap());
+        assert!(!eval_input_entry("not(>= 18)", &json!(20)).unwrap());
+    }
+
+    #[test]
+    fn not_or_list_inverts() {
+        assert!(!eval_input_entry(r#"not("low","medium")"#, &json!("low")).unwrap());
+        assert!(eval_input_entry(r#"not("low","medium")"#, &json!("high")).unwrap());
+    }
+
+    // ── null literal ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn null_literal_matches_json_null() {
+        assert!(eval_input_entry("null", &Value::Null).unwrap());
+    }
+
+    #[test]
+    fn null_literal_no_match_number() {
+        assert!(!eval_input_entry("null", &json!(0)).unwrap());
+    }
+
+    #[test]
+    fn null_literal_no_match_string() {
+        assert!(!eval_input_entry("null", &json!("null")).unwrap());
     }
 
     // ── error cases ───────────────────────────────────────────────────────────

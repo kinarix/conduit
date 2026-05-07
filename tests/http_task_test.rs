@@ -619,7 +619,10 @@ async fn error_code_expression_on_2xx_routes_to_boundary() {
 
     // Job should be cancelled (interrupting boundary cancelled the service task job).
     let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
-    assert_eq!(job.state, "cancelled", "job should be cancelled by interrupting boundary");
+    assert_eq!(
+        job.state, "cancelled",
+        "job should be cancelled by interrupting boundary"
+    );
 
     // Instance should complete via the error path.
     assert_eq!(instance_state(&app.pool, inst_id).await, "completed");
@@ -633,9 +636,7 @@ async fn error_code_expression_null_follows_normal_path() {
 
     // Body has no `error_code` field — expression returns null/empty.
     Mock::given(m_method("POST"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "result": "ok" })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "result": "ok" })))
         .mount(&mock)
         .await;
 
@@ -651,7 +652,10 @@ async fn error_code_expression_null_follows_normal_path() {
 
     // Normal path: job completed, instance completed.
     let job = fetch_job_for(&app.pool, inst_id).await.unwrap();
-    assert_eq!(job.state, "completed", "expression returned empty — normal completion expected");
+    assert_eq!(
+        job.state, "completed",
+        "expression returned empty — normal completion expected"
+    );
     assert_eq!(instance_state(&app.pool, inst_id).await, "completed");
 }
 
@@ -663,8 +667,7 @@ async fn error_code_expression_no_boundary_terminates_instance() {
 
     Mock::given(m_method("POST"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "error_code": "UNKNOWN_CODE" })),
+            ResponseTemplate::new(200).set_body_json(json!({ "error_code": "UNKNOWN_CODE" })),
         )
         .mount(&mock)
         .await;

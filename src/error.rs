@@ -32,8 +32,8 @@ fn codes() -> &'static HashMap<String, ErrorCodeEntry> {
 pub fn assert_error_codes_complete() {
     let map = codes();
     let required = [
-        "U001", "U002", "U003", "U004", "U005", "U006", "U007", "U008", "U009",
-        "S001", "S002", "S003",
+        "U001", "U002", "U003", "U004", "U005", "U006", "U007", "U008", "U009", "S001", "S002",
+        "S003",
     ];
     for code in required {
         assert!(

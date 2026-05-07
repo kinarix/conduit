@@ -11,6 +11,7 @@ mod timer;
 mod token;
 mod user_task;
 
+pub use evaluator::evaluate_expression;
 pub use helpers::parse_duration;
 
 use std::sync::Arc;

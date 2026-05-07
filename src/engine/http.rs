@@ -121,10 +121,7 @@ impl Engine {
         // is a permanent error — not retryable, since the upstream already
         // accepted the request. Route through handle_failure so the job state
         // doesn't end up stranded in 'locked'.
-        if let Err(post_err) = self
-            .complete_http_task(&job, &plan, response_doc)
-            .await
-        {
+        if let Err(post_err) = self.complete_http_task(&job, &plan, response_doc).await {
             return self
                 .handle_failure(&job, &RetryPolicy::default(), SendError::Internal(post_err))
                 .await;
@@ -349,8 +346,8 @@ impl Engine {
         )
         .await?;
 
-        let (current_graph, _) =
-            Self::find_element_graph(sub.element_id.as_str(), &graph).ok_or_else(|| {
+        let (current_graph, _) = Self::find_element_graph(sub.element_id.as_str(), &graph)
+            .ok_or_else(|| {
                 EngineError::Internal(format!(
                     "Element '{}' not found in process graph",
                     sub.element_id

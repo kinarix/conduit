@@ -1,13 +1,8 @@
 //! Org-scoped secrets API. Plaintext values flow inbound on `POST` only;
 //! never returned via `GET` or `LIST`. Rotation is "delete then create".
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    routing::get,
-    Router,
-};
 use super::extractors::{Json, Path};
+use axum::{extract::State, http::StatusCode, routing::get, Router};
 use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;

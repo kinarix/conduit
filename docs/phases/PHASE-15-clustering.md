@@ -1,7 +1,7 @@
 # Phase 15 —  
 
 ## Status
-Not started — see PLAN.md for full specification.
+Complete for full specification.
 
 ## Prerequisites
 Phase 14 complete and all tests passing.

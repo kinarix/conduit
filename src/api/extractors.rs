@@ -56,7 +56,10 @@ where
 fn validation_from_json(rej: JsonRejection) -> EngineError {
     EngineError::Validation(match &rej {
         JsonRejection::JsonDataError(_) => {
-            format!("Request body has invalid field types or values: {}", rej.body_text())
+            format!(
+                "Request body has invalid field types or values: {}",
+                rej.body_text()
+            )
         }
         JsonRejection::JsonSyntaxError(_) => {
             format!("Request body is not valid JSON: {}", rej.body_text())

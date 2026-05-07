@@ -262,14 +262,8 @@ async fn echo_routing_follows_path_a_when_route_is_path_a() {
         base_url = base_url
     );
 
-    let inst_id = deploy_and_start(
-        &app,
-        org_id,
-        groups[0],
-        &bpmn,
-        json!({ "route": "path_a" }),
-    )
-    .await;
+    let inst_id =
+        deploy_and_start(&app, org_id, groups[0], &bpmn, json!({ "route": "path_a" })).await;
 
     fire_next_http_job(&engine_for(app.pool.clone()), &app.pool, inst_id).await;
 
@@ -324,14 +318,8 @@ async fn echo_routing_follows_default_when_route_is_path_b() {
         base_url = base_url
     );
 
-    let inst_id = deploy_and_start(
-        &app,
-        org_id,
-        groups[0],
-        &bpmn,
-        json!({ "route": "path_b" }),
-    )
-    .await;
+    let inst_id =
+        deploy_and_start(&app, org_id, groups[0], &bpmn, json!({ "route": "path_b" })).await;
 
     fire_next_http_job(&engine_for(app.pool.clone()), &app.pool, inst_id).await;
 
@@ -557,5 +545,8 @@ async fn echo_error_boundary_follows_happy_path_when_no_error_code() {
         Some(json!("good-payload"))
     );
     // boundary did not fire
-    assert_eq!(read_var(&app.pool, inst_id, "caught_error_code").await, None);
+    assert_eq!(
+        read_var(&app.pool, inst_id, "caught_error_code").await,
+        None
+    );
 }

@@ -165,6 +165,7 @@ pub struct ParallelJoinState {
 pub struct DecisionDefinition {
     pub id: Uuid,
     pub org_id: Uuid,
+    pub process_group_id: Option<Uuid>,
     pub decision_key: String,
     pub version: i32,
     pub name: Option<String>,
@@ -221,8 +222,8 @@ impl From<SecretRow> for SecretMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProcessLayout {
-    pub org_id:      Uuid,
+    pub org_id: Uuid,
     pub process_key: String,
     pub layout_data: JsonValue,
-    pub updated_at:  DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

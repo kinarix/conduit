@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchOrgs, createOrg, deleteOrg } from '../../api/orgs'
 import { useOrg } from '../../App'
 import { deleteProcessGroup, type ProcessGroup } from '../../api/processGroups'
 import { deleteDeployment, type LogicalProcess } from '../../api/deployments'
+import { deleteDecision, type DecisionSummary } from '../../api/decisions'
 import { type Org } from '../../App'
 import { PlusIcon } from './SidebarIcons'
 import WorkspaceHeader from './WorkspaceHeader'
@@ -14,6 +16,8 @@ import styles from './Sidebar.module.css'
 
 export default function Sidebar() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
+  const location = useLocation()
   const { setOrg } = useOrg()
   const orgsExp = useExpansion('sidebar.orgs')
 
@@ -53,6 +57,7 @@ export default function Sidebar() {
   const [confirmOrg, setConfirmOrg] = useState<Org | null>(null)
   const [confirmGroup, setConfirmGroup] = useState<ProcessGroup | null>(null)
   const [confirmProcess, setConfirmProcess] = useState<LogicalProcess | null>(null)
+  const [confirmDecision, setConfirmDecision] = useState<{ orgId: string; decision: DecisionSummary } | null>(null)
 
   const deleteOrgMut = useMutation({
     mutationFn: () => deleteOrg(confirmOrg!.id),
@@ -85,6 +90,20 @@ export default function Sidebar() {
     },
   })
 
+  const deleteDecisionMut = useMutation({
+    mutationFn: () => deleteDecision(confirmDecision!.orgId, confirmDecision!.decision.decision_key),
+    onSuccess: () => {
+      const { orgId, decision } = confirmDecision!
+      qc.invalidateQueries({ queryKey: ['decisions', orgId] })
+      const editPaths = [
+        `/decisions/${decision.decision_key}/edit`,
+        `/process-groups/${decision.process_group_id}/decisions/${decision.decision_key}/edit`,
+      ]
+      if (editPaths.some(p => location.pathname === p)) navigate('/decisions')
+      setConfirmDecision(null)
+    },
+  })
+
   return (
     <aside className={styles.sidebar}>
       <WorkspaceHeader />
@@ -110,6 +129,7 @@ export default function Sidebar() {
             onConfirmDeleteOrg={setConfirmOrg}
             onConfirmDeleteGroup={setConfirmGroup}
             onConfirmDeleteProcess={setConfirmProcess}
+            onConfirmDeleteDecision={(orgId, decision) => setConfirmDecision({ orgId, decision })}
           />
         ))}
       </div>
@@ -193,6 +213,21 @@ export default function Sidebar() {
           error={deleteProcessMut.error}
           onCancel={() => { deleteProcessMut.reset(); setConfirmProcess(null) }}
           onConfirm={() => deleteProcessMut.mutate()}
+        />
+      )}
+      {confirmDecision && (
+        <ConfirmModal
+          title="Delete decision table"
+          body={
+            <>
+              Delete <strong>"{confirmDecision.decision.name ?? confirmDecision.decision.decision_key}"</strong>?
+              This cannot be undone. The decision must not be referenced by any process or other decision table.
+            </>
+          }
+          pending={deleteDecisionMut.isPending}
+          error={deleteDecisionMut.error}
+          onCancel={() => { deleteDecisionMut.reset(); setConfirmDecision(null) }}
+          onConfirm={() => deleteDecisionMut.mutate()}
         />
       )}
     </aside>

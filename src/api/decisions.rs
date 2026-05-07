@@ -1,14 +1,16 @@
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
-    routing::{get, post},
+    routing::{delete, get, post},
     Router,
 };
+use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::extractors::Json;
+use super::extractors::{Json, Query};
 use crate::db::decision_definitions;
 use crate::error::{EngineError, Result};
 use crate::state::AppState;
@@ -17,17 +19,36 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/decisions", post(deploy_decisions))
         .route("/api/v1/decisions", get(list_decisions))
+        .route("/api/v1/decisions/test", post(test_decision))
+        .route("/api/v1/decisions/{key}", get(get_decision))
+        .route("/api/v1/decisions/{key}", delete(delete_decision))
+}
+
+#[derive(Debug, Deserialize)]
+struct DeployDecisionsQuery {
+    process_group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListDecisionsQuery {
+    process_group_id: Option<Uuid>,
 }
 
 /// POST /api/v1/decisions
 /// Body: raw DMN XML
 /// Header: X-Org-Id: <uuid>
+/// Query: process_group_id=<uuid>  (optional)
 async fn deploy_decisions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(q): Query<DeployDecisionsQuery>,
     body: String,
 ) -> Result<(StatusCode, Json<serde_json::Value>)> {
     let org_id = extract_org_id(&headers)?;
+
+    if let Some(group_id) = q.process_group_id {
+        ensure_process_group_in_org(&state.pool, group_id, org_id).await?;
+    }
 
     let tables = crate::dmn::parse(&body)?;
 
@@ -36,6 +57,7 @@ async fn deploy_decisions(
         let def = decision_definitions::deploy(
             &state.pool,
             org_id,
+            q.process_group_id,
             &table.decision_key,
             table.name.as_deref(),
             &body,
@@ -47,6 +69,7 @@ async fn deploy_decisions(
             "decision_key": def.decision_key,
             "version": def.version,
             "name": def.name,
+            "process_group_id": def.process_group_id,
         }));
     }
 
@@ -55,12 +78,14 @@ async fn deploy_decisions(
 
 /// GET /api/v1/decisions
 /// Header: X-Org-Id: <uuid>
+/// Query: process_group_id=<uuid>  (optional — filters to that group)
 async fn list_decisions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(q): Query<ListDecisionsQuery>,
 ) -> Result<Json<serde_json::Value>> {
     let org_id = extract_org_id(&headers)?;
-    let defs = decision_definitions::list(&state.pool, org_id).await?;
+    let defs = decision_definitions::list(&state.pool, org_id, q.process_group_id).await?;
 
     let list: Vec<serde_json::Value> = defs
         .iter()
@@ -71,11 +96,86 @@ async fn list_decisions(
                 "version": d.version,
                 "name": d.name,
                 "deployed_at": d.deployed_at,
+                "process_group_id": d.process_group_id,
             })
         })
         .collect();
 
     Ok(Json(json!(list)))
+}
+
+/// GET /api/v1/decisions/:key
+/// Returns the latest version of a decision with its parsed table structure.
+/// Header: X-Org-Id: <uuid>
+async fn get_decision(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(key): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let org_id = extract_org_id(&headers)?;
+    let def = decision_definitions::get_latest(&state.pool, org_id, &key).await?;
+
+    let tables = crate::dmn::parse(&def.dmn_xml)?;
+    let table = tables
+        .into_iter()
+        .find(|t| t.decision_key == key)
+        .ok_or_else(|| {
+            EngineError::DmnNotFound(format!("Decision '{key}' not found in stored DMN"))
+        })?;
+
+    Ok(Json(json!({
+        "id": def.id,
+        "decision_key": def.decision_key,
+        "version": def.version,
+        "name": def.name,
+        "deployed_at": def.deployed_at,
+        "process_group_id": def.process_group_id,
+        "table": table,
+    })))
+}
+
+/// POST /api/v1/decisions/test
+/// Body: { "dmn_xml": "...", "context": { "key": value } }
+/// Evaluates the first decision table in the supplied XML against the given context.
+/// Always returns 200; "error" key indicates a soft evaluation failure (no match, etc.).
+async fn test_decision(body: String) -> Result<Json<serde_json::Value>> {
+    #[derive(serde::Deserialize)]
+    struct TestBody {
+        dmn_xml: String,
+        context: HashMap<String, serde_json::Value>,
+    }
+
+    let req: TestBody = serde_json::from_str(&body)
+        .map_err(|e| EngineError::Validation(format!("Invalid JSON body: {e}")))?;
+
+    let tables = crate::dmn::parse(&req.dmn_xml)?;
+    let table = tables
+        .into_iter()
+        .next()
+        .ok_or_else(|| EngineError::Validation("No decision table found in DMN".to_string()))?;
+
+    match crate::dmn::evaluate(&table, &req.context) {
+        Ok(output) => Ok(Json(json!({ "output": output }))),
+        Err(EngineError::DmnNoMatch) => {
+            Ok(Json(json!({ "error": "NO_MATCH", "message": "No rule matched the input values" })))
+        }
+        Err(EngineError::DmnMultipleMatches) => Ok(Json(
+            json!({ "error": "MULTIPLE_MATCHES", "message": "Multiple rules matched (UNIQUE hit policy requires exactly one)" }),
+        )),
+        Err(e) => Err(e),
+    }
+}
+
+/// DELETE /api/v1/decisions/:key
+/// Deletes all versions of a decision. Returns 409 if referenced by another decision or process.
+async fn delete_decision(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(key): axum::extract::Path<String>,
+) -> Result<StatusCode> {
+    let org_id = extract_org_id(&headers)?;
+    decision_definitions::delete(&state.pool, org_id, &key).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn extract_org_id(headers: &HeaderMap) -> Result<Uuid> {
@@ -87,4 +187,24 @@ fn extract_org_id(headers: &HeaderMap) -> Result<Uuid> {
 
     val.parse::<Uuid>()
         .map_err(|_| EngineError::Validation(format!("X-Org-Id is not a valid UUID: {val}")))
+}
+
+async fn ensure_process_group_in_org(
+    pool: &sqlx::PgPool,
+    process_group_id: Uuid,
+    org_id: Uuid,
+) -> Result<()> {
+    let row: Option<(Uuid,)> = sqlx::query_as("SELECT org_id FROM process_groups WHERE id = $1")
+        .bind(process_group_id)
+        .fetch_optional(pool)
+        .await?;
+    match row {
+        None => Err(EngineError::Validation(format!(
+            "Process group {process_group_id} does not exist"
+        ))),
+        Some((found_org,)) if found_org != org_id => Err(EngineError::Validation(format!(
+            "Process group {process_group_id} does not belong to org {org_id}"
+        ))),
+        Some(_) => Ok(()),
+    }
 }

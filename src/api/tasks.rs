@@ -1,10 +1,10 @@
+use super::extractors::{Json, Path};
 use axum::{
     extract::State,
     http::StatusCode,
     routing::{get, post},
     Router,
 };
-use super::extractors::{Json, Path};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;

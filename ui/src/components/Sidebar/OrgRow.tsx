@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchProcessGroups,
@@ -7,8 +8,10 @@ import {
 } from '../../api/processGroups'
 import { fetchDeployments } from '../../api/deployments'
 import type { LogicalProcess } from '../../api/deployments'
-import { ChevronIcon, OrgIcon, PlusIcon, TrashIcon, GroupIcon } from './SidebarIcons'
+import { fetchDecisions, deployDecision, makeStubDmn, nextDecisionName, type DecisionSummary } from '../../api/decisions'
+import { ChevronIcon, OrgIcon, PlusIcon, TrashIcon, GroupIcon, TableNavIcon } from './SidebarIcons'
 import GroupRow from './GroupRow'
+import DecisionRow from './DecisionRow'
 import { useExpansion } from './useExpansion'
 import { useOrg, type Org } from '../../App'
 import styles from './Sidebar.module.css'
@@ -20,6 +23,7 @@ interface Props {
   onConfirmDeleteOrg: (org: Org) => void
   onConfirmDeleteGroup: (group: ProcessGroup) => void
   onConfirmDeleteProcess: (proc: LogicalProcess) => void
+  onConfirmDeleteDecision: (orgId: string, decision: DecisionSummary) => void
 }
 
 export default function OrgRow({
@@ -29,8 +33,10 @@ export default function OrgRow({
   onConfirmDeleteOrg,
   onConfirmDeleteGroup,
   onConfirmDeleteProcess,
+  onConfirmDeleteDecision,
 }: Props) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const { setOrg } = useOrg()
   const groupsExp = useExpansion(`sidebar.groups.${org.id}`)
 
@@ -46,7 +52,29 @@ export default function OrgRow({
     enabled: expanded,
   })
 
+  const { data: allDecisions = [] } = useQuery({
+    queryKey: ['decisions', org.id],
+    queryFn: () => fetchDecisions(org.id),
+    enabled: expanded,
+  })
+  const orgDecisions = allDecisions.filter(d => d.process_group_id === null)
+
   const [newGroupId, setNewGroupId] = useState<string | null>(null)
+
+  const createDecisionMut = useMutation({
+    mutationFn: async () => {
+      const cached = qc.getQueryData<DecisionSummary[]>(['decisions', org.id]) ?? []
+      const name = nextDecisionName(cached)
+      const key = `decision_${Date.now()}`
+      await deployDecision(org.id, makeStubDmn(key, name))
+      return key
+    },
+    onSuccess: key => {
+      qc.invalidateQueries({ queryKey: ['decisions', org.id] })
+      if (!expanded) onToggle()
+      navigate(`/decisions/${key}/edit`)
+    },
+  })
 
   const createGroupMut = useMutation({
     mutationFn: () => createProcessGroup(org.id, 'New Process Group'),
@@ -77,6 +105,15 @@ export default function OrgRow({
         <span className={styles.actions}>
           <button
             type="button"
+            className={styles.actionBtn}
+            title="Decisions"
+            onClick={e => { e.stopPropagation(); setOrg(org); createDecisionMut.mutate() }}
+            disabled={createDecisionMut.isPending}
+          >
+            <TableNavIcon size={13} />
+          </button>
+          <button
+            type="button"
             className={`${styles.actionBtn} ${styles.add}`}
             title="New process group"
             onClick={e => {
@@ -100,29 +137,42 @@ export default function OrgRow({
       </div>
 
       {expanded && (
-        groups.length === 0 ? (
-          <div className={styles.empty} style={{ paddingLeft: 'calc(var(--space-3) + 16px)' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <GroupIcon size={11} />
-              No process groups yet
-            </span>
-          </div>
-        ) : (
-          groups.map(group => (
-            <GroupRow
-              key={group.id}
-              group={group}
-              org={org}
-              defs={defs.filter(d => d.process_group_id === group.id)}
-              expanded={groupsExp.expanded.has(group.id)}
-              onToggle={() => groupsExp.toggle(group.id)}
-              onConfirmDeleteGroup={onConfirmDeleteGroup}
-              onConfirmDeleteProcess={onConfirmDeleteProcess}
-              autoEdit={group.id === newGroupId}
-              onEditDone={() => setNewGroupId(null)}
+        <>
+          {groups.length === 0 ? (
+            <div className={styles.empty} style={{ paddingLeft: 'calc(var(--space-3) + 16px)' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <GroupIcon size={11} />
+                No process groups yet
+              </span>
+            </div>
+          ) : (
+            groups.map(group => (
+              <GroupRow
+                key={group.id}
+                group={group}
+                org={org}
+                defs={defs.filter(d => d.process_group_id === group.id)}
+                expanded={groupsExp.expanded.has(group.id)}
+                onToggle={() => groupsExp.toggle(group.id)}
+                onConfirmDeleteGroup={onConfirmDeleteGroup}
+                onConfirmDeleteProcess={onConfirmDeleteProcess}
+                onConfirmDeleteDecision={onConfirmDeleteDecision}
+                autoEdit={group.id === newGroupId}
+                onEditDone={() => setNewGroupId(null)}
+              />
+            ))
+          )}
+          {orgDecisions.map(dec => (
+            <DecisionRow
+              key={dec.id}
+              decision={dec}
+              editBase="/decisions"
+              indentClass={styles.indent1}
+              onSelect={() => setOrg(org)}
+              onConfirmDelete={() => onConfirmDeleteDecision(org.id, dec)}
             />
-          ))
-        )
+          ))}
+        </>
       )}
     </div>
   )

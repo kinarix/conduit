@@ -32,8 +32,8 @@ Every phase follows this pattern:
 | 12 | Subprocess + Boundary | ✅ Complete | Embedded subprocess (12a), boundary events deferred |
 | 13 | Inclusive Gateway | ✅ Complete | OR routing with selective join |
 | 14 | DMN Integration | ✅ Complete | Decision tables |
-| 15 | Clustering + Observability | — | Multi-node, metrics |
-| 16 | Table Partitioning + Archival | — | Partitioned schema, retention policy |
+| 15 | Clustering + Observability | ✅ Complete | Multi-node, metrics |
+| 16 | Decision Table UI + Full FEEL | — | Visual DMN editor, full FEEL, DRD, all hit policies |
 | 17 | External Task Long-Polling | — | LISTEN/NOTIFY-driven fetch-and-lock |
 | 18 | Element Documentation + Attachments | — | Per-element rich-text docs and file attachments (PDF/DOC/XLS/PPT) |
 | 19 | Instance Notes + Attachments | — | User-authored notes and attachments on running instances and steps |
@@ -540,33 +540,26 @@ Engine can run as multiple replicas safely.
 
 ---
 
-## Phase 16 — Table Partitioning + Archival
+## Phase 16 — Decision Table UI + Full FEEL
 
-**Goal:** Schema scales to tens of millions of instances without degrading query performance.
+**Goal:** Decision tables can be created and edited visually in the Conduit UI. Full FEEL standard library and all DMN hit policies are supported.
 
-**Prerequisite:** Real production workload data to validate partition boundaries and retention windows.
-
-### Background
-
-At scale, `process_instances` and its five child tables (`executions`, `variables`, `tasks`, `jobs`, `event_subscriptions`) accumulate unbounded rows. Even with partial indexes, full-table vacuums and index bloat become bottlenecks. Range partitioning by time lets PostgreSQL prune irrelevant partitions and allows old partitions to be detached and archived without locking.
-
-### Constraints
-
-PostgreSQL declarative partitioning requires the partition key to be part of every primary key. This is a **breaking schema change** — all PKs and FKs across the six tables must be redesigned. Do not attempt to retrofit this onto a live populated schema without a migration window.
+**Prerequisite:** Phase 15 complete and all tests passing.
 
 ### Tasks
 
-- [ ] Benchmark current schema at realistic data volumes (10M instances, 50M executions) to establish baseline
-- [ ] Decide partition key and granularity (e.g. `process_instances.started_at` by month)
-- [ ] Redesign PKs: `(id, started_at)` as composite PK on `process_instances`; propagate partition key to all child tables
-- [ ] Evaluate FK trade-off: declarative FKs across partition boundaries are not supported — decide between application-enforced integrity vs. trigger-based checks
-- [ ] Write migration: create partitioned tables, copy data, swap names
-- [ ] Implement partition management: auto-create future partitions, detach+archive partitions beyond retention window
-- [ ] Verify partial indexes survive partitioning (they must be recreated per partition or via `CREATE INDEX ... ON ONLY`)
-- [ ] Load test fetch-and-lock and event correlation queries against partitioned schema
+- [ ] `src/dmn/feel.rs` — `not(...)` negation, `null` literal, full standard library (`sum`, `count`, `min`, `max`, `date(...)`, `string length`, etc.)
+- [ ] `src/dmn/mod.rs` — `#[derive(serde::Serialize)]` on DMN types; all hit policies: UNIQUE, FIRST, COLLECT (with SUM/MIN/MAX/COUNT aggregators), RULE_ORDER, OUTPUT ORDER, ANY, PRIORITY
+- [ ] `src/db/decision_definitions.rs` — add `get_latest(pool, org_id, key)` query
+- [ ] `src/api/decisions.rs` — `GET /api/v1/decisions/:key` route returning full table JSON
+- [ ] `ui/src/api/decisions.ts` — TypeScript API client (fetchDecisions, fetchDecision, deployDecision)
+- [ ] `ui/src/pages/Decisions.tsx` — list page with DRD graph view
+- [ ] `ui/src/pages/DecisionTableEditor.tsx` — spreadsheet grid editor + DMN XML serializer; supports all hit policies, expression-based output cells, DRD dependency wiring
+- [ ] `ui/src/App.tsx` — routes `/decisions`, `/decisions/new`, `/decisions/:key/edit`
+- [ ] `ui/src/components/Sidebar/FooterNav.tsx` — Decisions nav link
 
 ### Deliverable
-Schema handles 10M+ instances with sub-10ms p99 on all hot-path queries.
+Full visual DMN authoring: decision tables with all hit policies, full FEEL expressions, DRD dependency graphs, and round-trip XML serialization.
 
 ---
 

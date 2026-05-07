@@ -10,6 +10,8 @@ import InstancesList from './pages/InstancesList'
 import InstanceDetail from './pages/Instance/InstanceDetail'
 import TaskList from './pages/TaskList'
 import Secrets from './pages/Secrets'
+import Decisions from './pages/Decisions'
+import DecisionTableEditor from './pages/DecisionTableEditor'
 import { fetchDeployment } from './api/deployments'
 
 export interface Org {
@@ -74,6 +76,12 @@ export default function App() {
           <Route path="instances/:instanceId" element={<InstanceDetail />} />
           <Route path="tasks" element={<TaskList />} />
           <Route path="secrets" element={<Secrets />} />
+          <Route path="decisions" element={<Decisions />} />
+          <Route path="decisions/new" element={<DecisionTableEditor />} />
+          <Route path="decisions/:key/edit" element={<DecisionTableEditor />} />
+          <Route path="process-groups/:groupId/decisions" element={<Decisions />} />
+          <Route path="process-groups/:groupId/decisions/new" element={<DecisionTableEditor />} />
+          <Route path="process-groups/:groupId/decisions/:key/edit" element={<DecisionTableEditor />} />
         </Route>
       </Routes>
     </OrgContext.Provider>

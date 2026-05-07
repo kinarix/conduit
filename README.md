@@ -54,7 +54,8 @@ The engine is being built incrementally. Each phase is working and deployable be
 | 12 | Sub-processes | ✅ |
 | 13 | Inclusive gateway | ✅ |
 | 14 | DMN decision tables | ✅ |
-| 15 | Clustering + observability | 🔜 |
+| 15 | Clustering + observability | ✅ |
+| 16 | Decision Table UI + Full FEEL (DRD, all hit policies) | 🔜 |
 
 ## Supported BPMN Elements
 

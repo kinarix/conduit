@@ -1,12 +1,15 @@
 import { useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient, useQuery } from '@tanstack/react-query'
 import { renameProcessGroup, assignProcessGroup, type ProcessGroup } from '../../api/processGroups'
 import { groupByProcessKey, createDraft, type ProcessDefinition, type LogicalProcess } from '../../api/deployments'
+import { fetchDecisions, deployDecision, makeStubDmn, nextDecisionName, type DecisionSummary } from '../../api/decisions'
+import { useExpansion } from './useExpansion'
 import { fromXml } from '../bpmn/bpmnXml'
 import { useOrg, type Org } from '../../App'
-import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon } from './SidebarIcons'
+import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon, TableNavIcon } from './SidebarIcons'
 import ProcessRow, { PROCESS_DRAG_MIME } from './ProcessRow'
+import DecisionRow from './DecisionRow'
 import InlineNameInput from './InlineNameInput'
 import styles from './Sidebar.module.css'
 
@@ -18,6 +21,7 @@ interface Props {
   onToggle: () => void
   onConfirmDeleteGroup: (group: ProcessGroup) => void
   onConfirmDeleteProcess: (proc: LogicalProcess) => void
+  onConfirmDeleteDecision: (orgId: string, decision: DecisionSummary) => void
   autoEdit?: boolean
   onEditDone?: () => void
 }
@@ -30,6 +34,7 @@ export default function GroupRow({
   onToggle,
   onConfirmDeleteGroup,
   onConfirmDeleteProcess,
+  onConfirmDeleteDecision,
   autoEdit = false,
   onEditDone,
 }: Props) {
@@ -41,6 +46,7 @@ export default function GroupRow({
   const [dropping, setDropping] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
   const orgId = org.id
+  const groupsExp = useExpansion(`sidebar.groups.${orgId}`)
 
   const renameMut = useMutation({
     mutationFn: (name: string) => renameProcessGroup(group.id, name),
@@ -65,6 +71,21 @@ export default function GroupRow({
     },
   })
 
+  const createDecisionMut = useMutation({
+    mutationFn: async () => {
+      const cached = qc.getQueryData<DecisionSummary[]>(['decisions', orgId]) ?? []
+      const name = nextDecisionName(cached)
+      const key = `decision_${Date.now()}`
+      await deployDecision(orgId, makeStubDmn(key, name), group.id)
+      return key
+    },
+    onSuccess: key => {
+      qc.invalidateQueries({ queryKey: ['decisions', orgId] })
+      groupsExp.expand(group.id)
+      navigate(`/process-groups/${group.id}/decisions/${key}/edit`)
+    },
+  })
+
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -84,6 +105,12 @@ export default function GroupRow({
 
   const groupActive = location.pathname.startsWith(`/groups/${group.id}`) ||
                       location.pathname.startsWith(`/process-groups/${group.id}`)
+
+  const { data: decisions = [] } = useQuery({
+    queryKey: ['decisions', orgId, group.id],
+    queryFn: () => fetchDecisions(orgId, group.id),
+    enabled: expanded,
+  })
 
   const processes = groupByProcessKey(defs)
 
@@ -141,6 +168,15 @@ export default function GroupRow({
           />
           <button
             type="button"
+            className={styles.actionBtn}
+            title="New decision table"
+            onClick={e => { e.stopPropagation(); setOrg(org); createDecisionMut.mutate() }}
+            disabled={createDecisionMut.isPending}
+          >
+            <TableNavIcon size={13} />
+          </button>
+          <button
+            type="button"
             className={`${styles.actionBtn} ${styles.add}`}
             title="New process"
             onClick={e => {
@@ -178,20 +214,33 @@ export default function GroupRow({
       </div>
 
       {expanded && (
-        processes.length === 0 ? (
-          <div className={styles.empty} style={{ paddingLeft: 'calc(var(--space-3) + 32px)' }}>
-            No processes yet
-          </div>
-        ) : (
-          processes.map(proc => (
-            <ProcessRow
-              key={`${proc.groupId}::${proc.key}`}
-              proc={proc}
-              org={org}
-              onConfirmDelete={onConfirmDeleteProcess}
-            />
-          ))
-        )
+        <>
+          {processes.length === 0 && decisions.length === 0 ? (
+            <div className={styles.empty} style={{ paddingLeft: 'calc(var(--space-3) + 32px)' }}>
+              No processes yet
+            </div>
+          ) : (
+            <>
+              {processes.map(proc => (
+                <ProcessRow
+                  key={`${proc.groupId}::${proc.key}`}
+                  proc={proc}
+                  org={org}
+                  onConfirmDelete={onConfirmDeleteProcess}
+                />
+              ))}
+              {decisions.map(dec => (
+                <DecisionRow
+                  key={dec.id}
+                  decision={dec}
+                  editBase={`/process-groups/${group.id}/decisions`}
+                  onSelect={() => setOrg(org)}
+                  onConfirmDelete={() => onConfirmDeleteDecision(orgId, dec)}
+                />
+              ))}
+            </>
+          )}
+        </>
       )}
     </>
   )

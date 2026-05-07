@@ -1,10 +1,10 @@
+use super::extractors::{Json, Path, Query};
 use axum::{
     extract::State,
     http::StatusCode,
     routing::{delete, get, post},
     Router,
 };
-use super::extractors::{Json, Path, Query};
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;

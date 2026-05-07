@@ -57,15 +57,15 @@ export function GroupIcon({ size = 14 }: IconProps) {
   )
 }
 
-export function ProcessIcon({ size = 12 }: IconProps) {
-  const w = Math.round(size * 1.7)
+export function ProcessIcon({ size = 12, color = '#16a34a' }: IconProps) {
+  const w = Math.round(size * 1.5)
   return (
-    <svg width={w} height={size} viewBox="0 0 22 10" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <circle cx="2.5" cy="5" r="1.8" stroke="currentColor" strokeWidth="1.2" fill="currentColor" fillOpacity="0.15" />
-      <line x1="4.5" y1="5" x2="6.8" y2="5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <rect x="7" y="2.2" width="8" height="5.6" rx="1" stroke="currentColor" strokeWidth="1.2" fill="currentColor" fillOpacity="0.15" />
-      <line x1="15.2" y1="5" x2="17.5" y2="5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <circle cx="19.5" cy="5" r="1.8" stroke="currentColor" strokeWidth="1.4" fill="none" />
+    <svg width={w} height={size} viewBox="0 0 18 10" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="1.5" cy="5" r="1.1" fill={color} />
+      <circle cx="4.5" cy="5" r="1.1" fill={color} />
+      <circle cx="7.5" cy="5" r="1.1" fill={color} />
+      <line x1="9.5" y1="5" x2="14.5" y2="5" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M12.5 2.5 L16 5 L12.5 7.5" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -135,6 +135,16 @@ export function UploadIcon({ size = 12 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
       <path d="M6 2v6M3 5l3 3 3-3M2 10h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+export function TableNavIcon({ size = 13, color = '#f59e0b' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.3" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1" />
+      <line x1="1.5" y1="6" x2="14.5" y2="6" />
+      <line x1="6" y1="6" x2="6" y2="13.5" />
     </svg>
   )
 }

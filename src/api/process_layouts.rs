@@ -1,9 +1,5 @@
-use axum::{
-    extract::State,
-    routing::get,
-    Router,
-};
 use super::extractors::{Json, Path};
+use axum::{extract::State, routing::get, Router};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use uuid::Uuid;

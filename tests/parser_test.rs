@@ -212,6 +212,32 @@ fn service_task_without_topic_is_valid() {
 }
 
 #[test]
+fn service_task_with_conduit_task_topic_extension_element() {
+    // Phase 21 worker pattern — the migration target named in U010 / docs/MIGRATION.md.
+    let xml = r#"<?xml version="1.0"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext">
+  <process id="p1">
+    <startEvent id="s"/>
+    <serviceTask id="post_order">
+      <extensionElements>
+        <conduit:taskTopic>http.call</conduit:taskTopic>
+      </extensionElements>
+    </serviceTask>
+    <endEvent id="e"/>
+    <sequenceFlow id="f1" sourceRef="s" targetRef="post_order"/>
+    <sequenceFlow id="f2" sourceRef="post_order" targetRef="e"/>
+  </process>
+</definitions>"#;
+    let graph = parser::parse(xml).unwrap();
+    let svc = graph.nodes.get("post_order").unwrap();
+    let FlowNodeKind::ServiceTask { topic, .. } = &svc.kind else {
+        panic!("expected ServiceTask");
+    };
+    assert_eq!(topic.as_deref(), Some("http.call"));
+}
+
+#[test]
 fn parse_http_connector_extension() {
     let xml = fixture("http_connector");
     let graph = parser::parse(&xml).expect("parse should succeed");

@@ -43,7 +43,11 @@ pub(super) fn extract_input_schema(
 }
 
 /// Extract the external-task topic from a serviceTask node.
-/// Priority: conduit:topic → plain topic → camunda:topic → <extensionElements><topic>
+///
+/// Priority: conduit:topic attr → plain topic attr → camunda:topic attr →
+/// `<extensionElements>` child elements `<conduit:taskTopic>`, `<taskTopic>`,
+/// or `<topic>`. The `<conduit:taskTopic>` form is the migration target named
+/// in Phase 20's `docs/MIGRATION.md` (U010 warning).
 pub(super) fn extract_topic(
     node: &roxmltree::Node,
     conduit_ns: &str,
@@ -63,7 +67,7 @@ pub(super) fn extract_topic(
         .filter(|n| n.is_element() && n.tag_name().name() == "extensionElements")
     {
         for inner in ext.children().filter(|n| n.is_element()) {
-            if inner.tag_name().name() == "topic" {
+            if matches!(inner.tag_name().name(), "topic" | "taskTopic") {
                 return inner
                     .text()
                     .map(|s| s.trim().to_string())

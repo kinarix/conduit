@@ -8,7 +8,7 @@ The boundary is recorded in [ADR-008](../docs/adr/ADR-008-engine-stays-pure-bpmn
 
 | Language | Path | Status | Reference handlers |
 |---|---|---|---|
-| **Rust** | [`rust/`](rust/) | MVP — library + http-worker; csv/gcs/kafka scaffolded | `http.call` |
+| **Rust** | [`rust/`](rust/) | MVP — library + `#[handler]` macro + http-worker; csv/gcs/kafka scaffolded | `http.call` |
 | **Go** | [`go/`](go/) | scaffolded | (planned) `http.call` |
 | **Python** | [`python/`](python/) | scaffolded | (planned) `http.call` |
 | **Node (TypeScript)** | [`node/`](node/) | scaffolded | (planned) `http.call` |
@@ -20,20 +20,19 @@ Rust is the **reference SDK**: its API shape is what the others mirror, and the 
 
 Each SDK exposes the same conceptual `Handler` (a function from `ExternalTask` to `Complete | BpmnError | failure`) through the host language's most idiomatic registration form. The framework-style sugar is optional — every SDK keeps the underlying type usable directly.
 
-### Rust — proc-macro on a struct
+### Rust — proc-macro on an async fn
 
 ```rust
-use conduit_worker::{handler, ExternalTask, HandlerResult, Variable};
+use conduit_worker::{handler, ExternalTask, HandlerError, HandlerResult, Variable};
 
 #[handler(topic = "http.call")]
-pub struct HttpCall;
-
-impl HttpCall {
-    pub async fn handle(&self, task: &ExternalTask) -> HandlerResult {
-        // ...
-        HandlerResult::complete(vec![Variable::string("status", "ok")])
-    }
+async fn http_call(_task: &ExternalTask) -> Result<HandlerResult, HandlerError> {
+    // ...
+    Ok(HandlerResult::complete(vec![Variable::string("status", "ok")]))
 }
+
+// Generated: pub struct HttpCallHandler; impl Handler for HttpCallHandler { ... }
+// let runner = Runner::new(client, Arc::new(HttpCallHandler), RunnerConfig::new("w-1"));
 ```
 
 ### Java — annotation on a class

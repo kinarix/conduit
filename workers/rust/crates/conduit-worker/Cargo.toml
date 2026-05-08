@@ -10,6 +10,7 @@ description = "Library for building external workers against the Conduit BPMN en
 [dependencies]
 async-trait.workspace = true
 chrono.workspace = true
+conduit-worker-macros = { path = "../conduit-worker-macros", version = "0.1.0" }
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

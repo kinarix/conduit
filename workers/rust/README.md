@@ -13,6 +13,7 @@ workers/rust/
 ├── Cargo.toml                          ← workspace manifest (independent of engine workspace)
 └── crates/
     ├── conduit-worker/                 ← library: Client + Handler trait + run loop
+    ├── conduit-worker-macros/          ← proc-macro: #[handler(topic = "...")]
     ├── http-worker/                    ← binary: http.call (replaces <conduit:http>)
     ├── csv-worker/                     ← scaffolded
     ├── gcs-worker/                     ← scaffolded
@@ -46,35 +47,46 @@ CONDUIT_ORDERS_TOKEN=$(cat ~/.secrets/orders) \
 
 ## Writing a custom worker
 
-Implement [`Handler`](crates/conduit-worker/src/handler.rs):
+The fastest path is the `#[handler]` attribute on a free `async fn`:
+
+```rust
+use conduit_worker::{handler, ExternalTask, HandlerError, HandlerResult, Variable};
+
+#[handler(topic = "my.topic")]
+async fn my_topic(_task: &ExternalTask) -> Result<HandlerResult, HandlerError> {
+    // ... do work ...
+    Ok(HandlerResult::complete(vec![Variable::string("status", "ok")]))
+}
+```
+
+The macro generates a unit struct named after the function in PascalCase plus the suffix `Handler` (here, `MyTopicHandler`) and an `impl Handler` that delegates to your fn. Wire it into a [`Runner`](crates/conduit-worker/src/runner.rs):
+
+```rust
+use std::sync::Arc;
+use conduit_worker::{Client, ClientConfig, Runner, RunnerConfig};
+
+let client = Client::new(ClientConfig::new("http://localhost:8080"))?;
+let runner = Runner::new(client, Arc::new(MyTopicHandler), RunnerConfig::new("my-worker-1"));
+runner.run().await;
+```
+
+If your handler needs configuration or shared state, implement [`Handler`](crates/conduit-worker/src/handler.rs) directly instead — that's what `http-worker` does:
 
 ```rust
 use async_trait::async_trait;
-use conduit_worker::{ExternalTask, Handler, HandlerError, HandlerResult, Variable};
+use conduit_worker::{ExternalTask, Handler, HandlerError, HandlerResult};
 
-struct MyHandler;
+struct MyHandler { /* ... fields ... */ }
 
 #[async_trait]
 impl Handler for MyHandler {
     fn topic(&self) -> &str { "my.topic" }
 
     async fn handle(&self, task: &ExternalTask) -> Result<HandlerResult, HandlerError> {
-        // ... do work ...
-        Ok(HandlerResult::Complete {
-            variables: vec![Variable::string("status", "ok")],
-        })
+        // ... do work using self.fields ...
+        Ok(HandlerResult::ok())
     }
 }
-```
-
-Then start a [`Runner`](crates/conduit-worker/src/runner.rs):
-
-```rust
-use conduit_worker::{Client, ClientConfig, Runner, RunnerConfig};
-
-let client = Client::new(ClientConfig::new("http://localhost:8080"))?;
-let runner = Runner::new(client, std::sync::Arc::new(MyHandler), RunnerConfig::new("my-worker-1"));
-runner.run().await;
 ```
 
 ## Idempotency

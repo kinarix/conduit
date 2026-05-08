@@ -1,7 +1,7 @@
 # Phase 21 — Reference Workers (In-Tree, Polyglot)
 
 ## Status
-Rust SDK MVP shipped (2026-05-08). Go / Python / Node / Java SDK scaffolds in progress.
+Rust SDK MVP shipped (2026-05-08), incl. `#[handler]` proc-macro. Go / Python / Node / Java SDK scaffolds landed (2026-05-08); reference handlers (e.g. `http.call` parity) still to follow.
 
 ## Prerequisites
 Phase 7 (external-task API), Phase 17 (external-task long polling). Driven by [ADR-008](../adr/ADR-008-engine-stays-pure-bpmn.md).
@@ -52,7 +52,7 @@ Each SDK exposes the same conceptual API — `Client`, `Handler`, `Runner` — s
 
 | Language | Registration |
 |---|---|
-| Rust | `#[handler(topic = "http.call")]` proc-macro on a struct (sugar over the `Handler` trait impl) |
+| Rust | `#[handler(topic = "http.call")]` proc-macro on an `async fn` (generates a unit struct + `Handler` impl) |
 | Java | `@TaskHandler(topic = "http.call")` annotation on a class (Spring-style discovery, optional) |
 | Python | `@handler(topic="http.call")` decorator on an async function |
 | Node (TypeScript) | `@Handler({ topic: "http.call" })` decorator on a class, or `defineHandler({ topic, handle })` builder |
@@ -162,6 +162,6 @@ If a single Conduit task is itself a long-running, multi-step computation that n
 - [x] At least one example BPMN in this repo's `examples/` uses the worker pattern end-to-end with a topic recognised by the reference worker
 - [x] Each handler's README in the Rust SDK documents its idempotency strategy (matching the table above)
 - [x] Idempotency-key store schema documented in `workers/docs/idempotency-store.md`
-- [ ] Each non-Rust SDK has a library scaffold (Client + Handler/decorator/annotation) and a README
+- [x] Each non-Rust SDK has a library scaffold (Client + Handler/decorator/annotation) and a README
 - [ ] Crash test per handler: kill worker mid-execution, confirm task completes correctly on retry without duplicating side effects
 - [ ] No engine-side code changes required (this is the win)

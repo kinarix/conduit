@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/conduit-worker",
+    "crates/conduit-worker-macros",
     "crates/http-worker",
     "crates/csv-worker",
     "crates/gcs-worker",

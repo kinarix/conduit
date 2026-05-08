@@ -20,3 +20,19 @@ pub use client::{Client, ClientConfig};
 pub use handler::{Handler, HandlerError, HandlerResult};
 pub use runner::{Runner, RunnerConfig};
 pub use types::{ExternalTask, Variable, VariableValue};
+
+/// Attribute macro: turn an `async fn` into a `Handler` struct.
+///
+/// ```ignore
+/// #[handler(topic = "http.call")]
+/// async fn http_call(task: &ExternalTask) -> Result<HandlerResult, HandlerError> { /* ... */ }
+/// // generates: pub struct HttpCallHandler; impl Handler for HttpCallHandler { ... }
+/// ```
+pub use conduit_worker_macros::handler;
+
+/// Items the generated code from `#[handler]` reaches for. Not part of the
+/// public API — the names here are subject to change without notice.
+#[doc(hidden)]
+pub mod __macro_support {
+    pub use async_trait::async_trait;
+}

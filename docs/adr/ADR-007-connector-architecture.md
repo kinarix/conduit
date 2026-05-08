@@ -39,7 +39,7 @@ The proposal's "fallback for non-first-party logic" was the existing external-ta
 Do not build the connector framework. Instead:
 
 1. Treat the existing `<conduit:http>` connector (Phase 16) as legacy and plan its deprecation. See [`docs/phases/PHASE-20-deprecate-http-connector.md`](../phases/PHASE-20-deprecate-http-connector.md).
-2. Ship reference worker implementations (Rust) covering REST, CSV, GCS, Kafka producer + consumer, in a top-level [`workers/`](../../workers/) directory of this repo. See [`docs/phases/PHASE-21-reference-workers.md`](../phases/PHASE-21-reference-workers.md).
+2. Ship reference worker SDKs (Rust as the reference; Go / Python / Node / Java to follow) covering REST, CSV, GCS, Kafka producer + consumer, in a top-level [`workers/`](../../workers/) directory of this repo. See [`docs/phases/PHASE-21-reference-workers.md`](../phases/PHASE-21-reference-workers.md).
 3. Codify the principle in ADR-008.
 
 ## Consequences

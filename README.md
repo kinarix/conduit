@@ -219,7 +219,7 @@ Conduit orchestrates; **workers execute**. A `serviceTask` with `<conduit:taskTo
 </bpmn:serviceTask>
 ```
 
-Reference workers live alongside the engine in [`workers/`](workers/) (Rust, independent Cargo project). For v1 they cover the most common integrations:
+Reference workers live alongside the engine in [`workers/`](workers/) — polyglot SDKs (Rust, Go, Python, Node, Java), each an independent build. Rust is the reference; the wire contract every SDK conforms to is documented in [`workers/PROTOCOL.md`](workers/PROTOCOL.md). For v1 they cover the most common integrations:
 
 | Topic | What it does | Replaces |
 |---|---|---|

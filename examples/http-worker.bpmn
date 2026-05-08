@@ -4,7 +4,7 @@
 
   The serviceTask below carries a <conduit:taskTopic> tag. The engine treats
   it as opaque routing — it never opens a socket. A worker that subscribes to
-  the `http.call` topic (see ../workers/crates/http-worker/) picks up the
+  the `http.call` topic (see ../workers/rust/crates/http-worker/) picks up the
   task via /external-tasks/fetch-and-lock, runs the HTTP call, and reports
   the result back. This replaces the deprecated <conduit:http> element from
   Phase 16; see docs/MIGRATION.md.

@@ -1,5 +1,12 @@
 /target/
-/workers/target/
+/workers/rust/target/
+/workers/go/bin/
+/workers/python/.venv/
+/workers/python/dist/
+/workers/python/*.egg-info/
+/workers/node/node_modules/
+/workers/node/dist/
+/workers/java/target/
 /website/dist/
 .env
 .DS_Store

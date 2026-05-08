@@ -11,6 +11,7 @@ pub struct HttpHandler {
     topic: String,
     config: HandlerConfig,
     http: HttpClient,
+    auth_header: Option<(header::HeaderName, String)>,
 }
 
 impl HttpHandler {
@@ -19,40 +20,38 @@ impl HttpHandler {
             .timeout(config.timeout())
             .build()
             .map_err(BuildError::from)?;
+        let auth_header = resolve_auth_header(config.auth.as_ref())?;
         Ok(Self {
             topic,
             config,
             http,
+            auth_header,
         })
     }
+}
 
-    fn auth_header(&self) -> Result<Option<(header::HeaderName, String)>, HandlerError> {
-        let Some(auth) = &self.config.auth else {
-            return Ok(None);
-        };
-        match auth {
-            AuthConfig::Bearer { token_env } => {
-                let token = std::env::var(token_env).map_err(|_| {
-                    HandlerError::new(format!("env var {token_env} (auth.token_env) not set"))
-                })?;
-                Ok(Some((header::AUTHORIZATION, format!("Bearer {token}"))))
-            }
-            AuthConfig::Basic {
-                user_env,
-                password_env,
-            } => {
-                let user = std::env::var(user_env).map_err(|_| {
-                    HandlerError::new(format!("env var {user_env} (auth.user_env) not set"))
-                })?;
-                let pass = std::env::var(password_env).map_err(|_| {
-                    HandlerError::new(format!(
-                        "env var {password_env} (auth.password_env) not set"
-                    ))
-                })?;
-                use base64_pretend::encode;
-                let creds = encode(format!("{user}:{pass}"));
-                Ok(Some((header::AUTHORIZATION, format!("Basic {creds}"))))
-            }
+fn resolve_auth_header(
+    auth: Option<&AuthConfig>,
+) -> Result<Option<(header::HeaderName, String)>, BuildError> {
+    let Some(auth) = auth else {
+        return Ok(None);
+    };
+    match auth {
+        AuthConfig::Bearer { token_env } => {
+            let token = std::env::var(token_env)
+                .map_err(|_| BuildError::Env(format!("{token_env} (auth.token_env)")))?;
+            Ok(Some((header::AUTHORIZATION, format!("Bearer {token}"))))
+        }
+        AuthConfig::Basic {
+            user_env,
+            password_env,
+        } => {
+            let user = std::env::var(user_env)
+                .map_err(|_| BuildError::Env(format!("{user_env} (auth.user_env)")))?;
+            let pass = std::env::var(password_env)
+                .map_err(|_| BuildError::Env(format!("{password_env} (auth.password_env)")))?;
+            let creds = base64_pretend::encode(format!("{user}:{pass}"));
+            Ok(Some((header::AUTHORIZATION, format!("Basic {creds}"))))
         }
     }
 }
@@ -78,7 +77,7 @@ impl Handler for HttpHandler {
             let v = render(v, &vars, &task_id_str);
             req = req.header(k.as_str(), v);
         }
-        if let Some((name, value)) = self.auth_header()? {
+        if let Some((name, value)) = &self.auth_header {
             req = req.header(name, value);
         }
         if self.config.idempotency.enabled {
@@ -137,14 +136,19 @@ impl Handler for HttpHandler {
 pub enum BuildError {
     #[error("reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("env var not set: {0}")]
+    Env(String),
 }
 
 fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}…", &s[..max])
+        return s.to_string();
     }
+    let mut boundary = max;
+    while boundary > 0 && !s.is_char_boundary(boundary) {
+        boundary -= 1;
+    }
+    format!("{}…", &s[..boundary])
 }
 
 // Tiny base64 stand-in so we don't pull a full dep just for Basic auth.

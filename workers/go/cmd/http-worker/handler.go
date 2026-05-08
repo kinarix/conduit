@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	cw "github.com/kinarix/conduit/workers/go/conduitworker"
 )
@@ -157,9 +156,9 @@ func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	// Walk back to a UTF-8 boundary.
+	// Walk back to a UTF-8 boundary (continuation bytes match 10xxxxxx).
 	for i := max; i > 0; i-- {
-		if !strings.HasPrefix(s[i:], "¿½") && (s[i]&0xc0) != 0x80 {
+		if (s[i] & 0xc0) != 0x80 {
 			return s[:i] + "…"
 		}
 	}

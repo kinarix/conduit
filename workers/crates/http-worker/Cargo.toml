@@ -1,0 +1,30 @@
+[package]
+name = "http-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Reference HTTP worker for Conduit (replaces the deprecated <conduit:http> connector)"
+
+[[bin]]
+name = "http-worker"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+clap.workspace = true
+conduit-worker = { path = "../conduit-worker" }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+mockito.workspace = true

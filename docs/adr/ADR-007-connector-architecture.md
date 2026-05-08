@@ -39,7 +39,7 @@ The proposal's "fallback for non-first-party logic" was the existing external-ta
 Do not build the connector framework. Instead:
 
 1. Treat the existing `<conduit:http>` connector (Phase 16) as legacy and plan its deprecation. See [`docs/phases/PHASE-20-deprecate-http-connector.md`](../phases/PHASE-20-deprecate-http-connector.md).
-2. Ship reference worker implementations (Python, Node) covering REST, CSV, GCS, Kafka producer + consumer, in a sibling repo. See [`docs/phases/PHASE-21-reference-workers.md`](../phases/PHASE-21-reference-workers.md).
+2. Ship reference worker implementations (Rust) covering REST, CSV, GCS, Kafka producer + consumer, in a top-level [`workers/`](../../workers/) directory of this repo. See [`docs/phases/PHASE-21-reference-workers.md`](../phases/PHASE-21-reference-workers.md).
 3. Codify the principle in ADR-008.
 
 ## Consequences
@@ -50,5 +50,5 @@ Do not build the connector framework. Instead:
 ## References
 - [ADR-008: Engine stays pure BPMN](ADR-008-engine-stays-pure-bpmn.md)
 - [PHASE-20: Deprecate `<conduit:http>` connector](../phases/PHASE-20-deprecate-http-connector.md)
-- [PHASE-21: Reference workers (sibling repo)](../phases/PHASE-21-reference-workers.md)
+- [PHASE-21: Reference workers (in-tree under `workers/`)](../phases/PHASE-21-reference-workers.md)
 - [Camunda 8 Connector Runtime](https://docs.camunda.io/docs/components/connectors/connector-runtime/) — out-of-process precedent

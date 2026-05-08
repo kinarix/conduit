@@ -1,0 +1,18 @@
+[package]
+name = "csv-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Reference CSV worker for Conduit (csv.read / csv.write topics) — scaffolded, not yet implemented"
+publish = false
+
+[[bin]]
+name = "csv-worker"
+path = "src/main.rs"
+
+[dependencies]
+conduit-worker = { path = "../conduit-worker" }
+tokio.workspace = true
+tracing.workspace = true

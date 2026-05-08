@@ -1,0 +1,25 @@
+[package]
+name = "conduit-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Library for building external workers against the Conduit BPMN engine"
+
+[dependencies]
+async-trait.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+mockito.workspace = true
+serde_yaml.workspace = true
+tracing-subscriber.workspace = true

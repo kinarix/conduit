@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference BPMN for the http-worker.
+
+  The worker matches the topic `http.call`, looks up the handler config
+  in worker.yaml, calls the URL with the task variables as the body, and
+  reports back. Replaces the deprecated <conduit:http> from Phase 16.
+-->
+<bpmn:definitions
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:conduit="http://conduit.io/ext"
+  id="def_http_worker_example"
+  targetNamespace="http://conduit.io/examples">
+  <bpmn:process id="http_worker_example" name="HTTP Worker Example" isExecutable="true">
+
+    <bpmn:startEvent id="start" name="Start"/>
+
+    <bpmn:serviceTask id="post_order" name="POST /orders">
+      <bpmn:extensionElements>
+        <conduit:taskTopic>http.call</conduit:taskTopic>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_start_post</bpmn:incoming>
+      <bpmn:outgoing>flow_post_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="end" name="Done"/>
+
+    <bpmn:sequenceFlow id="flow_start_post" sourceRef="start"      targetRef="post_order"/>
+    <bpmn:sequenceFlow id="flow_post_end"   sourceRef="post_order" targetRef="end"/>
+
+  </bpmn:process>
+</bpmn:definitions>

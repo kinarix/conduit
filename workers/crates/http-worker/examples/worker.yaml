@@ -1,0 +1,35 @@
+# Reference http-worker config matching `http-worker.bpmn`.
+#
+# Run with:
+#   CONDUIT_API_KEY=... cargo run --bin http-worker -- --config worker.yaml
+#
+# The worker subscribes to every topic under `handlers:`. For each task
+# it fetches, it renders the URL/body templates against the task's
+# process variables, sends the request with an Idempotency-Key header
+# derived from the engine's task id, and writes mapped fields from the
+# response back as variables.
+
+engine:
+  url: http://localhost:8080
+  api_key_env: CONDUIT_API_KEY
+
+handlers:
+  http.call:
+    url_template: "{{var:api_base}}/orders"
+    method: POST
+    headers:
+      content-type: application/json
+    request_template:
+      items: "{{var:items}}"
+      customer_id: "{{var:customer_id}}"
+    response_mapping:
+      order_id: $.id
+      total: $.total
+    auth:
+      type: bearer
+      token_env: CONDUIT_ORDERS_TOKEN
+    idempotency:
+      enabled: true
+      key_template: task-{{task_id}}
+    timeout_secs: 30
+    bpmn_error_on_4xx: ORDER_REJECTED

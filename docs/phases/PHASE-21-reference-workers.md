@@ -7,7 +7,7 @@ Not started
 Phase 7 (external-task API), Phase 17 (external-task long polling). Driven by [ADR-008](../adr/ADR-008-engine-stays-pure-bpmn.md).
 
 ## Goal
-Ship reference worker implementations covering the most common integrations, so that "the engine doesn't have a REST connector" doesn't translate to "I have to write all integration code from scratch." Workers live in a sibling repository (`conduit-workers`, separate from this repo) so their release cadence, language footprint, and dependency surface stay decoupled from the engine.
+Ship reference worker implementations covering the most common integrations, so that "the engine doesn't have a REST connector" doesn't translate to "I have to write all integration code from scratch." Workers live in a top-level [`workers/`](../../workers/) directory of this repo as an independent Cargo project — same repo as the engine, separate build, separate `Cargo.lock`. Versioned together for now; will split into a sibling repo if/when their release cadence diverges.
 
 These workers are reference implementations, not a runtime customers must use — they exist to make the worker pattern as ergonomic as a connector dropdown would have been.
 
@@ -15,10 +15,10 @@ These workers are reference implementations, not a runtime customers must use �
 
 The reference workers are written in **Rust** so the SDK shares the engine's toolchain. Python and Node ports are out of scope for this phase.
 
-### Sibling repo: `conduit-workers/`
+### Layout: `workers/`
 
 ```
-conduit-workers/
+workers/
 ├── README.md                  ← worker pattern overview, quick-start
 ├── Cargo.toml                 ← workspace manifest
 ├── crates/
@@ -34,7 +34,7 @@ conduit-workers/
 │   ├── csv-worker/            ← binary: csv.read / csv.write
 │   ├── gcs-worker/            ← binary: gcs.read / gcs.write (service-account auth)
 │   └── kafka-produce-worker/  ← binary: kafka.produce
-└── triggers/                  ← inbound: external system → engine
+└── triggers/                  ← inbound: external system → engine (planned)
     ├── kafka-consumer/        ← reads a topic, calls /messages/correlate
     └── webhook-receiver/      ← HTTP endpoint, calls /messages/correlate
 ```
@@ -124,23 +124,23 @@ If a single Conduit task is itself a long-running, multi-step computation that n
 - A reference Temporal/Restate adapter. Customers who want step-level durability inside a single task can compose that themselves; we don't ship a reference for it because it would imply Conduit owns the pattern.
 - A "marketplace" or auto-discovery mechanism. Workers are deployed by the customer alongside the engine.
 
-## Test Plan (in the sibling repo)
+## Test Plan (under `workers/`)
 - Each handler has integration tests against:
-  - A live Conduit engine (via testcontainers from the sibling repo).
-  - The relevant external dependency (wiremock for `http`, fake-gcs-server for `gcs`, redpanda or kafka container for `kafka.produce`).
+  - A live Conduit engine (via testcontainers driving the engine binary).
+  - The relevant external dependency (mockito for `http`, fake-gcs-server for `gcs`, redpanda or kafka container for `kafka.produce`).
 - A smoke test that runs the engine + worker + a tiny BPMN end-to-end for each handler.
 
-## Engine-side work (this repo)
-- Add a "Workers" section to `README.md` linking to the sibling repo.
+## Engine-side work (this repo, outside `workers/`)
+- Add a "Workers" section to `README.md` linking to `workers/`.
 - Add a section to `docs/ARCHITECTURE.md` clarifying the worker boundary (referencing ADR-008).
 - Optional: a `docs/WORKERS.md` with the quick-start and a snippet of each handler.
 
-## Verification Checklist (this repo's view)
-- [ ] Sibling repo `conduit-workers` exists, public, with README
-- [ ] `README.md` links to it
+## Verification Checklist
+- [ ] `workers/` directory contains the Cargo workspace and a README
+- [ ] Conduit `README.md` links to `workers/`
 - [ ] `docs/MIGRATION.md` (Phase 20) references the reference HTTP worker by name and version
 - [ ] At least one example BPMN in this repo's `examples/` uses the worker pattern end-to-end with a topic recognised by the reference worker
 - [ ] Each handler's README documents its idempotency strategy (matching the table above)
-- [ ] Idempotency-key store schema documented in `conduit-workers/docs/idempotency-store.md`
+- [ ] Idempotency-key store schema documented in `workers/docs/idempotency-store.md`
 - [ ] Crash test per handler: kill worker mid-execution, confirm task completes correctly on retry without duplicating side effects
 - [ ] No engine-side code changes required (this is the win)

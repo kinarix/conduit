@@ -1,0 +1,18 @@
+[package]
+name = "gcs-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Reference GCS worker for Conduit (gcs.read / gcs.write topics) — scaffolded, not yet implemented"
+publish = false
+
+[[bin]]
+name = "gcs-worker"
+path = "src/main.rs"
+
+[dependencies]
+conduit-worker = { path = "../conduit-worker" }
+tokio.workspace = true
+tracing.workspace = true

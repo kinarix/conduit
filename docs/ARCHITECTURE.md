@@ -88,7 +88,7 @@ The engine speaks BPMN; **workers speak protocols.** A `serviceTask` carries a `
 
 This is the single rule recorded in [ADR-008](adr/ADR-008-engine-stays-pure-bpmn.md). It's why the engine has no `reqwest`, no Kafka client, no GCS SDK in its dependency graph — and why durability of side effects is a worker concern (Phase 21's idempotency-key store), not an engine concern.
 
-The one historical exception, `<conduit:http>`, is deprecated as of Phase 20 and will be removed once at least one external user confirms a clean migration to the [`conduit-workers`](https://github.com/kinarix/conduit-workers) reference HTTP worker.
+The one historical exception, `<conduit:http>`, is deprecated as of Phase 20 and will be removed once at least one external user confirms a clean migration to the [reference HTTP worker](../workers/crates/http-worker/) shipped alongside the engine.
 
 ---
 

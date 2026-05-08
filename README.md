@@ -219,7 +219,7 @@ Conduit orchestrates; **workers execute**. A `serviceTask` with `<conduit:taskTo
 </bpmn:serviceTask>
 ```
 
-Reference workers live in the sibling [`conduit-workers`](https://github.com/kinarix/conduit-workers) repository (Rust). For v1 they cover the most common integrations:
+Reference workers live alongside the engine in [`workers/`](workers/) (Rust, independent Cargo project). For v1 they cover the most common integrations:
 
 | Topic | What it does | Replaces |
 |---|---|---|

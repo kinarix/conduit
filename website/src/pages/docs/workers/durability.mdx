@@ -1,0 +1,142 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Durability Layers'
+group: 'Workers'
+---
+
+# Durability Layers
+
+Most "is my workflow durable?" questions get muddled because durability isn't one thing — it's three layers, with different owners. Conduit ships layer 1 in the engine and asks workers to handle layer 2. Layer 3 is intentionally outside the SDKs; this page explains why and shows the composition pattern for the rare cases that need it.
+
+## Layer 1 — Orchestration durability
+
+**Owner: the engine. Already shipped.**
+
+Every BPMN state change is one PostgreSQL transaction. A token advancing from one node to the next, a job being locked to a worker, a process variable being merged after a `complete` — all of it lands atomically. If the engine crashes mid-step, the transaction either committed before the crash or didn't; there is no half-state.
+
+The lock TTL on `jobs.locked_until` does the rest. A worker that crashes before reporting back releases its grip when its lock expires; the job goes back into the pool and another worker (or the same one on restart) picks it up.
+
+You get this for free. No SDK code, no handler discipline, no configuration. Layer 1 is the engine's contract: tokens move atomically, locks expire, work is never permanently stuck on a dead worker.
+
+What Layer 1 does **not** give you:
+
+- Protection against a worker calling Stripe twice. The orchestration step is durable, but the side effect inside it isn't.
+- Replay of a multi-step computation. If your handler does `step A → step B → step C` and crashes at C, the whole task re-runs on retry — A and B happen again.
+
+## Layer 2 — Side-effect idempotency
+
+**Owner: each handler. Documented per topic.**
+
+At-least-once delivery means a handler will sometimes run twice for the same task. Workers turn that into "feels exactly-once" by being **idempotent under retry** — running the handler twice produces the same outcome as running it once.
+
+Standard strategies:
+
+| Side effect | Strategy |
+|---|---|
+| `POST` to a third-party API | `Idempotency-Key` header derived from `task.id` ([RFC draft](https://www.ietf.org/archive/id/draft-ietf-httpapi-idempotency-key-header-04.html) / Stripe convention) |
+| File write | Write to `{path}.tmp.{task_id}` and atomic-rename |
+| GCS / S3 write | `ifGenerationMatch=0` for create-only; generation-match for updates |
+| Kafka produce | `enable.idempotence=true` + deterministic key from `task.id` |
+| DB insert | Unique constraint on `(task_id)` or upsert with deterministic key |
+
+For upstreams that don't support `Idempotency-Key`, front the call with a small dedupe table — the schema is in [`workers/docs/idempotency-store.md`](https://github.com/kinarix/conduit/blob/main/workers/docs/idempotency-store.md). One store per worker fleet, not per process.
+
+The full per-handler reference lives on the [Idempotency](/docs/workers/idempotency/) page.
+
+Layer 1 + Layer 2 is enough for **most workers**. A handler that's one HTTP call, one DB write, one Kafka produce — those are exactly the cases idempotency makes durable end-to-end.
+
+## Layer 3 — Step-level durable execution
+
+**Owner: not the SDKs. Intentionally out of scope.**
+
+The thing the SDKs deliberately do not provide is step-by-step replayable durability inside a single task. That's Temporal / Restate / DBOS territory: a journal store records each step's input and output, a deterministic replayer rehydrates the task on restart, and your code looks like normal sequential execution but skips already-completed steps automatically.
+
+```
+// What you'd get with a Layer 3 SDK (this is NOT what Conduit ships)
+async fn handle(&self, ctx: WorkflowContext) -> Result<...> {
+    let order = ctx.activity("create_order", ...).await?;        // checkpointed
+    let charge = ctx.activity("charge_card", order.total).await?; // checkpointed
+    let email = ctx.activity("send_receipt", order.id).await?;    // checkpointed
+    Ok(...)
+}
+```
+
+If the worker crashes between `charge_card` and `send_receipt`, a Layer 3 runtime replays the function but skips the first two activities, returning their stored results, and resumes at `send_receipt`. The user writes one function; the runtime makes it durable.
+
+### Why Conduit doesn't ship this
+
+Building Layer 3 properly means shipping, in five languages:
+
+- A **deterministic execution model** — your code can't read the wall clock, can't generate UUIDs, can't read environment variables, except through the runtime's wrappers.
+- A **journal store** with strong consistency guarantees — every activity input/output persisted before the next step runs.
+- A **replayer** — on restart, re-execute the function from the top while feeding stored results into already-completed steps.
+- **Language-specific runtime instrumentation** — interceptors, async-context propagation, version-aware deserialisation when activity signatures change.
+
+That's a much bigger commitment than the engine itself. It would also:
+
+- **Duplicate runtimes that already exist** and do this well (Temporal, Restate, DBOS, Inngest).
+- **Pull the SDK off its current shape** — a thin client over the external-task API — and into a deeply opinionated workflow runtime.
+- **Pay a complexity tax in every handler**, even handlers that don't need it (most are one HTTP call where Layer 2 is sufficient).
+
+PHASE-21 records the decision; ADR-008 ("[engine stays pure BPMN](https://github.com/kinarix/conduit/blob/main/docs/adr/ADR-008-engine-stays-pure-bpmn.md)") extends the same logic to the SDKs by structural argument: if integrations belong in workers because workers are crash domains and ship on their own cadence, then the worker runtime stays small for the same reasons.
+
+## The composition pattern (when you really need Layer 3)
+
+The escape hatch isn't bolting a workflow runtime onto Conduit — it's running both. A Conduit handler becomes a **thin adapter** that delegates to a Temporal/Restate workflow:
+
+```
+Conduit serviceTask "process_order"
+  ├── topic: "process_order"
+  └── worker (Conduit handler)
+        ├── start TemporalWorkflow("ProcessOrder", { task_id, ...vars })
+        ├── poll until terminal (or use signal/await)
+        ├── on success: HandlerResult.complete(workflow.result)
+        └── on failure: HandlerResult.bpmn_error(workflow.error)
+                        — or HandlerError → /failure for transient
+```
+
+Sketch in Rust (mutatis mutandis for any SDK):
+
+```rust
+#[handler(topic = "process_order")]
+async fn process_order(task: &ExternalTask) -> Result<HandlerResult, HandlerError> {
+    let workflow_id = format!("conduit-{}", task.id);   // deterministic; replays the same workflow
+
+    // Idempotent: if a workflow with this id already exists, attach to it.
+    let handle = temporal_client
+        .start_workflow(workflow_id, "ProcessOrder", task.variable_map())
+        .await
+        .map_err(|e| HandlerError::new(e.to_string()))?;
+
+    // Block this handler until the workflow terminates.
+    // For long workflows, prefer extend-lock or use signals + boundary events instead.
+    match handle.result().await {
+        Ok(output) => Ok(HandlerResult::complete(output.into_variables())),
+        Err(WorkflowError::Domain { code, message }) => Ok(HandlerResult::bpmn_error(code, message)),
+        Err(WorkflowError::Transient(e)) => Err(HandlerError::new(e.to_string())),
+    }
+}
+```
+
+Two important properties of this pattern:
+
+1. **Layer 1 stays intact.** The Conduit task is durable in the orchestrator's sense — locked, audited, retriable. If the worker process dies, the Conduit task is reclaimed; the new worker calls the same `start_workflow` with the same deterministic `workflow_id`, and Temporal returns "already running" — no double-start.
+2. **Layer 3 is opt-in per task.** Tasks that don't need step-level replay stay simple. Tasks that do, pay the Temporal complexity only inside that one handler.
+
+For workflows that take longer than your Conduit lock TTL, swap "block-and-poll" for the engine's signal/boundary-event pattern: start the workflow, return `complete`, let the workflow signal a Conduit message when it's done, and route the rest of the BPMN through a `messageCatchEvent`. That gets you durable async at the BPMN level without any single Conduit task lock outliving the workflow.
+
+## Quick decision table
+
+| What you need | What to use |
+|---|---|
+| "If the engine crashes, the process resumes." | Layer 1 (already shipped). |
+| "If a worker crashes before completing, the task gets retried." | Layer 1 (lock TTL). |
+| "If a worker retries a task, the side effect doesn't double." | Layer 2 (idempotent handler). |
+| "My handler has 5 sequential steps and I want each one checkpointed." | Layer 3 — wrap the steps in a Temporal/Restate workflow; Conduit handler is the adapter. |
+| "My workflow takes hours / days." | BPMN — model the long wait as a `messageCatchEvent` or `timerCatchEvent`, not a single long-running task. |
+
+## Further reading
+
+- [Idempotency](/docs/workers/idempotency/) — the per-handler patterns that make Layer 2 work.
+- [Protocol](/docs/workers/protocol/) — at-least-once delivery and lock TTL semantics that drive Layer 1.
+- [ADR-008](https://github.com/kinarix/conduit/blob/main/docs/adr/ADR-008-engine-stays-pure-bpmn.md) — the architectural rule that keeps Conduit (and its SDKs) out of the connector / runtime business.

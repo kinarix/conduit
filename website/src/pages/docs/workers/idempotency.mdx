@@ -15,6 +15,8 @@ That means: every handler must be idempotent under retry. Two layers of guarante
 
 If you only ship layer 1, retries replay side effects and you charge customers twice. If you only ship layer 2, retries replay correctly but the orchestrator still loses tasks on crash. Both are necessary.
 
+For the broader picture — including what Conduit deliberately does not ship (step-level workflow replay, à la Temporal) and how to compose with a Layer 3 runtime when you need it — see [Durability Layers](/docs/workers/durability/).
+
 ## Per-handler strategies
 
 | Handler | Strategy |

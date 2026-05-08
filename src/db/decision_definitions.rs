@@ -114,7 +114,9 @@ pub async fn rename_all_versions(
     name: &str,
 ) -> Result<()> {
     if name.trim().is_empty() {
-        return Err(EngineError::Validation("name must not be empty".to_string()));
+        return Err(EngineError::Validation(
+            "name must not be empty".to_string(),
+        ));
     }
     let (name_clash,): (bool,) = sqlx::query_as(
         "SELECT EXISTS(
@@ -189,4 +191,60 @@ pub async fn list(
     .await?;
 
     Ok(rows)
+}
+
+/// Paginated variant of `list` / `list_all_versions`. Returns `(rows, total)` where
+/// `total` is the count of distinct decision_keys (latest mode) or all rows (all-versions mode)
+/// matching the filter, before LIMIT/OFFSET is applied.
+pub async fn list_paginated(
+    pool: &PgPool,
+    org_id: Uuid,
+    process_group_id: Option<Uuid>,
+    all_versions: bool,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<DecisionDefinition>, i64)> {
+    let (sql, count_sql) = if all_versions {
+        (
+            "SELECT *
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND ($2::uuid IS NULL OR process_group_id = $2)
+             ORDER BY decision_key ASC, version DESC
+             LIMIT $3 OFFSET $4",
+            "SELECT COUNT(*)
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND ($2::uuid IS NULL OR process_group_id = $2)",
+        )
+    } else {
+        (
+            "SELECT DISTINCT ON (decision_key) *
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND ($2::uuid IS NULL OR process_group_id = $2)
+             ORDER BY decision_key, version DESC
+             LIMIT $3 OFFSET $4",
+            "SELECT COUNT(DISTINCT decision_key)
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND ($2::uuid IS NULL OR process_group_id = $2)",
+        )
+    };
+
+    let rows = sqlx::query_as::<_, DecisionDefinition>(sql)
+        .bind(org_id)
+        .bind(process_group_id)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+
+    let (total,): (i64,) = sqlx::query_as(count_sql)
+        .bind(org_id)
+        .bind(process_group_id)
+        .fetch_one(pool)
+        .await?;
+
+    Ok((rows, total))
 }

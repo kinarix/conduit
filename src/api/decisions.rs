@@ -10,7 +10,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use super::extractors::{Json, Query};
+use super::extractors::{Json, Path, Query};
+use super::pagination::{with_total, Page};
 use crate::db::decision_definitions;
 use crate::error::{EngineError, Result};
 use crate::state::AppState;
@@ -20,7 +21,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/decisions", post(deploy_decisions))
         .route("/api/v1/decisions", get(list_decisions))
         .route("/api/v1/decisions/by-key", patch(rename_by_key))
-    .route("/api/v1/decisions/test", post(test_decision))
+        .route("/api/v1/decisions/test", post(test_decision))
         .route("/api/v1/decisions/{key}", get(get_decision))
         .route("/api/v1/decisions/{key}", delete(delete_decision))
 }
@@ -35,6 +36,8 @@ struct ListDecisionsQuery {
     process_group_id: Option<Uuid>,
     #[serde(default)]
     all_versions: bool,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 /// POST /api/v1/decisions
@@ -82,17 +85,24 @@ async fn deploy_decisions(
 /// GET /api/v1/decisions
 /// Header: X-Org-Id: <uuid>
 /// Query: process_group_id=<uuid>  (optional — filters to that group)
+/// Query: all_versions=true        (optional — return every version, default keeps latest only)
+/// Query: limit, offset            (optional — defaults: 100, 0; X-Total-Count returned)
 async fn list_decisions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(q): Query<ListDecisionsQuery>,
-) -> Result<Json<serde_json::Value>> {
+) -> Result<axum::response::Response> {
     let org_id = extract_org_id(&headers)?;
-    let defs = if q.all_versions {
-        decision_definitions::list_all_versions(&state.pool, org_id, q.process_group_id).await?
-    } else {
-        decision_definitions::list(&state.pool, org_id, q.process_group_id).await?
-    };
+    let page = Page::from_query(q.limit, q.offset);
+    let (defs, total) = decision_definitions::list_paginated(
+        &state.pool,
+        org_id,
+        q.process_group_id,
+        q.all_versions,
+        page.limit,
+        page.offset,
+    )
+    .await?;
 
     let list: Vec<serde_json::Value> = defs
         .iter()
@@ -108,7 +118,7 @@ async fn list_decisions(
         })
         .collect();
 
-    Ok(Json(json!(list)))
+    Ok(with_total(list, total))
 }
 
 /// GET /api/v1/decisions/:key
@@ -117,7 +127,7 @@ async fn list_decisions(
 async fn get_decision(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    axum::extract::Path(key): axum::extract::Path<String>,
+    Path(key): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
     let org_id = extract_org_id(&headers)?;
     let def = decision_definitions::get_latest(&state.pool, org_id, &key).await?;
@@ -145,16 +155,13 @@ async fn get_decision(
 /// Body: { "dmn_xml": "...", "context": { "key": value } }
 /// Evaluates the first decision table in the supplied XML against the given context.
 /// Always returns 200; "error" key indicates a soft evaluation failure (no match, etc.).
-async fn test_decision(body: String) -> Result<Json<serde_json::Value>> {
-    #[derive(serde::Deserialize)]
-    struct TestBody {
-        dmn_xml: String,
-        context: HashMap<String, serde_json::Value>,
-    }
+#[derive(serde::Deserialize)]
+struct TestDecisionBody {
+    dmn_xml: String,
+    context: HashMap<String, serde_json::Value>,
+}
 
-    let req: TestBody = serde_json::from_str(&body)
-        .map_err(|e| EngineError::Validation(format!("Invalid JSON body: {e}")))?;
-
+async fn test_decision(Json(req): Json<TestDecisionBody>) -> Result<Json<serde_json::Value>> {
     let tables = crate::dmn::parse(&req.dmn_xml)?;
     let table = tables
         .into_iter()
@@ -163,9 +170,9 @@ async fn test_decision(body: String) -> Result<Json<serde_json::Value>> {
 
     match crate::dmn::evaluate(&table, &req.context) {
         Ok(output) => Ok(Json(json!({ "output": output }))),
-        Err(EngineError::DmnNoMatch) => {
-            Ok(Json(json!({ "error": "NO_MATCH", "message": "No rule matched the input values" })))
-        }
+        Err(EngineError::DmnNoMatch) => Ok(Json(
+            json!({ "error": "NO_MATCH", "message": "No rule matched the input values" }),
+        )),
         Err(EngineError::DmnMultipleMatches) => Ok(Json(
             json!({ "error": "MULTIPLE_MATCHES", "message": "Multiple rules matched (UNIQUE hit policy requires exactly one)" }),
         )),
@@ -178,7 +185,7 @@ async fn test_decision(body: String) -> Result<Json<serde_json::Value>> {
 async fn delete_decision(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    axum::extract::Path(key): axum::extract::Path<String>,
+    Path(key): Path<String>,
 ) -> Result<StatusCode> {
     let org_id = extract_org_id(&headers)?;
     decision_definitions::delete(&state.pool, org_id, &key).await?;

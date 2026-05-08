@@ -283,7 +283,9 @@ pub async fn rename_all_versions(
     name: &str,
 ) -> Result<()> {
     if name.trim().is_empty() {
-        return Err(EngineError::Validation("name must not be empty".to_string()));
+        return Err(EngineError::Validation(
+            "name must not be empty".to_string(),
+        ));
     }
     let (name_clash,): (bool,) = sqlx::query_as(
         "SELECT EXISTS(SELECT 1 FROM process_definitions WHERE org_id = $1 AND process_group_id = $2 AND name = $3 AND process_key <> $4)",
@@ -299,34 +301,26 @@ pub async fn rename_all_versions(
             "A different process named '{name}' already exists in this process group"
         )));
     }
-    sqlx::query(
-        "UPDATE process_definitions SET name = $1 WHERE org_id = $2 AND process_key = $3",
-    )
-    .bind(name)
-    .bind(org_id)
-    .bind(process_key)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE process_definitions SET name = $1 WHERE org_id = $2 AND process_key = $3")
+        .bind(name)
+        .bind(org_id)
+        .bind(process_key)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
 /// Mark a deployed process definition as disabled / enabled.
 /// Disabling sets `disabled_at = NOW()`; enabling clears it.
 /// Drafts cannot be disabled (they are not runnable anyway).
-pub async fn set_disabled(
-    pool: &PgPool,
-    id: Uuid,
-    disabled: bool,
-) -> Result<ProcessDefinition> {
-    let row = sqlx::query_as::<_, ProcessDefinition>(
-        if disabled {
-            "UPDATE process_definitions SET disabled_at = NOW() \
+pub async fn set_disabled(pool: &PgPool, id: Uuid, disabled: bool) -> Result<ProcessDefinition> {
+    let row = sqlx::query_as::<_, ProcessDefinition>(if disabled {
+        "UPDATE process_definitions SET disabled_at = NOW() \
              WHERE id = $1 AND status = 'deployed' RETURNING *"
-        } else {
-            "UPDATE process_definitions SET disabled_at = NULL \
+    } else {
+        "UPDATE process_definitions SET disabled_at = NULL \
              WHERE id = $1 AND status = 'deployed' RETURNING *"
-        },
-    )
+    })
     .bind(id)
     .fetch_optional(pool)
     .await?

@@ -337,7 +337,11 @@ async fn delete_deployment(
 
     process_definitions::delete(&state.pool, id).await?;
 
-    if let Ok(mut cache) = state.process_cache.write() {
+    {
+        let mut cache = state
+            .process_cache
+            .write()
+            .map_err(|_| EngineError::Internal("process cache lock poisoned".to_string()))?;
         cache.remove(&id);
     }
 

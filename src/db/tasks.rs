@@ -62,6 +62,27 @@ pub async fn list_pending(pool: &PgPool) -> Result<Vec<Task>> {
     Ok(rows)
 }
 
+/// Pending tasks newest-first so a paginated dashboard surfaces fresh work
+/// without scrolling. The unpaginated `list_pending` keeps oldest-first
+/// because callers there iterate over the full set.
+pub async fn list_pending_paginated(
+    pool: &PgPool,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<Task>, i64)> {
+    let rows = sqlx::query_as::<_, Task>(
+        "SELECT * FROM tasks WHERE state = 'pending' ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE state = 'pending'")
+        .fetch_one(pool)
+        .await?;
+    Ok((rows, total))
+}
+
 pub async fn complete(pool: &PgPool, id: Uuid) -> Result<Task> {
     sqlx::query_as::<_, Task>(
         r#"

@@ -41,13 +41,18 @@ impl JqCache {
     /// Compile a filter source without running it. Used by the parser at deploy
     /// time to fail fast on syntactically invalid filters.
     pub fn compile(&self, source: &str) -> Result<Filter> {
-        if let Some(f) = self.inner.read().unwrap().get(source) {
+        if let Some(f) = self
+            .inner
+            .read()
+            .map_err(|_| EngineError::Internal("jq cache lock poisoned".into()))?
+            .get(source)
+        {
             return Ok(f.clone());
         }
         let compiled = compile_filter(source)?;
         self.inner
             .write()
-            .unwrap()
+            .map_err(|_| EngineError::Internal("jq cache lock poisoned".into()))?
             .insert(source.to_string(), compiled.clone());
         Ok(compiled)
     }

@@ -11,3 +11,5 @@ CREATE TABLE execution_history (
 
 CREATE INDEX idx_execution_history_instance_id  ON execution_history (instance_id);
 CREATE INDEX idx_execution_history_execution_id ON execution_history (execution_id);
+-- Hot path: close out the open history row for an execution on token advance.
+CREATE INDEX idx_execution_history_active       ON execution_history (execution_id) WHERE left_at IS NULL;

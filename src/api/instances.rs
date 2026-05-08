@@ -10,6 +10,7 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use super::pagination::{with_total, Page};
 use crate::db::execution_history;
 use crate::db::jobs;
 use crate::db::models::{ExecutionHistory, Job, ProcessEvent, ProcessInstance};
@@ -36,7 +37,6 @@ pub struct ListInstancesQuery {
     pub offset: Option<i64>,
 }
 
-
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/process-instances", get(list_instances))
@@ -61,26 +61,17 @@ async fn list_instances(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListInstancesQuery>,
 ) -> Result<axum::response::Response> {
-    use axum::response::IntoResponse;
-
-    let limit = params.limit.unwrap_or(100).clamp(1, 500);
-    let offset = params.offset.unwrap_or(0).max(0);
-
+    let page = Page::from_query(params.limit, params.offset);
     let (instances, total) = process_instances::list_paginated(
         &state.pool,
         params.org_id,
         params.definition_id,
         params.process_key.as_deref(),
-        limit,
-        offset,
+        page.limit,
+        page.offset,
     )
     .await?;
-
-    let mut resp = Json(instances).into_response();
-    if let Ok(val) = total.to_string().parse() {
-        resp.headers_mut().insert("X-Total-Count", val);
-    }
-    Ok(resp)
+    Ok(with_total(instances, total))
 }
 
 async fn start_instance(

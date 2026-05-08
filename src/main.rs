@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -15,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
 
     let registry =
         tracing_subscriber::registry().with(tracing_subscriber::EnvFilter::new(&config.log_level));
-    if std::env::var("LOG_FORMAT").as_deref() == Ok("json") {
+    if std::env::var("CONDUIT_LOG_FORMAT").as_deref() == Ok("json") {
         registry
             .with(tracing_subscriber::fmt::layer().json())
             .init();
@@ -184,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
                 })),
             )
         })
+        .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::very_permissive())
         .with_state(state);
 

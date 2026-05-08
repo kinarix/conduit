@@ -1,4 +1,5 @@
 use super::extractors::{Json, Path, Query};
+use super::pagination::{with_total, Page};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -17,6 +18,8 @@ use crate::state::AppState;
 #[derive(Debug, Deserialize)]
 pub struct ListProcessGroupsQuery {
     pub org_id: Uuid,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,9 +53,11 @@ pub fn routes() -> Router<Arc<AppState>> {
 async fn list_process_groups(
     State(state): State<Arc<AppState>>,
     Query(q): Query<ListProcessGroupsQuery>,
-) -> Result<Json<Vec<ProcessGroup>>> {
-    let groups = process_groups::list_by_org(&state.pool, q.org_id).await?;
-    Ok(Json(groups))
+) -> Result<axum::response::Response> {
+    let page = Page::from_query(q.limit, q.offset);
+    let (rows, total) =
+        process_groups::list_paginated(&state.pool, q.org_id, page.limit, page.offset).await?;
+    Ok(with_total(rows, total))
 }
 
 async fn create_process_group(

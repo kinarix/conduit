@@ -246,7 +246,7 @@ impl Engine {
         .fetch_optional(&mut *tx)
         .await?;
 
-        if sub.is_none() {
+        let Some(sub) = sub else {
             warn!(job_id = %job_id, error_code, "no matching BoundaryErrorEvent; terminating instance");
             sqlx::query(
                 "UPDATE jobs SET state = 'failed', error_message = $1, \
@@ -271,9 +271,7 @@ impl Engine {
             .await?;
             tx.commit().await?;
             return Ok(());
-        }
-
-        let sub = sub.unwrap();
+        };
 
         // Audit: error caught by boundary subscription.
         crate::db::process_events::record_error(

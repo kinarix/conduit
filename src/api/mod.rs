@@ -6,6 +6,7 @@ pub mod health;
 pub mod instances;
 pub mod messages;
 pub mod orgs;
+pub mod pagination;
 pub mod process_groups;
 pub mod process_layouts;
 pub mod secrets;

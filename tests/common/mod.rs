@@ -106,26 +106,3 @@ pub async fn create_test_org_with_groups(app: &TestApp, count: usize) -> (Uuid, 
     }
     (org_id, groups)
 }
-
-/// DB-pool variant for tests that don't spin up the HTTP server. Inserts an
-/// org and `count` process groups. Returns (org_id, group_ids).
-#[allow(dead_code)]
-pub async fn db_create_org_with_groups(
-    pool: &PgPool,
-    slug_prefix: &str,
-    count: usize,
-) -> (Uuid, Vec<Uuid>) {
-    let slug = format!("{}-{}", slug_prefix, Uuid::new_v4());
-    let org = conduit::db::orgs::insert(pool, "Test Org", &slug)
-        .await
-        .expect("insert org");
-    let mut groups = Vec::with_capacity(count);
-    for i in 0..count {
-        let name = format!("Group {}", i + 1);
-        let group = conduit::db::process_groups::insert(pool, org.id, &name)
-            .await
-            .expect("insert process group");
-        groups.push(group.id);
-    }
-    (org.id, groups)
-}

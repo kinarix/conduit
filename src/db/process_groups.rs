@@ -14,6 +14,27 @@ pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessGroup
     Ok(rows)
 }
 
+pub async fn list_paginated(
+    pool: &PgPool,
+    org_id: Uuid,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<ProcessGroup>, i64)> {
+    let rows = sqlx::query_as::<_, ProcessGroup>(
+        "SELECT * FROM process_groups WHERE org_id = $1 ORDER BY name LIMIT $2 OFFSET $3",
+    )
+    .bind(org_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM process_groups WHERE org_id = $1")
+        .bind(org_id)
+        .fetch_one(pool)
+        .await?;
+    Ok((rows, total))
+}
+
 pub async fn insert(pool: &PgPool, org_id: Uuid, name: &str) -> Result<ProcessGroup> {
     let row = sqlx::query_as::<_, ProcessGroup>(
         "INSERT INTO process_groups (org_id, name) VALUES ($1, $2) RETURNING *",

@@ -357,13 +357,8 @@ fn parse_children(
                 let name = child.attribute("name").map(|s| s.to_string());
                 // Subprocess warnings flow up into the outer `warnings` vec
                 // so the top-level graph carries a single flat list.
-                let (inner_nodes, inner_flows) = parse_children(
-                    &child,
-                    message_defs,
-                    signal_defs,
-                    error_defs,
-                    warnings,
-                )?;
+                let (inner_nodes, inner_flows) =
+                    parse_children(&child, message_defs, signal_defs, error_defs, warnings)?;
                 validate(&id, &inner_nodes, &inner_flows)?;
                 let sub_graph = build_graph(
                     id.clone(),
@@ -391,9 +386,7 @@ fn parse_children(
                     .attribute((CONDUIT_NS, "decisionRef"))
                     .or_else(|| child.attribute((CAMUNDA_NS, "decisionRef")))
                     .ok_or_else(|| {
-                        EngineError::Parse(format!(
-                            "businessRuleTask '{id}' missing decisionRef"
-                        ))
+                        EngineError::Parse(format!("businessRuleTask '{id}' missing decisionRef"))
                     })?
                     .to_string();
                 let decision_version = child

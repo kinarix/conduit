@@ -59,7 +59,10 @@ impl Engine {
 
     async fn load_graph(&self, definition_id: Uuid) -> Result<Arc<ProcessGraph>> {
         {
-            let cache = self.process_cache.read().unwrap();
+            let cache = self
+                .process_cache
+                .read()
+                .map_err(|_| EngineError::Internal("process cache lock poisoned".to_string()))?;
             if let Some(graph) = cache.get(&definition_id) {
                 return Ok(Arc::clone(graph));
             }
@@ -77,7 +80,10 @@ impl Engine {
         let graph = crate::parser::parse(&row.0)?;
         let arc = Arc::new(graph);
         {
-            let mut cache = self.process_cache.write().unwrap();
+            let mut cache = self
+                .process_cache
+                .write()
+                .map_err(|_| EngineError::Internal("process cache lock poisoned".to_string()))?;
             cache.insert(definition_id, Arc::clone(&arc));
         }
         Ok(arc)

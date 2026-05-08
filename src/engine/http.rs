@@ -300,7 +300,7 @@ impl Engine {
         .fetch_optional(&mut *tx)
         .await?;
 
-        if sub.is_none() {
+        let Some(sub) = sub else {
             warn!(
                 job_id = %job.id,
                 error_code,
@@ -331,9 +331,7 @@ impl Engine {
             .await?;
             tx.commit().await?;
             return Ok(());
-        }
-
-        let sub = sub.unwrap();
+        };
 
         crate::db::process_events::record_error(
             &mut *tx,

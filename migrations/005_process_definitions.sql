@@ -9,6 +9,10 @@ CREATE TABLE process_definitions (
     bpmn_xml         TEXT        NOT NULL,
     status           TEXT        NOT NULL DEFAULT 'deployed'
                                      CHECK (status IN ('draft', 'deployed')),
+    -- Disabled versions cannot start NEW instances (manual, message, signal,
+    -- timer). Existing instances continue to run on whichever version they
+    -- were started on.
+    disabled_at      TIMESTAMPTZ,
     labels           JSONB       NOT NULL DEFAULT '{}',
     deployed_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_process_definitions_org_key_version UNIQUE (org_id, process_key, version)
@@ -20,6 +24,6 @@ CREATE INDEX idx_process_definitions_process_group ON process_definitions (proce
 CREATE INDEX idx_process_definitions_labels        ON process_definitions USING GIN (labels);
 
 -- Only one draft allowed per (org_id, process_key)
-CREATE UNIQUE INDEX process_definitions_one_draft_per_key
+CREATE UNIQUE INDEX idx_process_definitions_one_draft_per_key
     ON process_definitions (org_id, process_key)
     WHERE status = 'draft';

@@ -285,7 +285,10 @@ fn parser_accepts_business_rule_task() {
 
     let brt = graph.nodes.get("task_risk").unwrap();
     match &brt.kind {
-        FlowNodeKind::BusinessRuleTask { decision_ref, decision_version } => {
+        FlowNodeKind::BusinessRuleTask {
+            decision_ref,
+            decision_version,
+        } => {
             assert_eq!(decision_ref, "risk-check");
             assert!(decision_version.is_none());
         }

@@ -1,4 +1,5 @@
-use super::extractors::{Json, Path};
+use super::extractors::{Json, Path, Query};
+use super::pagination::{with_total, Page};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -20,6 +21,12 @@ pub struct CreateOrgRequest {
     pub slug: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListOrgsQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/orgs", get(list_orgs))
@@ -27,9 +34,13 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/orgs/{id}", delete(delete_org))
 }
 
-async fn list_orgs(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Org>>> {
-    let orgs = orgs::list_all(&state.pool).await?;
-    Ok(Json(orgs))
+async fn list_orgs(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListOrgsQuery>,
+) -> Result<axum::response::Response> {
+    let page = Page::from_query(params.limit, params.offset);
+    let (rows, total) = orgs::list_paginated(&state.pool, page.limit, page.offset).await?;
+    Ok(with_total(rows, total))
 }
 
 async fn create_org(

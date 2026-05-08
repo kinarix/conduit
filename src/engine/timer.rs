@@ -346,13 +346,16 @@ impl Engine {
     async fn fire_timer_start_trigger(&self, trigger: &TimerStartTrigger) -> Result<()> {
         let graph = self.load_graph(trigger.definition_id).await?;
 
-        let (org_id, status, disabled_at): (uuid::Uuid, String, Option<chrono::DateTime<chrono::Utc>>) =
-            sqlx::query_as(
-                "SELECT org_id, status, disabled_at FROM process_definitions WHERE id = $1",
-            )
-            .bind(trigger.definition_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let (org_id, status, disabled_at): (
+            uuid::Uuid,
+            String,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ) = sqlx::query_as(
+            "SELECT org_id, status, disabled_at FROM process_definitions WHERE id = $1",
+        )
+        .bind(trigger.definition_id)
+        .fetch_one(&self.pool)
+        .await?;
 
         // Definition was disabled or unpublished after this trigger was scheduled — skip.
         if status != "deployed" || disabled_at.is_some() {

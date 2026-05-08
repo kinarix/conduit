@@ -12,7 +12,9 @@ CREATE TABLE tasks (
     completed_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_tasks_instance_id  ON tasks (instance_id);
-CREATE INDEX idx_tasks_execution_id ON tasks (execution_id);
-CREATE INDEX idx_tasks_state        ON tasks (state);
-CREATE INDEX idx_tasks_pending      ON tasks (created_at) WHERE state = 'pending';
+CREATE INDEX idx_tasks_instance_id      ON tasks (instance_id);
+CREATE INDEX idx_tasks_execution_id     ON tasks (execution_id);
+CREATE INDEX idx_tasks_state            ON tasks (state);
+CREATE INDEX idx_tasks_pending          ON tasks (created_at) WHERE state = 'pending';
+-- Hot path: resolve the live task for a given element on an instance.
+CREATE INDEX idx_tasks_instance_element ON tasks (instance_id, element_id);

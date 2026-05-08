@@ -109,6 +109,21 @@ pub async fn list_by_instance(pool: &PgPool, instance_id: Uuid) -> Result<Vec<Va
     Ok(rows)
 }
 
+/// Batch fetch variables for many instances in a single round-trip. Used by
+/// `fetch_and_lock` to avoid an N+1 when a worker locks multiple jobs at once.
+pub async fn list_by_instance_ids(pool: &PgPool, instance_ids: &[Uuid]) -> Result<Vec<Variable>> {
+    if instance_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = sqlx::query_as::<_, Variable>(
+        "SELECT * FROM variables WHERE instance_id = ANY($1) ORDER BY instance_id, name ASC",
+    )
+    .bind(instance_ids)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 pub async fn delete(pool: &PgPool, execution_id: Uuid, name: &str) -> Result<()> {
     let result = sqlx::query("DELETE FROM variables WHERE execution_id = $1 AND name = $2")
         .bind(execution_id)

@@ -1,4 +1,5 @@
-use super::extractors::{Json, Path};
+use super::extractors::{Json, Path, Query};
+use super::pagination::{with_total, Page};
 use axum::{
     extract::State,
     http::StatusCode,
@@ -20,6 +21,12 @@ pub struct TaskListResponse {
     pub items: Vec<Task>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListTasksQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/tasks", get(list_tasks))
@@ -27,9 +34,14 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/tasks/{id}/complete", post(complete_task))
 }
 
-async fn list_tasks(State(state): State<Arc<AppState>>) -> Result<Json<TaskListResponse>> {
-    let items = tasks::list_pending(&state.pool).await?;
-    Ok(Json(TaskListResponse { items }))
+async fn list_tasks(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ListTasksQuery>,
+) -> Result<axum::response::Response> {
+    let page = Page::from_query(params.limit, params.offset);
+    let (items, total) =
+        tasks::list_pending_paginated(&state.pool, page.limit, page.offset).await?;
+    Ok(with_total(TaskListResponse { items }, total))
 }
 
 async fn get_task(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> Result<Json<Task>> {

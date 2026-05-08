@@ -27,14 +27,12 @@ pub async fn load_instance_var_context(
             .bind(instance_id)
             .fetch_all(&mut **tx)
             .await?;
-    let (counter,): (i64,) =
-        sqlx::query_as("SELECT counter FROM process_instances WHERE id = $1")
-            .bind(instance_id)
-            .fetch_one(&mut **tx)
-            .await?;
+    let (counter,): (i64,) = sqlx::query_as("SELECT counter FROM process_instances WHERE id = $1")
+        .bind(instance_id)
+        .fetch_one(&mut **tx)
+        .await?;
 
-    let mut map: HashMap<String, JsonValue> =
-        vars.into_iter().map(|v| (v.name, v.value)).collect();
+    let mut map: HashMap<String, JsonValue> = vars.into_iter().map(|v| (v.name, v.value)).collect();
     map.insert("instanceId".to_string(), json!(instance_id.to_string()));
     map.insert("instanceCounter".to_string(), json!(counter));
     Ok(map)

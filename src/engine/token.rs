@@ -568,7 +568,10 @@ impl Engine {
                     stack.push((inner_start.id.clone(), Some(execution.id)));
                 }
 
-                FlowNodeKind::BusinessRuleTask { decision_ref, decision_version } => {
+                FlowNodeKind::BusinessRuleTask {
+                    decision_ref,
+                    decision_version,
+                } => {
                     crate::db::execution_history::record_entry(
                         tx,
                         instance_id,
@@ -585,7 +588,8 @@ impl Engine {
                             .fetch_one(&mut **tx)
                             .await?;
 
-                    let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
+                    let var_map =
+                        crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
                     let def_opt = if let Some(pinned) = decision_version {
                         sqlx::query_as::<_, DecisionDefinition>(
@@ -620,8 +624,13 @@ impl Engine {
                                 "error_raised",
                                 None,
                                 &match decision_version {
-                                    Some(v) => format!("decision definition '{}' v{} not found", decision_ref, v),
-                                    None => format!("decision definition '{}' not found", decision_ref),
+                                    Some(v) => format!(
+                                        "decision definition '{}' v{} not found",
+                                        decision_ref, v
+                                    ),
+                                    None => {
+                                        format!("decision definition '{}' not found", decision_ref)
+                                    }
                                 },
                             )
                             .await?;
@@ -760,7 +769,8 @@ impl Engine {
                     )
                     .await?;
 
-                    let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
+                    let var_map =
+                        crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
                     let output =
                         match crate::engine::evaluator::evaluate_expression(script, &var_map) {
@@ -963,7 +973,8 @@ impl Engine {
                     // Scope: instance_id (not execution_id) so a gateway inside a
                     // subprocess sees variables written at the parent/instance level. BPMN
                     // visibility lets nested scopes read enclosing-scope variables.
-                    let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
+                    let var_map =
+                        crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
 
                     let outgoing_flows: Vec<_> = current_graph
                         .flows
@@ -1158,7 +1169,9 @@ impl Engine {
 
                     if incoming_count <= 1 {
                         // Fork: evaluate all conditions, activate every matching path.
-                        let var_map = crate::engine::helpers::load_instance_var_context(tx, instance_id).await?;
+                        let var_map =
+                            crate::engine::helpers::load_instance_var_context(tx, instance_id)
+                                .await?;
 
                         let outgoing_flows: Vec<_> = current_graph
                             .flows

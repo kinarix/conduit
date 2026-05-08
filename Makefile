@@ -54,7 +54,7 @@ build: ## Build the project
 	cargo build
 
 run: db migrate ## Start the dev server
-	DATABASE_URL=$(DATABASE_URL) CONDUIT_SECRETS_KEY=$(CONDUIT_SECRETS_KEY) LOG_LEVEL=info cargo run
+	DATABASE_URL=$(DATABASE_URL) CONDUIT_SECRETS_KEY=$(CONDUIT_SECRETS_KEY) CONDUIT_LOG_LEVEL=info cargo run
 
 clean: ## Remove build artifacts
 	cargo clean

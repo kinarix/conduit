@@ -13,5 +13,5 @@ CREATE TABLE timer_start_triggers (
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX timer_start_triggers_due ON timer_start_triggers (due_at)
+CREATE INDEX idx_timer_start_triggers_due ON timer_start_triggers (due_at)
     WHERE state = 'pending';

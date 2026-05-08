@@ -3,6 +3,7 @@ use axum::{extract::State, http::StatusCode, routing::post, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -31,7 +32,7 @@ struct FetchAndLockRequest {
     lock_duration_secs: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct VariableDto {
     name: String,
     value_type: String,
@@ -67,28 +68,44 @@ async fn fetch_and_lock(
     )
     .await?;
 
-    let mut dtos = Vec::with_capacity(jobs.len());
-    for job in jobs {
-        let vars = db::variables::list_by_instance(&state.pool, job.instance_id).await?;
-        let variable_dtos: Vec<VariableDto> = vars
-            .into_iter()
-            .map(|v| VariableDto {
+    // Batch-fetch variables for all locked instances in one round-trip, then
+    // group by instance_id. Avoids the N+1 we'd incur fetching per job.
+    let mut instance_ids: Vec<Uuid> = jobs.iter().map(|j| j.instance_id).collect();
+    instance_ids.sort_unstable();
+    instance_ids.dedup();
+
+    let all_vars = db::variables::list_by_instance_ids(&state.pool, &instance_ids).await?;
+    let mut vars_by_instance: HashMap<Uuid, Vec<VariableDto>> = HashMap::new();
+    for v in all_vars {
+        vars_by_instance
+            .entry(v.instance_id)
+            .or_default()
+            .push(VariableDto {
                 name: v.name,
                 value_type: v.value_type,
                 value: v.value,
-            })
-            .collect();
-        dtos.push(ExternalTaskDto {
-            id: job.id,
-            topic: job.topic,
-            instance_id: job.instance_id,
-            execution_id: job.execution_id,
-            locked_until: job.locked_until,
-            retries: job.retries,
-            retry_count: job.retry_count,
-            variables: variable_dtos,
-        });
+            });
     }
+
+    let dtos = jobs
+        .into_iter()
+        .map(|job| {
+            let variables = vars_by_instance
+                .get(&job.instance_id)
+                .cloned()
+                .unwrap_or_default();
+            ExternalTaskDto {
+                id: job.id,
+                topic: job.topic,
+                instance_id: job.instance_id,
+                execution_id: job.execution_id,
+                locked_until: job.locked_until,
+                retries: job.retries,
+                retry_count: job.retry_count,
+                variables,
+            }
+        })
+        .collect();
 
     Ok(Json(dtos))
 }

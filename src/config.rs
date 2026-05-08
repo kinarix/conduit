@@ -43,7 +43,9 @@ impl Config {
         // Load .env file if present (ignored if missing)
         dotenvy::dotenv().ok();
 
-        let auth_provider = match optional_env("AUTH_PROVIDER", "internal").as_str() {
+        // `DATABASE_URL` is unprefixed by convention (sqlx/Postgres ecosystem
+        // defaults). All other Conduit settings use the `CONDUIT_` prefix.
+        let auth_provider = match optional_env("CONDUIT_AUTH_PROVIDER", "internal").as_str() {
             "external" => AuthProvider::External,
             _ => AuthProvider::Internal,
         };
@@ -53,35 +55,43 @@ impl Config {
 
             auth_provider,
 
-            server_host: optional_env("SERVER_HOST", "0.0.0.0"),
-            server_port: optional_env("SERVER_PORT", "8080")
+            server_host: optional_env("CONDUIT_SERVER_HOST", "0.0.0.0"),
+            server_port: optional_env("CONDUIT_SERVER_PORT", "8080")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("SERVER_PORT must be a valid port number"))?,
+                .map_err(|_| anyhow::anyhow!("CONDUIT_SERVER_PORT must be a valid port number"))?,
 
-            log_level: optional_env("LOG_LEVEL", "info"),
+            log_level: optional_env("CONDUIT_LOG_LEVEL", "info"),
 
-            db_min_connections: optional_env("DB_MIN_CONNECTIONS", "2")
+            db_min_connections: optional_env("CONDUIT_DB_MIN_CONNECTIONS", "2")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("DB_MIN_CONNECTIONS must be an integer"))?,
-            db_max_connections: optional_env("DB_MAX_CONNECTIONS", "10")
+                .map_err(|_| anyhow::anyhow!("CONDUIT_DB_MIN_CONNECTIONS must be an integer"))?,
+            db_max_connections: optional_env("CONDUIT_DB_MAX_CONNECTIONS", "10")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("DB_MAX_CONNECTIONS must be an integer"))?,
-            db_acquire_timeout_secs: optional_env("DB_ACQUIRE_TIMEOUT_SECS", "30")
+                .map_err(|_| anyhow::anyhow!("CONDUIT_DB_MAX_CONNECTIONS must be an integer"))?,
+            db_acquire_timeout_secs: optional_env("CONDUIT_DB_ACQUIRE_TIMEOUT_SECS", "30")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("DB_ACQUIRE_TIMEOUT_SECS must be an integer"))?,
-            db_statement_timeout_ms: optional_env("DB_STATEMENT_TIMEOUT_MS", "30000")
+                .map_err(|_| {
+                    anyhow::anyhow!("CONDUIT_DB_ACQUIRE_TIMEOUT_SECS must be an integer")
+                })?,
+            db_statement_timeout_ms: optional_env("CONDUIT_DB_STATEMENT_TIMEOUT_MS", "30000")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("DB_STATEMENT_TIMEOUT_MS must be an integer"))?,
+                .map_err(|_| {
+                    anyhow::anyhow!("CONDUIT_DB_STATEMENT_TIMEOUT_MS must be an integer")
+                })?,
 
-            job_executor_poll_ms: optional_env("JOB_EXECUTOR_POLL_MS", "200")
+            job_executor_poll_ms: optional_env("CONDUIT_JOB_EXECUTOR_POLL_MS", "200")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("JOB_EXECUTOR_POLL_MS must be an integer"))?,
-            job_executor_batch_size: optional_env("JOB_EXECUTOR_BATCH_SIZE", "10")
+                .map_err(|_| anyhow::anyhow!("CONDUIT_JOB_EXECUTOR_POLL_MS must be an integer"))?,
+            job_executor_batch_size: optional_env("CONDUIT_JOB_EXECUTOR_BATCH_SIZE", "10")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("JOB_EXECUTOR_BATCH_SIZE must be an integer"))?,
-            job_lock_duration_secs: optional_env("JOB_LOCK_DURATION_SECS", "30")
+                .map_err(|_| {
+                    anyhow::anyhow!("CONDUIT_JOB_EXECUTOR_BATCH_SIZE must be an integer")
+                })?,
+            job_lock_duration_secs: optional_env("CONDUIT_JOB_LOCK_DURATION_SECS", "30")
                 .parse()
-                .map_err(|_| anyhow::anyhow!("JOB_LOCK_DURATION_SECS must be an integer"))?,
+                .map_err(|_| {
+                    anyhow::anyhow!("CONDUIT_JOB_LOCK_DURATION_SECS must be an integer")
+                })?,
 
             secrets_key: load_secrets_key()?,
         })
@@ -169,8 +179,8 @@ mod tests {
         let _guard = ENV_LOCK.lock().unwrap();
         std::env::set_var("DATABASE_URL", "postgres://test");
         std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
-        std::env::remove_var("SERVER_PORT");
-        std::env::remove_var("LOG_LEVEL");
+        std::env::remove_var("CONDUIT_SERVER_PORT");
+        std::env::remove_var("CONDUIT_LOG_LEVEL");
 
         let config = Config::from_env().unwrap();
         assert_eq!(config.server_port, 8080);

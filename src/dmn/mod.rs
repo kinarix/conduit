@@ -357,7 +357,11 @@ fn sort_by_priority<'a>(
     let mut with_priority: Vec<(usize, usize, &'a Rule)> = Vec::new();
     for (orig_idx, rule) in rules.iter().enumerate() {
         let rule: &'a Rule = rule;
-        let raw = rule.output_entries.first().map(|s| s.as_str()).unwrap_or("");
+        let raw = rule
+            .output_entries
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("");
         let val = parse_output_value(raw, ctx)?;
         let val_str = match &val {
             serde_json::Value::String(s) => s.clone(),
@@ -421,10 +425,7 @@ fn build_aggregate_output(
     if matches!(agg, CollectAggregator::Count) {
         // COUNT: one entry per output column; value is the count of matched rules
         for col in &table.outputs {
-            out.insert(
-                col.name.clone(),
-                serde_json::json!(rules.len() as i64),
-            );
+            out.insert(col.name.clone(), serde_json::json!(rules.len() as i64));
         }
         return Ok(out);
     }
@@ -788,19 +789,13 @@ mod tests {
     fn parse_collect_sum_aggregator() {
         let tables = parse(&collect_sum_dmn()).unwrap();
         assert_eq!(tables[0].hit_policy, HitPolicy::Collect);
-        assert_eq!(
-            tables[0].collect_aggregator,
-            Some(CollectAggregator::Sum)
-        );
+        assert_eq!(tables[0].collect_aggregator, Some(CollectAggregator::Sum));
     }
 
     #[test]
     fn parse_collect_count_aggregator() {
         let tables = parse(&collect_count_dmn()).unwrap();
-        assert_eq!(
-            tables[0].collect_aggregator,
-            Some(CollectAggregator::Count)
-        );
+        assert_eq!(tables[0].collect_aggregator, Some(CollectAggregator::Count));
     }
 
     #[test]
@@ -828,9 +823,15 @@ mod tests {
     #[test]
     fn parse_drd_required_decisions() {
         let tables = parse(&drd_dmn()).unwrap();
-        let final_table = tables.iter().find(|t| t.decision_key == "finalDecision").unwrap();
+        let final_table = tables
+            .iter()
+            .find(|t| t.decision_key == "finalDecision")
+            .unwrap();
         assert_eq!(final_table.required_decisions, vec!["subDecision"]);
-        let sub_table = tables.iter().find(|t| t.decision_key == "subDecision").unwrap();
+        let sub_table = tables
+            .iter()
+            .find(|t| t.decision_key == "subDecision")
+            .unwrap();
         assert!(sub_table.required_decisions.is_empty());
     }
 
@@ -1122,10 +1123,7 @@ mod tests {
             serde_json::to_string(&HitPolicy::OutputOrder).unwrap(),
             r#""OUTPUT_ORDER""#
         );
-        assert_eq!(
-            serde_json::to_string(&HitPolicy::Any).unwrap(),
-            r#""ANY""#
-        );
+        assert_eq!(serde_json::to_string(&HitPolicy::Any).unwrap(), r#""ANY""#);
         assert_eq!(
             serde_json::to_string(&HitPolicy::Priority).unwrap(),
             r#""PRIORITY""#
@@ -1149,6 +1147,9 @@ mod tests {
         let tables = parse(&priority_dmn()).unwrap();
         let j = serde_json::to_value(&tables[0]).unwrap();
         assert_eq!(j["hit_policy"], json!("PRIORITY"));
-        assert_eq!(j["outputs"][0]["output_values"], json!(["high", "medium", "low"]));
+        assert_eq!(
+            j["outputs"][0]["output_values"],
+            json!(["high", "medium", "low"])
+        );
     }
 }

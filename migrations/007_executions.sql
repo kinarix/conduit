@@ -8,5 +8,7 @@ CREATE TABLE executions (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_executions_instance_id ON executions (instance_id);
-CREATE INDEX idx_executions_parent_id   ON executions (parent_id);
+CREATE INDEX idx_executions_instance_id      ON executions (instance_id);
+CREATE INDEX idx_executions_parent_id        ON executions (parent_id);
+-- Hot path: resolve currently-active executions for a given element on an instance.
+CREATE INDEX idx_executions_instance_element ON executions (instance_id, element_id);

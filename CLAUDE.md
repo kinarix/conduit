@@ -219,10 +219,11 @@ make check
 ## Environment Variables
 
 ```bash
+# DATABASE_URL is unprefixed by sqlx convention; everything else uses CONDUIT_*.
 DATABASE_URL=postgres://conduit:conduit_secret@localhost/conduit
-SERVER_HOST=0.0.0.0
-SERVER_PORT=8080
-LOG_LEVEL=info
+CONDUIT_SERVER_HOST=0.0.0.0
+CONDUIT_SERVER_PORT=8080
+CONDUIT_LOG_LEVEL=info
 ```
 
 ## Key Concepts (Quick Reference)

@@ -87,7 +87,7 @@ async fn fetch_and_lock_returns_pending_service_task() {
 
     assert_eq!(resp.status(), 200);
     let jobs: serde_json::Value = resp.json().await.unwrap();
-    assert!(jobs.as_array().unwrap().len() >= 1);
+    assert!(!jobs.as_array().unwrap().is_empty());
 
     let job = jobs
         .as_array()

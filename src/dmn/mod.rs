@@ -356,7 +356,7 @@ fn sort_by_priority<'a>(
     // Evaluate output value for each rule (first output column)
     let mut with_priority: Vec<(usize, usize, &'a Rule)> = Vec::new();
     for (orig_idx, rule) in rules.iter().enumerate() {
-        let rule: &'a Rule = *rule;
+        let rule: &'a Rule = rule;
         let raw = rule.output_entries.first().map(|s| s.as_str()).unwrap_or("");
         let val = parse_output_value(raw, ctx)?;
         let val_str = match &val {
@@ -401,7 +401,7 @@ fn build_list_output(
         for (i, col) in table.outputs.iter().enumerate() {
             let raw = rule.output_entries.get(i).map(|s| s.as_str()).unwrap_or("");
             let v = parse_output_value(raw, ctx)?;
-            out.get_mut(&col.name).unwrap().push(v);
+            out.entry(col.name.clone()).or_default().push(v);
         }
     }
     Ok(out

@@ -74,6 +74,11 @@ pub struct DeployResponse {
     pub version: i32,
     pub status: String,
     pub deployed_at: DateTime<Utc>,
+    /// Non-fatal advisories surfaced during BPMN parsing — currently used
+    /// for deprecation warnings (e.g. `<conduit:http>`, U010). Always
+    /// present, empty when nothing was flagged.
+    #[serde(default)]
+    pub warnings: Vec<crate::parser::ParseWarning>,
 }
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -117,6 +122,8 @@ async fn deploy(
 
     // Parse first — fail fast before touching the DB
     let graph = Arc::new(parser::parse(&req.bpmn_xml)?);
+    // Capture parser-emitted warnings before `graph` is moved into the cache.
+    let warnings = graph.warnings.clone();
 
     // Warn if a gateway sits immediately after a start event and no input schema is defined.
     // Without a schema, callers get no pre-flight 422 — missing variables silently produce
@@ -199,6 +206,16 @@ async fn deploy(
     }
     state.engine.schedule_timer_start_events(def.id).await?;
 
+    for w in &warnings {
+        tracing::warn!(
+            process_key = %def.process_key,
+            element_id = %w.element_id,
+            code = %w.code,
+            "{}",
+            w.message
+        );
+    }
+
     Ok((
         StatusCode::CREATED,
         Json(DeployResponse {
@@ -207,6 +224,7 @@ async fn deploy(
             version: def.version,
             status: def.status,
             deployed_at: def.deployed_at,
+            warnings,
         }),
     ))
 }
@@ -243,6 +261,7 @@ async fn save_draft(
             version: def.version,
             status: def.status,
             deployed_at: def.deployed_at,
+            warnings: vec![],
         }),
     ))
 }
@@ -279,6 +298,7 @@ async fn create_draft(
             version: def.version,
             status: def.status,
             deployed_at: def.deployed_at,
+            warnings: vec![],
         }),
     ))
 }
@@ -388,6 +408,8 @@ async fn promote_draft(
 
     let def = process_definitions::promote_draft(&state.pool, id).await?;
 
+    let warnings = graph.warnings.clone();
+
     {
         let mut cache = state
             .process_cache
@@ -401,12 +423,23 @@ async fn promote_draft(
     }
     state.engine.schedule_timer_start_events(def.id).await?;
 
+    for w in &warnings {
+        tracing::warn!(
+            process_key = %def.process_key,
+            element_id = %w.element_id,
+            code = %w.code,
+            "{}",
+            w.message
+        );
+    }
+
     Ok(Json(DeployResponse {
         id: def.id,
         key: def.process_key,
         version: def.version,
         status: def.status,
         deployed_at: def.deployed_at,
+        warnings,
     }))
 }
 

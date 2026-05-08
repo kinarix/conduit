@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn number_literal_float_match() {
-        assert!(eval_input_entry("3.14", &json!(3.14)).unwrap());
+        assert!(eval_input_entry("3.5", &json!(3.5)).unwrap());
     }
 
     #[test]

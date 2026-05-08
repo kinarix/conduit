@@ -80,7 +80,10 @@ impl Engine {
                         sub.element_id
                     ))
                 })?;
-            let node = current_graph.nodes.get(sub.element_id.as_str()).unwrap();
+            let node = current_graph
+                .nodes
+                .get(sub.element_id.as_str())
+                .expect("find_element_graph contract: element exists in returned graph");
 
             for var in variables {
                 crate::db::variables::upsert_in_tx(

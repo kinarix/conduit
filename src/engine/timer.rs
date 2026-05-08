@@ -46,7 +46,10 @@ impl Engine {
             Self::find_element_graph(&element_id, &graph).ok_or_else(|| {
                 EngineError::Internal(format!("Element '{element_id}' not found in process graph"))
             })?;
-        let node = current_graph.nodes.get(&element_id).unwrap();
+        let node = current_graph
+            .nodes
+            .get(&element_id)
+            .expect("find_element_graph contract: element exists in returned graph");
 
         let mut tx = self.pool.begin().await?;
 

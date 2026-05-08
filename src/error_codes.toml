@@ -50,6 +50,15 @@ action  = "Ensure the input values match at least one rule in the decision table
 display = "Multiple decision rules matched (UNIQUE hit policy violated)."
 action  = "Fix the decision table so at most one rule matches for any given input."
 
+[U010]
+# Warning, not an error. Surfaced in the deployment response under `warnings`,
+# not in the error body. Deployment still succeeds. Per ADR-008 the engine is
+# moving away from in-engine connectors; existing definitions using
+# `<conduit:http>` should migrate to a worker-based serviceTask. See
+# docs/MIGRATION.md.
+display = "A deprecated BPMN extension element was used."
+action  = "Migrate to the worker-based pattern documented in docs/MIGRATION.md."
+
 # ─── S-codes: system errors (5xx) ────────────────────────────────────────────
 
 [S001]

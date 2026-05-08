@@ -117,11 +117,6 @@ fn subprocess_reads_parent_variable_bpmn() -> String {
         .to_string()
 }
 
-/// Outer: Start → SubProcess(inner: Start → ExclusiveGateway → End) → End
-fn subprocess_with_exclusive_gateway_bpmn() -> String {
-    subprocess_reads_parent_variable_bpmn()
-}
-
 /// Outer: Start → SubProcess(inner: Start → SubProcess2(inner2: Start → End) → End) → End
 fn nested_subprocess_bpmn() -> String {
     r#"<?xml version="1.0"?>

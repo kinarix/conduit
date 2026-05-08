@@ -45,7 +45,9 @@ conduit/
 │   │   ├── ADR-003-database-driver.md
 │   │   ├── ADR-004-xml-parser.md
 │   │   ├── ADR-005-expression-evaluator.md
-│   │   └── ADR-006-migrations.md
+│   │   ├── ADR-006-migrations.md
+│   │   ├── ADR-007-connector-architecture.md  ← rejected
+│   │   └── ADR-008-engine-stays-pure-bpmn.md  ← supersedes ADR-007
 │   └── phases/                  ← Detailed spec per phase
 │       ├── PHASE-0-evaluation.md
 │       ├── PHASE-1-foundation.md
@@ -67,7 +69,9 @@ conduit/
 │       ├── PHASE-16-decision-table-ui.md
 │       ├── PHASE-17-external-task-long-polling.md
 │       ├── PHASE-18-element-documentation.md
-│       └── PHASE-19-instance-notes.md
+│       ├── PHASE-19-instance-notes.md
+│       ├── PHASE-20-deprecate-http-connector.md
+│       └── PHASE-21-reference-workers.md
 │
 ├── migrations/                  ← SQL migrations (SQLx) — 001..023
 │   ├── 001_initial.sql          ← uuid-ossp, schema_info, orgs
@@ -139,12 +143,14 @@ conduit/
 
 ## Current Phase
 
-**Phase 16 — Decision Table UI + Full FEEL** (in progress)
+**Phase 20 — Deprecate `<conduit:http>` connector** (in progress); **Phase 16 — Decision Table UI + Full FEEL** continuing in parallel.
 
-Phases 0–15 are complete. Phase 16 work is underway in parallel with several operational improvements that have already shipped past the core phase line:
+Phases 0–15 are complete. Phase 20 lands the deprecation warning (`U010`) on the deployment response and the migration guide; runtime behaviour of `<conduit:http>` is unchanged. Removal happens in a follow-up phase gated on at least one external user successfully migrating to the reference HTTP worker (Phase 21, sibling repo).
+
+Phase 16 (Decision Table UI) work continues in parallel along with several operational improvements that have already shipped past the core phase line:
 
 ### Active workstreams (shipped or in flight beyond Phase 15)
-- **HTTP push connector** for `serviceTask` (`<conduit:http>`); engine calls your URL directly
+- **HTTP push connector** for `serviceTask` (`<conduit:http>`) — **deprecated** per [ADR-008](docs/adr/ADR-008-engine-stays-pure-bpmn.md); migration via reference HTTP worker (Phases 20–21)
 - **Encrypted secrets** referenced as `{{secret:name}}` in connector configs
 - **Per-version enable/disable** for process definitions (`PATCH /deployments/{id}/disabled`)
 - **Process instance counter** — sequential per-(org, process_key) human-friendly ID

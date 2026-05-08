@@ -457,6 +457,7 @@ mod tests {
             incoming: HashMap::new(),
             attached_to: HashMap::new(),
             input_schema: None,
+            warnings: vec![],
         }
     }
 
@@ -474,6 +475,7 @@ mod tests {
             incoming: HashMap::new(),
             attached_to: HashMap::new(),
             input_schema: None,
+            warnings: vec![],
         }
     }
 
@@ -515,6 +517,7 @@ mod tests {
             incoming: HashMap::new(),
             attached_to: HashMap::new(),
             input_schema: None,
+            warnings: vec![],
         };
 
         let (found_graph, chain) = Engine::find_element_graph("inner_task", &outer).unwrap();

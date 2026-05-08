@@ -61,7 +61,7 @@ The engine is being built incrementally. Each phase is working and deployable be
 
 In parallel with Phase 16 work, the engine and UI have grown several operational features:
 
-- **HTTP push connector** for `serviceTask` — engine calls your URL directly via `<conduit:http>` (no worker needed)
+- **HTTP push connector** for `serviceTask` via `<conduit:http>` — **deprecated** as of Phase 20; runtime still works, deployments emit a `U010` warning. Migrate to a worker-based `serviceTask` per [`docs/MIGRATION.md`](docs/MIGRATION.md). Rationale: [ADR-008](docs/adr/ADR-008-engine-stays-pure-bpmn.md)
 - **Encrypted secrets** — referenced as `{{secret:name}}` inside connector configs and templated values
 - **Per-version enable/disable** of process definitions for safe rollback (`PATCH /deployments/{id}/disabled`)
 - **Human-friendly instance counter** — sequential per `(org, process_key)` ID alongside the UUID
@@ -78,7 +78,7 @@ In parallel with Phase 16 work, the engine and UI have grown several operational
 | `startEvent` | Phase 3 |
 | `endEvent` | Phase 3 |
 | `userTask` | Phase 3 |
-| `serviceTask` (external worker via `conduit:taskTopic`, **or** HTTP push via `<conduit:http>`) | Phase 3 / 16 |
+| `serviceTask` (external worker via `conduit:taskTopic`, **or** HTTP push via `<conduit:http>` — *deprecated, see [MIGRATION.md](docs/MIGRATION.md)*) | Phase 3 / 16 |
 | `scriptTask` (FEEL expression body, optional `result_variable`) | Phase 16 |
 | `sendTask` (publishes a message by name) | Phase 16 |
 | `sequenceFlow` | Phase 3 |

@@ -32,7 +32,10 @@ impl Engine {
                         "Element '{current_id}' not found in process graph"
                     ))
                 })?;
-            let node = current_graph.nodes.get(&current_id).unwrap();
+            let node = current_graph
+                .nodes
+                .get(&current_id)
+                .expect("find_element_graph contract: element exists in returned graph");
 
             debug!(
                 instance_id = %instance_id,
@@ -71,9 +74,8 @@ impl Engine {
                         .await?;
 
                     if matches!(node.kind, FlowNodeKind::EndEvent) {
-                        if !outer_chain.is_empty() {
+                        if let Some(&outer_graph) = outer_chain.last() {
                             // Inner EndEvent of a subprocess: check if all inner paths finished.
-                            let outer_graph = outer_chain.last().unwrap();
                             let sp_exec_id = scope.ok_or_else(|| {
                                 EngineError::Internal(format!(
                                     "Subprocess EndEvent '{}' reached with no scope",

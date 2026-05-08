@@ -199,4 +199,24 @@ pub struct ProcessGraph {
     pub attached_to: HashMap<String, Vec<String>>,
     /// JSON Schema for validating start_instance input variables.
     pub input_schema: Option<serde_json::Value>,
+    /// Non-fatal advisories emitted during parsing (e.g. deprecated extension
+    /// elements). Populated only on the top-level graph; sub-process graphs
+    /// always carry an empty vec because their warnings are accumulated into
+    /// the outer graph during recursion.
+    pub warnings: Vec<ParseWarning>,
+}
+
+/// A non-fatal advisory surfaced during BPMN parsing. Currently used to flag
+/// deprecated extension elements (Phase 20). Round-trips through the
+/// deployment response so the UI / a deploying client can show it without an
+/// extra round trip.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ParseWarning {
+    /// Stable U-code (see `src/error_codes.toml`).
+    pub code: String,
+    /// BPMN element id where the warning was raised. Empty string when the
+    /// warning is process-scoped rather than tied to a specific element.
+    pub element_id: String,
+    /// Human-readable description.
+    pub message: String,
 }

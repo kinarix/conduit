@@ -2,7 +2,7 @@ mod extract;
 pub mod types;
 mod validate;
 
-pub use types::{FlowNode, FlowNodeKind, ProcessGraph, SequenceFlow, TimerSpec};
+pub use types::{FlowNode, FlowNodeKind, ParseWarning, ProcessGraph, SequenceFlow, TimerSpec};
 
 use roxmltree::Document;
 use std::collections::HashMap;
@@ -74,7 +74,14 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
 
     let input_schema = extract_input_schema(&process_node, CONDUIT_NS)?;
 
-    let (nodes, flows) = parse_children(&process_node, &message_defs, &signal_defs, &error_defs)?;
+    let mut warnings: Vec<ParseWarning> = Vec::new();
+    let (nodes, flows) = parse_children(
+        &process_node,
+        &message_defs,
+        &signal_defs,
+        &error_defs,
+        &mut warnings,
+    )?;
 
     validate(&process_id, &nodes, &flows)?;
 
@@ -84,6 +91,7 @@ pub fn parse(xml: &str) -> Result<ProcessGraph> {
         nodes,
         flows,
         input_schema,
+        warnings,
     ))
 }
 
@@ -92,6 +100,7 @@ fn parse_children(
     message_defs: &HashMap<String, String>,
     signal_defs: &HashMap<String, String>,
     error_defs: &HashMap<String, String>,
+    warnings: &mut Vec<ParseWarning>,
 ) -> Result<(HashMap<String, FlowNode>, Vec<SequenceFlow>)> {
     let mut nodes: HashMap<String, FlowNode> = HashMap::new();
     let mut flows: Vec<SequenceFlow> = Vec::new();
@@ -161,6 +170,21 @@ fn parse_children(
                 let topic = extract_topic(&child, CONDUIT_NS, CAMUNDA_NS);
                 let url = extract_url(&child, CAMUNDA_NS);
                 let http = extract_http_config(&child, CONDUIT_NS)?;
+                if http.is_some() {
+                    // Phase 20 — `<conduit:http>` is deprecated. Engine stays
+                    // BPMN-pure; HTTP integration moves to a worker
+                    // (see ADR-008 + docs/MIGRATION.md). Surface the
+                    // deprecation in the deployment response so the
+                    // deploying client sees it without redeploying.
+                    warnings.push(ParseWarning {
+                        code: "U010".into(),
+                        element_id: id.clone(),
+                        message: "<conduit:http> is deprecated. Migrate to a \
+                                  worker-based serviceTask (conduit:taskTopic). \
+                                  See docs/MIGRATION.md."
+                            .into(),
+                    });
+                }
                 nodes.insert(
                     id.clone(),
                     FlowNode {
@@ -331,11 +355,24 @@ fn parse_children(
             "subProcess" => {
                 let id = require_id(&child, local)?;
                 let name = child.attribute("name").map(|s| s.to_string());
-                let (inner_nodes, inner_flows) =
-                    parse_children(&child, message_defs, signal_defs, error_defs)?;
+                // Subprocess warnings flow up into the outer `warnings` vec
+                // so the top-level graph carries a single flat list.
+                let (inner_nodes, inner_flows) = parse_children(
+                    &child,
+                    message_defs,
+                    signal_defs,
+                    error_defs,
+                    warnings,
+                )?;
                 validate(&id, &inner_nodes, &inner_flows)?;
-                let sub_graph =
-                    build_graph(id.clone(), name.clone(), inner_nodes, inner_flows, None);
+                let sub_graph = build_graph(
+                    id.clone(),
+                    name.clone(),
+                    inner_nodes,
+                    inner_flows,
+                    None,
+                    Vec::new(),
+                );
                 nodes.insert(
                     id.clone(),
                     FlowNode {
@@ -454,6 +491,53 @@ fn parse_children(
     }
 
     Ok((nodes, flows))
+}
+
+fn build_graph(
+    process_id: String,
+    process_name: Option<String>,
+    nodes: HashMap<String, FlowNode>,
+    flows: Vec<SequenceFlow>,
+    input_schema: Option<serde_json::Value>,
+    warnings: Vec<ParseWarning>,
+) -> ProcessGraph {
+    let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
+    let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
+    for flow in &flows {
+        outgoing
+            .entry(flow.source_ref.clone())
+            .or_default()
+            .push(flow.target_ref.clone());
+        incoming
+            .entry(flow.target_ref.clone())
+            .or_default()
+            .push(flow.source_ref.clone());
+    }
+
+    let mut attached_to: HashMap<String, Vec<String>> = HashMap::new();
+    for node in nodes.values() {
+        let host_id = match &node.kind {
+            FlowNodeKind::BoundaryTimerEvent { attached_to: h, .. } => Some(h.clone()),
+            FlowNodeKind::BoundarySignalEvent { attached_to: h, .. } => Some(h.clone()),
+            FlowNodeKind::BoundaryErrorEvent { attached_to: h, .. } => Some(h.clone()),
+            _ => None,
+        };
+        if let Some(h) = host_id {
+            attached_to.entry(h).or_default().push(node.id.clone());
+        }
+    }
+
+    ProcessGraph {
+        process_id,
+        process_name,
+        nodes,
+        flows,
+        outgoing,
+        incoming,
+        attached_to,
+        input_schema,
+        warnings,
+    }
 }
 
 #[cfg(test)]
@@ -728,50 +812,5 @@ mod tests {
   </process>
 </definitions>"#;
         assert!(parse(xml).is_err());
-    }
-}
-
-fn build_graph(
-    process_id: String,
-    process_name: Option<String>,
-    nodes: HashMap<String, FlowNode>,
-    flows: Vec<SequenceFlow>,
-    input_schema: Option<serde_json::Value>,
-) -> ProcessGraph {
-    let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
-    let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
-    for flow in &flows {
-        outgoing
-            .entry(flow.source_ref.clone())
-            .or_default()
-            .push(flow.target_ref.clone());
-        incoming
-            .entry(flow.target_ref.clone())
-            .or_default()
-            .push(flow.source_ref.clone());
-    }
-
-    let mut attached_to: HashMap<String, Vec<String>> = HashMap::new();
-    for node in nodes.values() {
-        let host_id = match &node.kind {
-            FlowNodeKind::BoundaryTimerEvent { attached_to: h, .. } => Some(h.clone()),
-            FlowNodeKind::BoundarySignalEvent { attached_to: h, .. } => Some(h.clone()),
-            FlowNodeKind::BoundaryErrorEvent { attached_to: h, .. } => Some(h.clone()),
-            _ => None,
-        };
-        if let Some(h) = host_id {
-            attached_to.entry(h).or_default().push(node.id.clone());
-        }
-    }
-
-    ProcessGraph {
-        process_id,
-        process_name,
-        nodes,
-        flows,
-        outgoing,
-        incoming,
-        attached_to,
-        input_schema,
     }
 }

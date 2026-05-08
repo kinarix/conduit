@@ -86,7 +86,7 @@ async fn deploy_and_start(
         "org_id": org_id,
         "definition_id": def_id,
     });
-    if !initial_vars.as_object().map_or(true, |o| o.is_empty()) {
+    if !initial_vars.as_object().is_none_or(|o| o.is_empty()) {
         body["variables"] = vars_from_object(initial_vars);
     }
     let start_resp = client

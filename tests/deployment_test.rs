@@ -315,3 +315,172 @@ async fn deploy_missing_bpmn_xml_field_returns_400() {
 
     assert_eq!(resp.status(), 400);
 }
+
+// ── Phase 20: <conduit:http> deprecation warning ──────────────────────────────
+
+fn http_connector_bpmn(process_id: &str, task_id: &str) -> String {
+    format!(
+        r#"<?xml version="1.0"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext">
+  <process id="{process_id}">
+    <startEvent id="start"/>
+    <serviceTask id="{task_id}">
+      <extensionElements>
+        <conduit:http>
+          <conduit:url>https://example.invalid/api</conduit:url>
+          <conduit:method>POST</conduit:method>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="{task_id}"/>
+    <sequenceFlow id="f2" sourceRef="{task_id}" targetRef="end"/>
+  </process>
+</definitions>"#
+    )
+}
+
+#[tokio::test]
+async fn deploy_with_conduit_http_returns_u010_warning() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
+    let client = reqwest::Client::new();
+
+    let key = unique_key("deprecated-http");
+    let bpmn = http_connector_bpmn("dep_http_proc", "call_api");
+
+    let resp = client
+        .post(format!("{}/api/v1/deployments", app.address))
+        .json(&serde_json::json!({
+            "org_id": org_id,
+            "process_group_id": process_group_id,
+            "key": key,
+            "bpmn_xml": bpmn,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        201,
+        "deployment with <conduit:http> must still succeed"
+    );
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let warnings = body["warnings"]
+        .as_array()
+        .expect("response should include a `warnings` array");
+    assert_eq!(
+        warnings.len(),
+        1,
+        "expected exactly one warning, got {warnings:?}"
+    );
+
+    let w = &warnings[0];
+    assert_eq!(w["code"], "U010");
+    assert_eq!(w["element_id"], "call_api");
+    assert!(
+        w["message"].as_str().unwrap().contains("conduit:http"),
+        "warning message should mention conduit:http; got {:?}",
+        w["message"]
+    );
+}
+
+#[tokio::test]
+async fn deploy_without_deprecated_elements_has_empty_warnings() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
+    let client = reqwest::Client::new();
+
+    let key = unique_key("no-warnings");
+    let bpmn = minimal_bpmn("clean_proc");
+
+    let resp = client
+        .post(format!("{}/api/v1/deployments", app.address))
+        .json(&serde_json::json!({
+            "org_id": org_id,
+            "process_group_id": process_group_id,
+            "key": key,
+            "bpmn_xml": bpmn,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let warnings = body["warnings"]
+        .as_array()
+        .expect("response should include a `warnings` array");
+    assert!(
+        warnings.is_empty(),
+        "clean BPMN must produce no warnings; got {warnings:?}"
+    );
+}
+
+#[tokio::test]
+async fn deploy_with_two_conduit_http_emits_two_warnings() {
+    let app = common::spawn_test_app().await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let process_group_id = groups[0];
+    let client = reqwest::Client::new();
+
+    let key = unique_key("two-deprecated");
+    let bpmn = r#"<?xml version="1.0"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:conduit="http://conduit.io/ext">
+  <process id="two_http_proc">
+    <startEvent id="start"/>
+    <serviceTask id="call_a">
+      <extensionElements>
+        <conduit:http>
+          <conduit:url>https://example.invalid/a</conduit:url>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+    <serviceTask id="call_b">
+      <extensionElements>
+        <conduit:http>
+          <conduit:url>https://example.invalid/b</conduit:url>
+        </conduit:http>
+      </extensionElements>
+    </serviceTask>
+    <endEvent id="end"/>
+    <sequenceFlow id="f1" sourceRef="start" targetRef="call_a"/>
+    <sequenceFlow id="f2" sourceRef="call_a" targetRef="call_b"/>
+    <sequenceFlow id="f3" sourceRef="call_b" targetRef="end"/>
+  </process>
+</definitions>"#;
+
+    let resp = client
+        .post(format!("{}/api/v1/deployments", app.address))
+        .json(&serde_json::json!({
+            "org_id": org_id,
+            "process_group_id": process_group_id,
+            "key": key,
+            "bpmn_xml": bpmn,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 201);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let warnings = body["warnings"].as_array().unwrap();
+    assert_eq!(warnings.len(), 2);
+    let element_ids: Vec<&str> = warnings
+        .iter()
+        .map(|w| w["element_id"].as_str().unwrap())
+        .collect();
+    assert!(element_ids.contains(&"call_a"));
+    assert!(element_ids.contains(&"call_b"));
+    for w in warnings {
+        assert_eq!(w["code"], "U010");
+    }
+}

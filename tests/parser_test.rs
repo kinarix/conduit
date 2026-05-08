@@ -26,8 +26,8 @@ fn parse_minimal() {
         .find(|n| n.kind == FlowNodeKind::EndEvent)
         .unwrap();
 
-    assert_eq!(&graph.outgoing[&start.id], &[end.id.clone()]);
-    assert_eq!(&graph.incoming[&end.id], &[start.id.clone()]);
+    assert_eq!(&graph.outgoing[&start.id], std::slice::from_ref(&end.id));
+    assert_eq!(&graph.incoming[&end.id], std::slice::from_ref(&start.id));
 }
 
 #[test]

@@ -1,0 +1,123 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Node SDK'
+group: 'Workers'
+---
+
+# Node SDK (TypeScript)
+
+ESM TypeScript SDK. Lives at [`workers/node/`](https://github.com/kinarix/conduit/tree/main/workers/node). Built on the platform `fetch` + `node:test`. No decorator support is required — TypeScript decorators are still opt-in (`experimentalDecorators`), so the SDK ships a `defineHandler` builder instead.
+
+## Install
+
+```bash
+npm install @conduit/worker        # once published to npm
+# Until v0.1 ships:
+npm install ./workers/node
+```
+
+Required runtime: **Node 20+** (uses platform `fetch` and `AbortController`).
+
+## Quick start with `defineHandler`
+
+```typescript
+import {
+  Client, defineHandler, ExternalTask, HandlerResult,
+  Runner, Variable,
+} from "@conduit/worker";
+
+export const httpCall = defineHandler({
+  topic: "http.call",
+  async handle(task: ExternalTask): Promise<HandlerResult> {
+    const url = task.variable("url") as string;
+    const res = await fetch(url);
+    return HandlerResult.complete([
+      Variable.long("status", res.status),
+      Variable.string("body", await res.text()),
+    ]);
+  },
+});
+
+const client = new Client({ baseUrl: "http://localhost:8080" });
+const runner = new Runner(client, { workerId: "http-worker-1" });
+runner.register(httpCall);
+await runner.run();
+```
+
+`defineHandler` is a typed identity — it gives you autocomplete on the shape and lets `runner.register(handler)` know `topic` without you typing it twice.
+
+## Direct registration
+
+`runner.register` also accepts a `(topic, fn)` pair:
+
+```typescript
+runner.register("policy.check", async (task) => HandlerResult.bpmnError("POLICY_VIOLATION", "not allowed"));
+```
+
+## RunnerConfig
+
+```typescript
+const config = {
+  workerId: "http-worker-1",
+  maxJobs: 10,                       // 1..100, default 10
+  lockDurationSecs: 30,
+  pollIntervalMs: 1000,              // idle back-off
+};
+const runner = new Runner(client, config);
+```
+
+## Reporting outcomes
+
+| Return | Engine call |
+|---|---|
+| `HandlerResult.complete([Variable, ...])` | `/complete` |
+| `HandlerResult.bpmnError(code, message, [Variable, ...]?)` | `/bpmn-error` |
+| Throw / reject | `/failure` |
+
+```typescript
+import { HandlerResult } from "@conduit/worker";
+
+return HandlerResult.complete([Variable.long("status", 201)]);
+return HandlerResult.bpmnError("PAYMENT_DECLINED", "card declined");
+throw new Error("upstream timeout");        // engine decrements retries
+```
+
+## Variables
+
+```typescript
+Variable.string("name", "alice");
+Variable.long("count", 42);
+Variable.double("ratio", 0.75);
+Variable.boolean("approved", true);
+Variable.json("payload", { x: 1 });
+Variable.null("tombstone");
+```
+
+Read off the task:
+
+```typescript
+const orderId = task.variable("order_id") as string | undefined;
+const all: Record<string, unknown> = task.variableMap();
+```
+
+## Custom `fetch`
+
+The client config accepts an optional `fetch` override — useful for tests, proxies, or mTLS:
+
+```typescript
+new Client({ baseUrl, fetch: myInstrumentedFetch });
+```
+
+## Building and running
+
+```bash
+cd workers/node
+npm install
+npm test                 # node:test against a fake fetch
+npm run build            # tsc → dist/
+node dist/my-worker.js
+```
+
+## Idempotency
+
+Same contract as every other SDK — see [Idempotency](/docs/workers/idempotency/).

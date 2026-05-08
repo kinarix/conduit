@@ -1,0 +1,170 @@
+---
+import DocsLayout from '../../../layouts/DocsLayout.astro';
+
+const langs = [
+  {
+    name: 'Rust',
+    href: '/docs/workers/rust/',
+    status: 'reference SDK · #[handler] proc-macro',
+    snippet: `#[handler(topic = "http.call")]
+async fn http_call(task: &ExternalTask)
+    -> Result<HandlerResult, HandlerError> { /* ... */ }`,
+  },
+  {
+    name: 'Java',
+    href: '/docs/workers/java/',
+    status: '21+ · @TaskHandler annotation',
+    snippet: `@TaskHandler(topic = "http.call")
+public class HttpCallHandler implements Handler {
+  public HandlerResult handle(ExternalTask t) { /* ... */ }
+}`,
+  },
+  {
+    name: 'Python',
+    href: '/docs/workers/python/',
+    status: '3.11+ · @handler decorator',
+    snippet: `@handler(topic="http.call")
+async def http_call(task: ExternalTask) -> Complete:
+    return Complete([Variable.string("status", "ok")])`,
+  },
+  {
+    name: 'Node (TS)',
+    href: '/docs/workers/node/',
+    status: 'defineHandler builder',
+    snippet: `export const httpCall = defineHandler({
+  topic: "http.call",
+  async handle(task) { return HandlerResult.complete([]); },
+});`,
+  },
+  {
+    name: 'Go',
+    href: '/docs/workers/go/',
+    status: '1.22+ · Register(topic, fn)',
+    snippet: `runner.Register("http.call", func(ctx context.Context, t *cw.ExternalTask)
+    (*cw.Result, error) { return cw.Complete(), nil })`,
+  },
+];
+---
+<DocsLayout title="Workers">
+  <h1>Workers</h1>
+  <p>
+    Conduit orchestrates; <strong>workers execute</strong>. A <code>serviceTask</code> carries a
+    <code>&lt;conduit:taskTopic&gt;</code> that the engine uses purely as a routing label — it knows
+    nothing about HTTP, gRPC, Kafka, or any other transport. Workers poll the engine, run the
+    side effect, and report the outcome back.
+  </p>
+
+  <p>
+    Reference SDKs ship in the engine's repo at <a href="https://github.com/kinarix/conduit/tree/main/workers" target="_blank" rel="noopener"><code>workers/</code></a>,
+    one independent build per language. Each SDK conforms to a single language-agnostic wire contract
+    (<a href="/docs/workers/protocol/">PROTOCOL</a>) and exposes registration sugar native to its host language.
+  </p>
+
+  <h2>Pick your language</h2>
+
+  <div class="lang-grid">
+    {langs.map(lang => (
+      <a href={lang.href} class="lang-card">
+        <div class="lang-name">{lang.name}</div>
+        <div class="lang-status">{lang.status}</div>
+        <pre class="lang-snippet"><code>{lang.snippet}</code></pre>
+      </a>
+    ))}
+  </div>
+
+  <h2>Cross-cutting</h2>
+
+  <div class="doc-cards">
+    <a href="/docs/workers/protocol/" class="doc-card">
+      <div class="card-icon">📡</div>
+      <h3>Protocol</h3>
+      <p>The five endpoints under <code>/api/v1/external-tasks/*</code>, the JSON variable shape, the
+      <code>U</code>/<code>S</code> error envelope, and the at-least-once semantic contract.</p>
+      <span class="card-link">Read the wire contract →</span>
+    </a>
+    <a href="/docs/workers/idempotency/" class="doc-card">
+      <div class="card-icon">♻️</div>
+      <h3>Idempotency</h3>
+      <p>At-least-once means workers can see the same task twice. Per-handler strategies for HTTP,
+      CSV, GCS, and Kafka producers; the optional Postgres dedupe store.</p>
+      <span class="card-link">Make it safe →</span>
+    </a>
+    <a href="/docs/workers/examples/" class="doc-card">
+      <div class="card-icon">🧪</div>
+      <h3>Examples</h3>
+      <p>End-to-end pairs: a tiny BPMN with <code>&lt;conduit:taskTopic&gt;</code> alongside the worker
+      that handles it. One example per SDK.</p>
+      <span class="card-link">See it run →</span>
+    </a>
+  </div>
+</DocsLayout>
+
+<style>
+  .lang-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0 2.5rem;
+  }
+  .lang-card {
+    display: block;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .lang-card:hover {
+    border-color: var(--color-accent);
+    background: var(--color-surface-2);
+    text-decoration: none;
+  }
+  .lang-name {
+    color: #fff;
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+  }
+  .lang-status {
+    color: var(--color-muted);
+    font-size: 0.85rem;
+    margin-bottom: 0.75rem;
+  }
+  .lang-snippet {
+    margin: 0;
+    background: var(--color-bg);
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .lang-snippet code { color: var(--color-text); font-family: ui-monospace, monospace; }
+
+  .doc-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+  .doc-card {
+    display: block;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    text-decoration: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .doc-card:hover {
+    border-color: var(--color-accent);
+    background: var(--color-surface-2);
+    text-decoration: none;
+  }
+  .card-icon { font-size: 1.75rem; margin-bottom: 0.5rem; }
+  .doc-card h3 { margin: 0 0 0.5rem; color: #fff; }
+  .doc-card p { margin: 0 0 0.85rem; color: var(--color-muted); font-size: 0.9rem; }
+  .card-link { color: var(--color-accent-light); font-size: 0.9rem; }
+</style>

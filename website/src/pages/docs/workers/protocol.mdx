@@ -1,0 +1,185 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Worker Protocol'
+group: 'Workers'
+---
+
+# Worker Protocol
+
+This is the language-agnostic wire contract that every reference SDK in `workers/` conforms to. Read this before writing a new SDK; if the wire shape changes, this document changes first and every SDK follows.
+
+The contract is the engine's **external-task API** — workers are clients of `/api/v1/external-tasks/*`. The engine doesn't know about workers as a concept beyond "polls for work and reports back."
+
+## Base URL and authentication
+
+- **Base URL**: configurable, e.g. `http://localhost:8080`. All paths below are relative to this.
+- **Auth**: optional `Authorization: Bearer <token>` header. The reference engine accepts unauthenticated requests in dev; production deployments enforce a token. SDKs MUST treat the token as a sensitive value.
+- **Content type**: `application/json` request and response, UTF-8.
+
+## Endpoints
+
+### 1. Fetch and lock — `POST /api/v1/external-tasks/fetch-and-lock`
+
+Long-poll for tasks. The engine returns 0..N tasks whose `locked_until` is null or has expired, locks them to `worker_id` for `lock_duration_secs`, and ships their current process variables.
+
+**Request**
+```json
+{
+  "worker_id": "http-worker-7d2",
+  "topic": "http.call",
+  "max_jobs": 10,
+  "lock_duration_secs": 30
+}
+```
+
+| Field | Required | Notes |
+|---|---|---|
+| `worker_id` | yes | Stable identifier for this worker process. Reusing the ID across restarts is fine. |
+| `topic` | optional | Filter by `<conduit:taskTopic>`. Omit to receive any topic (rarely useful). |
+| `max_jobs` | optional, default 10, capped at 100 | Upper bound on tasks returned this round. |
+| `lock_duration_secs` | optional, default 30 | TTL on the lock. Worker must complete / fail / extend within this window. |
+
+**Response — `200 OK`**
+```json
+[
+  {
+    "id": "0a3...",
+    "topic": "http.call",
+    "instance_id": "...",
+    "execution_id": "...",
+    "locked_until": "2026-05-08T10:00:30Z",
+    "retries": 3,
+    "retry_count": 0,
+    "variables": [
+      { "name": "order_id", "value_type": "String", "value": "ord-42" },
+      { "name": "amount",   "value_type": "Long",   "value": 1500 }
+    ]
+  }
+]
+```
+
+`variables` is the full set of process-instance variables visible to this task (same scope rules as a `serviceTask` in the engine). If no tasks are available, the engine may either return `[]` immediately or hold the request open briefly (Phase 17 long polling).
+
+### 2. Complete — `POST /api/v1/external-tasks/{id}/complete`
+
+Report the task as completed successfully. Optionally write process variables back to the instance.
+
+**Request**
+```json
+{
+  "worker_id": "http-worker-7d2",
+  "variables": [
+    { "name": "http_status", "value_type": "Long", "value": 201 },
+    { "name": "order",       "value_type": "Json", "value": { "id": 42 } }
+  ]
+}
+```
+
+`worker_id` must match the worker that holds the lock; the engine rejects the call otherwise. `variables` is optional — omit or send `[]` to complete with no variable changes.
+
+**Response — `204 No Content`.**
+
+### 3. Failure — `POST /api/v1/external-tasks/{id}/failure`
+
+Report a transient/system failure. The engine decrements `retries` and re-locks the task for another worker after the lock TTL. When `retries` reaches 0, the task transitions to `failed` and stops being re-delivered.
+
+**Request**
+```json
+{
+  "worker_id": "http-worker-7d2",
+  "error_message": "Connection refused: api.example.com:443"
+}
+```
+
+**Response — `204 No Content`.**
+
+Use this for failures the BPMN does not need to know about — connection errors, timeouts, transient 5xx upstream responses.
+
+### 4. BPMN error — `POST /api/v1/external-tasks/{id}/bpmn-error`
+
+Throw a BPMN error. This routes the process down a `boundaryErrorEvent` if one matches `error_code`, or terminates the instance with an error if not.
+
+**Request**
+```json
+{
+  "worker_id": "http-worker-7d2",
+  "error_code": "PAYMENT_DECLINED",
+  "error_message": "card_declined",
+  "variables": [
+    { "name": "decline_reason", "value_type": "String", "value": "insufficient_funds" }
+  ]
+}
+```
+
+**Response — `204 No Content`.**
+
+| Concern | `failure` | `bpmn-error` |
+|---|---|---|
+| Decrements retries? | Yes | No |
+| Re-delivered? | Yes (until retries=0) | No |
+| Branches the BPMN? | No | Yes (if a matching boundary event exists) |
+
+### 5. Extend lock — `POST /api/v1/external-tasks/{id}/extend-lock`
+
+Refresh the lock without completing. Use this for handlers that legitimately need longer than `lock_duration_secs`.
+
+**Request**
+```json
+{ "worker_id": "http-worker-7d2", "lock_duration_secs": 60 }
+```
+
+**Response — `204 No Content`.**
+
+## Variable shape
+
+Every variable on the wire is `{ name, value_type, value }`. `value_type` is one of:
+
+| `value_type` | JSON `value` shape |
+|---|---|
+| `String` | string |
+| `Long` | integer (i64) |
+| `Double` | number (f64) |
+| `Boolean` | boolean |
+| `Json` | any JSON value (object, array, etc.) |
+| `Null` | `null` |
+
+SDKs SHOULD provide constructors per type (`Variable.string("name", "value")`, etc.) so users don't have to remember the strings.
+
+## Error responses
+
+Non-2xx responses from the engine carry the structured-error envelope:
+
+```json
+{ "code": "U001", "message": "...", "action": "..." }
+```
+
+`U`-prefix codes are user/client errors (4xx). `S`-prefix codes are system errors (5xx) and never leak internals. SDKs SHOULD surface `code` and `message` in their thrown error so users have an actionable handle.
+
+## Semantics workers must understand
+
+### At-least-once delivery
+A worker that crashes between starting the side effect and calling `complete` will see the task re-delivered once the lock TTL expires. **Side effects must be idempotent under retry.** See [Idempotency](/docs/workers/idempotency/).
+
+### `worker_id` is a lock owner, not an identity
+Two workers with the same `worker_id` will fight over locks. Run with distinct IDs in production (`hostname + PID + UUID` is fine).
+
+### Lock TTL is a soft contract
+If a worker exceeds `lock_duration_secs` without calling `extend-lock`, the engine considers the lock expired and may hand the task to another worker. The original worker's eventual `complete` call is rejected — SDKs SHOULD log this distinctly so users can spot under-sized lock TTLs.
+
+### Order is not preserved
+`fetch-and-lock` returns tasks in an unspecified order. Workers MUST NOT assume in-order delivery within or across instances.
+
+### Variables are a snapshot
+Variables shipped with a task reflect the instance state at lock time. The `complete` call's `variables` field is the worker's full reply; the engine merges it into the instance.
+
+## SDK conformance checklist
+
+A new SDK in `workers/<lang>/` SHOULD provide:
+
+- `Client` wrapping the 5 endpoints above
+- Configurable base URL, optional bearer token, request timeout
+- `Handler` interface / trait / abstract class with `topic()` + `handle(task) → Complete | BpmnError | failure`
+- `Runner` that loops fetch-and-lock → handle → report, with configurable poll interval and lock duration
+- Idiomatic registration sugar — proc-macro / annotation / decorator / builder / register-by-name
+- At least one integration test against a mock engine
+- README documenting quick-start and idempotency expectations

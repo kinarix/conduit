@@ -1,0 +1,210 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Worker Examples'
+group: 'Workers'
+---
+
+# Worker Examples
+
+End-to-end pairs: a tiny BPMN with `<conduit:taskTopic>` alongside the worker that handles it. Each example shows the same task — fetching a URL and reporting the status code — written in each language.
+
+## The BPMN (shared by every example)
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+    xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+    xmlns:conduit="http://conduit.io/ext"
+    targetNamespace="http://example.com/workers-demo">
+  <bpmn:process id="health_check" isExecutable="true">
+    <bpmn:startEvent id="start" />
+    <bpmn:sequenceFlow id="f1" sourceRef="start" targetRef="ping" />
+
+    <bpmn:serviceTask id="ping" name="Ping URL">
+      <bpmn:extensionElements>
+        <conduit:taskTopic>http.call</conduit:taskTopic>
+      </bpmn:extensionElements>
+    </bpmn:serviceTask>
+
+    <bpmn:sequenceFlow id="f2" sourceRef="ping" targetRef="end" />
+    <bpmn:endEvent id="end" />
+  </bpmn:process>
+</bpmn:definitions>
+```
+
+Deploy it once, start an instance with `{"url": "https://example.com"}`, and any of the workers below will pick the task up.
+
+```bash
+# 1. Deploy
+curl -X POST http://localhost:8080/api/v1/deployments \
+  -F "files=@health-check.bpmn"
+
+# 2. Start an instance
+curl -X POST http://localhost:8080/api/v1/process-instances \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "process_key": "health_check",
+    "variables": {"url": "https://example.com"}
+  }'
+```
+
+## Rust
+
+```rust
+use std::sync::Arc;
+use conduit_worker::{
+    handler, Client, ClientConfig, ExternalTask, HandlerError, HandlerResult,
+    Runner, RunnerConfig, Variable,
+};
+
+#[handler(topic = "http.call")]
+async fn http_call(task: &ExternalTask) -> Result<HandlerResult, HandlerError> {
+    let url = task
+        .variable("url")
+        .and_then(|v| v.as_str())
+        .ok_or("missing variable: url")?;
+    let resp = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    Ok(HandlerResult::complete(vec![
+        Variable::long("status", resp.status().as_u16() as i64),
+    ]))
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = Client::new(ClientConfig::new("http://localhost:8080"))?;
+    Runner::new(client, Arc::new(HttpCallHandler), RunnerConfig::new("rust-1"))
+        .run().await;
+    Ok(())
+}
+```
+
+## Java
+
+```java
+package com.example;
+
+import io.conduit.worker.*;
+import java.net.URI;
+import java.net.http.*;
+
+@TaskHandler(topic = "http.call")
+public class HttpCallHandler implements Handler {
+  private static final HttpClient HTTP = HttpClient.newHttpClient();
+
+  @Override
+  public HandlerResult handle(ExternalTask task) {
+    String url = (String) task.variable("url");
+    try {
+      var resp = HTTP.send(
+          HttpRequest.newBuilder(URI.create(url)).build(),
+          HttpResponse.BodyHandlers.discarding());
+      return HandlerResult.complete(Variable.longVar("status", resp.statusCode()));
+    } catch (Exception e) {
+      throw new RuntimeException(e);   // → /failure
+    }
+  }
+
+  public static void main(String[] args) throws Exception {
+    Client c = new Client(new Client.Config("http://localhost:8080"));
+    Runner r = new Runner(c, new Runner.Config("java-1"));
+    r.discover(new HttpCallHandler());
+    r.run();
+  }
+}
+```
+
+## Python
+
+```python
+import asyncio, httpx
+from conduit_worker import (
+    Client, ClientConfig, Complete, ExternalTask, Runner, RunnerConfig,
+    Variable, handler,
+)
+
+@handler(topic="http.call")
+async def http_call(task: ExternalTask) -> Complete:
+    url = task.variable("url")
+    async with httpx.AsyncClient() as h:
+        resp = await h.get(url)
+    return Complete([Variable.long("status", resp.status_code)])
+
+async def main() -> None:
+    client = Client(ClientConfig(base_url="http://localhost:8080"))
+    runner = Runner(client, RunnerConfig(worker_id="python-1"))
+    runner.discover(http_call)
+    await runner.run()
+
+asyncio.run(main())
+```
+
+## Node (TypeScript)
+
+```typescript
+import {
+  Client, defineHandler, ExternalTask, HandlerResult,
+  Runner, Variable,
+} from "@conduit/worker";
+
+export const httpCall = defineHandler({
+  topic: "http.call",
+  async handle(task: ExternalTask): Promise<HandlerResult> {
+    const url = task.variable("url") as string;
+    const resp = await fetch(url);
+    return HandlerResult.complete([Variable.long("status", resp.status)]);
+  },
+});
+
+const client = new Client({ baseUrl: "http://localhost:8080" });
+const runner = new Runner(client, { workerId: "node-1" });
+runner.register(httpCall);
+await runner.run();
+```
+
+## Go
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+
+    cw "github.com/kinarix/conduit/workers/go/conduitworker"
+)
+
+func main() {
+    client := cw.NewClient(cw.ClientConfig{BaseURL: "http://localhost:8080"})
+    runner := cw.NewRunner(client, "go-1")
+
+    runner.Register("http.call", func(ctx context.Context, t *cw.ExternalTask) (*cw.Result, error) {
+        url, _ := t.Variable("url").(string)
+        req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            return nil, err
+        }
+        defer resp.Body.Close()
+        return cw.Complete(cw.VarLong("status", int64(resp.StatusCode))), nil
+    })
+
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+    if err := runner.Run(ctx); err != nil && err != context.Canceled {
+        log.Fatal(err)
+    }
+}
+```
+
+## What's the same in every example
+
+- The same `<conduit:taskTopic>http.call</conduit:taskTopic>` routes the task. The engine doesn't know about HTTP — it just hands you the task with `url` in the variables.
+- Every SDK reads variables off `task` with the same shape (`task.variable("url")`).
+- Every SDK has factory constructors for typed variables (`Variable.long(...)`).
+- Returning `Complete` calls `/complete` with the variables; throwing or returning an error calls `/failure`; returning a `BpmnError` calls `/bpmn-error`.
+
+The contract is the protocol, not the SDK — see [Protocol](/docs/workers/protocol/) for the wire-level details.

@@ -1,0 +1,134 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Java SDK'
+group: 'Workers'
+---
+
+# Java SDK
+
+Java 21+ SDK. Lives at [`workers/java/`](https://github.com/kinarix/conduit/tree/main/workers/java). Pure JDK + Jackson — no Spring, no servlet container.
+
+## Install
+
+```xml
+<!-- pom.xml -->
+<dependency>
+  <groupId>io.conduit</groupId>
+  <artifactId>conduit-worker</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+(Until v0.1 ships to Maven Central, depend on the source tree directly with `<systemPath>` or vendor the jar.)
+
+Required runtime: **Java 21** for the sealed-interface switch on `HandlerResult`.
+
+## Quick start with `@TaskHandler`
+
+```java
+package com.example.workers;
+
+import io.conduit.worker.*;
+
+@TaskHandler(topic = "http.call")
+public class HttpCallHandler implements Handler {
+  @Override
+  public HandlerResult handle(ExternalTask task) {
+    String url = (String) task.variableMap().get("url");
+    // ... do work ...
+    return HandlerResult.complete(Variable.string("status", "ok"));
+  }
+
+  public static void main(String[] args) throws Exception {
+    Client client = new Client(new Client.Config("http://localhost:8080"));
+    Runner runner = new Runner(client, new Runner.Config("http-worker-1"));
+    runner.discover(new HttpCallHandler());
+    runner.run();
+  }
+}
+```
+
+`runner.discover(Object...)` reads each instance's `@TaskHandler` annotation and registers it under the annotation's topic. There is no classpath scanning — pass the instances explicitly so dependency wiring stays your responsibility.
+
+## Direct registration
+
+For handlers that don't carry an annotation (functional, lambda, configured per-instance), use `register`:
+
+```java
+runner.register("policy.check", task ->
+    HandlerResult.bpmnError("POLICY_VIOLATION", "not allowed"));
+```
+
+`Handler` is a `@FunctionalInterface`, so a method reference or lambda is fine.
+
+## RunnerConfig
+
+```java
+Runner.Config cfg = new Runner.Config("http-worker-1");
+cfg.maxJobs           = 10;                          // 1..100
+cfg.lockDurationSecs  = 30;
+cfg.pollInterval      = Duration.ofSeconds(1);       // back-off when idle
+```
+
+The runner's loop is single-threaded — for parallelism, run one `Runner` per worker process and scale horizontally, or fan tasks out from inside `handle()` onto your own executor.
+
+## Reporting outcomes
+
+```java
+return HandlerResult.complete(                         // /complete
+    Variable.string("status", "ok"),
+    Variable.longVar("amount", 1500L));
+
+return HandlerResult.bpmnError("PAYMENT_DECLINED",     // /bpmn-error
+    "card declined");
+
+throw new RuntimeException("upstream 502");            // /failure
+```
+
+The runner catches any thrown exception, calls `/failure` with `getMessage()`, and lets the engine decrement retries.
+
+## Variables
+
+```java
+Variable.string("name", "alice");
+Variable.longVar("count", 42L);
+Variable.doubleVar("ratio", 0.75);
+Variable.bool("approved", true);
+Variable.json("payload", mapper.createObjectNode().put("x", 1));
+Variable.nullVar("tombstone");
+```
+
+Read variables off the incoming task:
+
+```java
+String orderId = (String) task.variable("order_id");          // Object → cast
+Map<String, Object> all = task.variableMap();
+```
+
+## Building and running
+
+```bash
+cd workers/java
+mvn -q test
+mvn -q package
+java -cp target/conduit-worker-0.1.0.jar com.example.workers.HttpCallHandler
+```
+
+`mvn -q test` runs the embedded JDK `HttpServer` integration tests — no real engine needed for SDK CI.
+
+## Sealed `HandlerResult`
+
+`HandlerResult` is a sealed interface with two permitted records, so a `switch` over it is exhaustive:
+
+```java
+switch (result) {
+  case HandlerResult.Complete c -> client.complete(taskId, workerId, c.variables());
+  case HandlerResult.BpmnError be -> client.bpmnError(taskId, workerId, be.code(), be.message(), be.variables());
+}
+```
+
+You'll only see this if you bypass the runner and drive `Client` yourself.
+
+## Idempotency
+
+Same contract as every other SDK — see [Idempotency](/docs/workers/idempotency/).

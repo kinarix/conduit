@@ -1,0 +1,118 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Python SDK'
+group: 'Workers'
+---
+
+# Python SDK
+
+Python 3.11+ async SDK. Lives at [`workers/python/`](https://github.com/kinarix/conduit/tree/main/workers/python). Built on `httpx`; tested with `respx` + `pytest-asyncio`.
+
+## Install
+
+```bash
+pip install conduit-worker        # once published to PyPI
+# Until v0.1 ships:
+pip install -e ./workers/python
+```
+
+## Quick start with `@handler`
+
+```python
+import asyncio
+from conduit_worker import (
+    Client, ClientConfig, Complete, ExternalTask, Runner, RunnerConfig,
+    Variable, handler,
+)
+
+@handler(topic="http.call")
+async def http_call(task: ExternalTask) -> Complete:
+    url = task.variable("url")
+    # ... do work ...
+    return Complete([Variable.string("status", "ok")])
+
+async def main() -> None:
+    client = Client(ClientConfig(base_url="http://localhost:8080"))
+    runner = Runner(client, RunnerConfig(worker_id="http-worker-1"))
+    runner.discover(http_call)
+    await runner.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+The decorator stamps `__conduit_topic__` onto the function. `Runner.discover(*fns)` reads the attribute and registers each one.
+
+## Direct registration
+
+```python
+async def policy_check(task: ExternalTask):
+    return BpmnError(code="POLICY_VIOLATION", message="not allowed")
+
+runner.register("policy.check", policy_check)
+```
+
+## RunnerConfig
+
+```python
+RunnerConfig(
+    worker_id="http-worker-1",
+    max_jobs=10,                        # 1..100
+    lock_duration_secs=30,
+    poll_interval_secs=1.0,             # idle back-off
+)
+```
+
+## Reporting outcomes
+
+| Return | Engine call |
+|---|---|
+| `Complete([Variable, ...])` | `/complete` |
+| `BpmnError(code=..., message=..., variables=[...])` | `/bpmn-error` |
+| Raise any exception | `/failure` (engine decrements retries) |
+
+```python
+from conduit_worker import BpmnError, Complete
+
+@handler(topic="payments.charge")
+async def charge(task):
+    try:
+        resp = await httpx.AsyncClient().post(...)
+        if resp.status_code == 402:
+            return BpmnError(code="PAYMENT_DECLINED", message="card declined")
+        return Complete([Variable.string("status", "ok")])
+    except httpx.ConnectError as exc:
+        raise RuntimeError(f"upstream unreachable: {exc}")
+```
+
+## Variables
+
+```python
+Variable.string("name", "alice")
+Variable.long("count", 42)
+Variable.double("ratio", 0.75)
+Variable.boolean("approved", True)
+Variable.json("payload", {"x": 1})
+Variable.null("tombstone")
+```
+
+Read off the task:
+
+```python
+order_id: str | None = task.variable("order_id")
+all_vars: dict[str, object] = task.variable_map()
+```
+
+## Building and running
+
+```bash
+cd workers/python
+python -m venv .venv && source .venv/bin/activate
+pip install -e '.[test]'
+pytest                # 4 round-trip tests against a respx mock engine
+python -m my_worker   # your own entrypoint
+```
+
+## Idempotency
+
+Same contract as every other SDK — see [Idempotency](/docs/workers/idempotency/).

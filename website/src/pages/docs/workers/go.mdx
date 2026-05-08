@@ -1,0 +1,128 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Go SDK'
+group: 'Workers'
+---
+
+# Go SDK
+
+Go 1.22+ SDK. Lives at [`workers/go/`](https://github.com/kinarix/conduit/tree/main/workers/go). Standard library only — no third-party dependencies. Go has no annotations, so registration is plain function calls.
+
+## Install
+
+```bash
+go get github.com/kinarix/conduit/workers/go@latest
+```
+
+## Quick start with `Register`
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+
+    cw "github.com/kinarix/conduit/workers/go/conduitworker"
+)
+
+func main() {
+    client := cw.NewClient(cw.ClientConfig{BaseURL: "http://localhost:8080"})
+    runner := cw.NewRunner(client, "http-worker-1")
+
+    runner.Register("http.call", func(ctx context.Context, task *cw.ExternalTask) (*cw.Result, error) {
+        url, _ := task.Variable("url").(string)
+        req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+        resp, err := http.DefaultClient.Do(req)
+        if err != nil {
+            return nil, err     // → /failure (engine decrements retries)
+        }
+        defer resp.Body.Close()
+        if resp.StatusCode == 402 {
+            return cw.BpmnError("PAYMENT_DECLINED", "card declined"), nil
+        }
+        return cw.Complete(cw.VarLong("status", int64(resp.StatusCode))), nil
+    })
+
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer stop()
+    if err := runner.Run(ctx); err != nil && err != context.Canceled {
+        log.Fatal(err)
+    }
+}
+```
+
+`HandlerFunc` is `func(ctx context.Context, task *ExternalTask) (*Result, error)`. Register as many as you like before calling `Run`.
+
+## RunnerConfig
+
+`NewRunner(client, workerID)` ships sensible defaults: `MaxJobs=10`, `LockDurationSecs=30`, `PollInterval=1s`. Override with `SetConfig`:
+
+```go
+runner.SetConfig(cw.RunnerConfig{
+    WorkerID:         "http-worker-1",
+    MaxJobs:          25,                       // 1..100
+    LockDurationSecs: 60,
+    PollInterval:     500 * time.Millisecond,   // idle back-off
+})
+```
+
+`runner.Run(ctx)` returns `ctx.Err()` when the context is cancelled — wire it to `signal.NotifyContext` for graceful shutdown.
+
+## Reporting outcomes
+
+| Return | Engine call |
+|---|---|
+| `cw.Complete(vars...), nil` | `/complete` |
+| `cw.BpmnError(code, message, vars...), nil` | `/bpmn-error` |
+| `nil, err` | `/failure` |
+
+`cw.Complete` and `cw.BpmnError` are variadic over `cw.Variable`:
+
+```go
+cw.Complete(
+    cw.VarLong("status", 201),
+    cw.VarString("order_id", "ord-42"),
+)
+cw.BpmnError("DENIED", "policy violation")
+```
+
+## Variables
+
+```go
+cw.VarString("name", "alice")
+cw.VarLong("count", 42)
+cw.VarDouble("ratio", 0.75)
+cw.VarBool("approved", true)
+cw.VarJSON("payload", map[string]any{"x": 1})
+cw.VarNull("tombstone")
+```
+
+Read off the task:
+
+```go
+orderID, _ := task.Variable("order_id").(string)
+all := task.VariableMap()      // map[string]any
+```
+
+## Building and running
+
+```bash
+cd workers/go
+go vet ./...
+go test ./...                  # 3 round-trip tests against net/http/httptest
+go build ./cmd/http-worker     # reference binary scaffold
+./http-worker
+```
+
+## Concurrency
+
+The runner's dispatch loop is sequential: tasks within a single fetch round run one at a time. For more parallelism, fan out from inside your handler (`go func() { ... }()`) onto your own goroutine pool, or run multiple processes with distinct `worker_id`s.
+
+## Idempotency
+
+Same contract as every other SDK — see [Idempotency](/docs/workers/idempotency/).

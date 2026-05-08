@@ -1,9 +1,11 @@
 use axum::Router;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
-use conduit::state::AppState;
+use conduit::engine::{Engine, VariableInput};
+use conduit::state::{AppState, GraphCache};
 
 #[allow(dead_code)]
 pub struct TestApp {
@@ -11,6 +13,7 @@ pub struct TestApp {
     pub pool: PgPool,
 }
 
+#[allow(dead_code)]
 pub async fn spawn_test_app() -> TestApp {
     let database_url = std::env::var("TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
@@ -105,4 +108,63 @@ pub async fn create_test_org_with_groups(app: &TestApp, count: usize) -> (Uuid, 
         groups.push(create_test_process_group(app, org_id, &name).await);
     }
     (org_id, groups)
+}
+
+// ─── Engine-direct helpers ────────────────────────────────────────────────────
+//
+// These bypass the HTTP layer and exercise the engine through `conduit::engine::Engine`
+// directly. Used by engine_test, exclusive_gateway_test, script_task_test, etc.
+
+/// Spin up a real DB pool + Engine wired to the test database.
+#[allow(dead_code)]
+pub async fn engine_setup() -> (PgPool, Engine) {
+    let database_url = std::env::var("TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("TEST_DATABASE_URL or DATABASE_URL must be set for integration tests");
+
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("Failed to connect to test database");
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+
+    let cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
+    let engine = Engine::new(pool.clone(), cache, [0xA5u8; 32]);
+    (pool, engine)
+}
+
+/// Create an org with two process groups via direct DB inserts (no HTTP).
+/// Returns (org_id, [primary_group, secondary_group]).
+#[allow(dead_code)]
+pub async fn create_engine_org(pool: &PgPool) -> (Uuid, Vec<Uuid>) {
+    let slug = format!("eng-org-{}", Uuid::new_v4());
+    let org = conduit::db::orgs::insert(pool, "Engine Test Org", &slug)
+        .await
+        .unwrap();
+    let f1 = conduit::db::process_groups::insert(pool, org.id, "Primary")
+        .await
+        .unwrap();
+    let f2 = conduit::db::process_groups::insert(pool, org.id, "Secondary")
+        .await
+        .unwrap();
+    (org.id, vec![f1.id, f2.id])
+}
+
+/// Per-test process_key suffix to avoid clashes when tests share a database.
+#[allow(dead_code)]
+pub fn unique_key(prefix: &str) -> String {
+    format!("{}-{}", prefix, Uuid::new_v4())
+}
+
+/// Build a `VariableInput` with less ceremony than a struct literal.
+#[allow(dead_code)]
+pub fn var(name: &str, value_type: &str, value: serde_json::Value) -> VariableInput {
+    VariableInput {
+        name: name.to_string(),
+        value_type: value_type.to_string(),
+        value,
+    }
 }

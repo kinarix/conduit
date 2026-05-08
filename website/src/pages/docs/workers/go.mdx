@@ -21,6 +21,7 @@ package main
 
 import (
     "context"
+    "encoding/json"
     "log"
     "net/http"
     "os"
@@ -35,7 +36,10 @@ func main() {
     runner := cw.NewRunner(client, "http-worker-1")
 
     runner.Register("http.call", func(ctx context.Context, task *cw.ExternalTask) (*cw.Result, error) {
-        url, _ := task.Variable("url").(string)
+        var url string
+        if raw, ok := task.Variable("url"); ok {
+            _ = json.Unmarshal(raw, &url)
+        }
         req, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
         resp, err := http.DefaultClient.Do(req)
         if err != nil {
@@ -102,11 +106,18 @@ cw.VarJSON("payload", map[string]any{"x": 1})
 cw.VarNull("tombstone")
 ```
 
-Read off the task:
+Read off the task — `Variable(name)` returns the raw JSON bytes plus an "exists" flag, so you decode into the type you expect:
 
 ```go
-orderID, _ := task.Variable("order_id").(string)
-all := task.VariableMap()      // map[string]any
+var orderID string
+if raw, ok := task.Variable("order_id"); ok {
+    _ = json.Unmarshal(raw, &orderID)
+}
+// or for any structured value:
+var payload map[string]any
+if raw, ok := task.Variable("payload"); ok {
+    _ = json.Unmarshal(raw, &payload)
+}
 ```
 
 ## Building and running

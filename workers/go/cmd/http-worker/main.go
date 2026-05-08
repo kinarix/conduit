@@ -1,37 +1,60 @@
-// Command http-worker is a scaffolded Go binary that subscribes to the
-// http.call topic. The handler logic is not implemented yet — this scaffold
-// exists to validate the SDK shape end-to-end. The Rust http-worker
-// (workers/rust/crates/http-worker) is the reference implementation.
+// Command http-worker is a reference Go worker for the Conduit BPMN engine.
+// Subscribes to one or more topics declared in worker.yaml and runs HTTP
+// requests with templated URL/body, secret-bearing auth headers, and an
+// Idempotency-Key derived from the engine's task id.
+//
+// Mirrors workers/rust/crates/http-worker — same YAML schema.
 package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/kinarix/conduit/workers/go/conduitworker"
+	cw "github.com/kinarix/conduit/workers/go/conduitworker"
 )
 
 func main() {
-	engineURL := envOr("CONDUIT_ENGINE_URL", "http://localhost:8080")
-	workerID := envOr("CONDUIT_WORKER_ID", "go-http-worker-1")
+	configPath := flag.String("config", envOr("CONDUIT_WORKER_CONFIG", "worker.yaml"), "Path to worker.yaml")
+	workerID := flag.String("worker-id", envOr("CONDUIT_WORKER_ID", defaultWorkerID()), "Worker id reported to the engine (lock owner)")
+	flag.Parse()
 
-	client := conduitworker.NewClient(conduitworker.ClientConfig{
-		BaseURL: engineURL,
-		APIKey:  os.Getenv("CONDUIT_API_KEY"),
+	cfg, err := LoadConfig(*configPath)
+	if err != nil {
+		slog.Error("load config", "path", *configPath, "err", err)
+		os.Exit(1)
+	}
+
+	apiKey := ""
+	if cfg.Engine.APIKeyEnv != "" {
+		apiKey = os.Getenv(cfg.Engine.APIKeyEnv)
+	}
+	client := cw.NewClient(cw.ClientConfig{
+		BaseURL: cfg.Engine.URL,
+		APIKey:  apiKey,
 	})
 
-	runner := conduitworker.NewRunner(client, workerID)
-	runner.Register("http.call", func(ctx context.Context, task *conduitworker.ExternalTask) (*conduitworker.Result, error) {
-		return nil, fmt.Errorf("Go http-worker is scaffolded only; see workers/rust/crates/http-worker for the reference implementation")
-	})
+	runner := cw.NewRunner(client, *workerID)
+	for topic, hc := range cfg.Handlers {
+		h := NewHTTPHandler(topic, hc)
+		runner.Register(topic, h.Handle)
+		slog.Info("subscribed", "topic", topic, "url_template", hc.URLTemplate)
+	}
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
+	slog.Info("starting http-worker",
+		"worker_id", *workerID,
+		"engine_url", cfg.Engine.URL,
+		"handlers", len(cfg.Handlers),
+	)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	if err := runner.Run(ctx); err != nil && err != context.Canceled {
-		fmt.Fprintln(os.Stderr, "runner stopped:", err)
+		slog.Error("runner stopped", "err", err)
 		os.Exit(1)
 	}
 }
@@ -41,4 +64,12 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func defaultWorkerID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown"
+	}
+	return fmt.Sprintf("http-worker-%s-%d", host, os.Getpid())
 }

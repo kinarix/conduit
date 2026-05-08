@@ -60,6 +60,29 @@ async def http_call(task: ExternalTask) -> Complete:
     (<a href="/docs/workers/protocol/">PROTOCOL</a>) and exposes registration sugar native to its host language.
   </p>
 
+  <h2>What is an external task?</h2>
+  <p>
+    An <strong>external task</strong> is a regular <code>&lt;bpmn:serviceTask&gt;</code> with a
+    <code>&lt;conduit:taskTopic&gt;</code> extension element. The element type is ordinary BPMN; the
+    topic is what tells the engine "don't run this yourself — hand it off to a worker." There is no
+    separate <code>ExternalTask</code> element kind in Conduit.
+  </p>
+  <pre class="intro-snippet"><code>{`<bpmn:serviceTask id="ping" name="Ping URL">
+  <bpmn:extensionElements>
+    <conduit:taskTopic>http.call</conduit:taskTopic>
+  </bpmn:extensionElements>
+</bpmn:serviceTask>`}</code></pre>
+  <p>
+    The engine writes the task into its job queue, workers poll
+    <code>/api/v1/external-tasks/fetch-and-lock</code> for tasks matching their topic, run the side
+    effect, and report back via <code>/complete</code>, <code>/failure</code>, or
+    <code>/bpmn-error</code>. The "external task" name refers to the runtime mode and the API path,
+    not a BPMN element. See the
+    <a href="/docs/elements/service-task/">Service Task element page</a> for the full element
+    reference, including the alternative HTTP-push mode (deprecated; replaced by the reference HTTP
+    worker).
+  </p>
+
   <h2>Pick your language</h2>
 
   <div class="lang-grid">
@@ -142,6 +165,19 @@ async def http_call(task: ExternalTask) -> Complete:
     white-space: pre;
   }
   .lang-snippet code { color: var(--color-text); font-family: ui-monospace, monospace; }
+
+  .intro-snippet {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 0 0 1rem;
+    white-space: pre;
+  }
+  .intro-snippet code { color: var(--color-text); font-family: ui-monospace, monospace; }
 
   .doc-cards {
     display: grid;

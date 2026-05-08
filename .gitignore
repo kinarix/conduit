@@ -4,6 +4,8 @@
 /workers/python/.venv/
 /workers/python/dist/
 /workers/python/*.egg-info/
+/workers/python/**/__pycache__/
+/workers/python/**/*.pyc
 /workers/node/node_modules/
 /workers/node/dist/
 /workers/java/target/

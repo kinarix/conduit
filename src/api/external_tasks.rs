@@ -51,6 +51,7 @@ pub struct ExternalTaskDto {
     pub variables: Vec<VariableDto>,
 }
 
+#[tracing::instrument(skip_all, fields(worker_id = %req.worker_id, topic = ?req.topic))]
 async fn fetch_and_lock(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FetchAndLockRequest>,
@@ -116,6 +117,7 @@ struct CompleteExternalTaskRequest {
     variables: Option<Vec<VariableInput>>,
 }
 
+#[tracing::instrument(skip_all, fields(id = %id, worker_id = %req.worker_id))]
 async fn complete(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -135,6 +137,7 @@ struct FailExternalTaskRequest {
     error_message: String,
 }
 
+#[tracing::instrument(skip_all, fields(id = %id, worker_id = %req.worker_id))]
 async fn failure(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -157,6 +160,7 @@ struct BpmnErrorRequest {
     variables: Vec<crate::engine::VariableInput>,
 }
 
+#[tracing::instrument(skip_all, fields(id = %id, worker_id = %req.worker_id, error_code = %req.error_code))]
 async fn bpmn_error(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -181,6 +185,7 @@ struct ExtendLockRequest {
     lock_duration_secs: i64,
 }
 
+#[tracing::instrument(skip_all, fields(id = %id, worker_id = %req.worker_id))]
 async fn extend_lock(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

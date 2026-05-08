@@ -19,6 +19,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new().route("/api/v1/signals/broadcast", post(broadcast_signal))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, signal_name = %req.signal_name))]
 async fn broadcast_signal(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BroadcastSignalRequest>,

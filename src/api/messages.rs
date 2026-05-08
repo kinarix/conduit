@@ -20,6 +20,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new().route("/api/v1/messages/correlate", post(correlate_message))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, message_name = %req.message_name, correlation_key = ?req.correlation_key))]
 async fn correlate_message(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CorrelateMessageRequest>,

@@ -13,6 +13,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     )
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %org_id, process_key = %process_key))]
 async fn get_layout(
     State(state): State<Arc<AppState>>,
     Path((org_id, process_key)): Path<(Uuid, String)>,
@@ -21,6 +22,7 @@ async fn get_layout(
     Ok(Json(row.map(|r| r.layout_data).unwrap_or_default()))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %org_id, process_key = %process_key))]
 async fn put_layout(
     State(state): State<Arc<AppState>>,
     Path((org_id, process_key)): Path<(Uuid, String)>,

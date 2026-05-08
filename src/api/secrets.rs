@@ -30,6 +30,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %org_id))]
 async fn list_secrets(
     State(state): State<Arc<AppState>>,
     Path(org_id): Path<Uuid>,
@@ -38,6 +39,8 @@ async fn list_secrets(
     Ok(Json(rows))
 }
 
+// `req.value` is plaintext — keep it out of the span.
+#[tracing::instrument(skip_all, fields(org_id = %org_id, name = %req.name))]
 async fn create_secret(
     State(state): State<Arc<AppState>>,
     Path(org_id): Path<Uuid>,
@@ -54,6 +57,7 @@ async fn create_secret(
     Ok((StatusCode::CREATED, Json(row)))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %org_id, name = %name))]
 async fn get_secret(
     State(state): State<Arc<AppState>>,
     Path((org_id, name)): Path<(Uuid, String)>,
@@ -64,6 +68,7 @@ async fn get_secret(
     Ok(Json(row))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %org_id, name = %name))]
 async fn delete_secret(
     State(state): State<Arc<AppState>>,
     Path((org_id, name)): Path<(Uuid, String)>,

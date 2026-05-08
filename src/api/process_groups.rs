@@ -50,6 +50,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %q.org_id))]
 async fn list_process_groups(
     State(state): State<Arc<AppState>>,
     Query(q): Query<ListProcessGroupsQuery>,
@@ -60,6 +61,7 @@ async fn list_process_groups(
     Ok(with_total(rows, total))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id))]
 async fn create_process_group(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateProcessGroupRequest>,
@@ -73,6 +75,7 @@ async fn create_process_group(
     Ok((StatusCode::CREATED, Json(group)))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn rename_process_group(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -87,6 +90,7 @@ async fn rename_process_group(
     Ok(Json(group))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn delete_process_group(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -95,6 +99,7 @@ async fn delete_process_group(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[tracing::instrument(skip_all, fields(definition_id = %id, process_group_id = %req.process_group_id))]
 async fn assign_process_group(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

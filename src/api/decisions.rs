@@ -44,6 +44,7 @@ struct ListDecisionsQuery {
 /// Body: raw DMN XML
 /// Header: X-Org-Id: <uuid>
 /// Query: process_group_id=<uuid>  (optional)
+#[tracing::instrument(skip_all, fields(process_group_id = ?q.process_group_id, body_bytes = body.len()))]
 async fn deploy_decisions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -87,6 +88,7 @@ async fn deploy_decisions(
 /// Query: process_group_id=<uuid>  (optional — filters to that group)
 /// Query: all_versions=true        (optional — return every version, default keeps latest only)
 /// Query: limit, offset            (optional — defaults: 100, 0; X-Total-Count returned)
+#[tracing::instrument(skip_all, fields(process_group_id = ?q.process_group_id, all_versions = q.all_versions))]
 async fn list_decisions(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -124,6 +126,7 @@ async fn list_decisions(
 /// GET /api/v1/decisions/:key
 /// Returns the latest version of a decision with its parsed table structure.
 /// Header: X-Org-Id: <uuid>
+#[tracing::instrument(skip_all, fields(key = %key))]
 async fn get_decision(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -161,6 +164,7 @@ struct TestDecisionBody {
     context: HashMap<String, serde_json::Value>,
 }
 
+#[tracing::instrument(skip_all, fields(dmn_bytes = req.dmn_xml.len()))]
 async fn test_decision(Json(req): Json<TestDecisionBody>) -> Result<Json<serde_json::Value>> {
     let tables = crate::dmn::parse(&req.dmn_xml)?;
     let table = tables
@@ -182,6 +186,7 @@ async fn test_decision(Json(req): Json<TestDecisionBody>) -> Result<Json<serde_j
 
 /// DELETE /api/v1/decisions/:key
 /// Deletes all versions of a decision. Returns 409 if referenced by another decision or process.
+#[tracing::instrument(skip_all, fields(key = %key))]
 async fn delete_decision(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -198,6 +203,7 @@ struct RenameDecisionRequest {
     name: String,
 }
 
+#[tracing::instrument(skip_all, fields(decision_key = %req.decision_key))]
 async fn rename_by_key(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

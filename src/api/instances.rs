@@ -57,6 +57,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/process-instances/{id}/jobs", get(list_jobs))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %params.org_id))]
 async fn list_instances(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListInstancesQuery>,
@@ -74,6 +75,7 @@ async fn list_instances(
     Ok(with_total(instances, total))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, definition_id = %req.definition_id))]
 async fn start_instance(
     State(state): State<Arc<AppState>>,
     Json(req): Json<StartInstanceRequest>,
@@ -87,6 +89,7 @@ async fn start_instance(
     Ok((StatusCode::CREATED, Json(instance)))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn get_instance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -95,6 +98,7 @@ async fn get_instance(
     Ok(Json(instance))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn pause_instance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -103,6 +107,7 @@ async fn pause_instance(
     Ok(Json(inst))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn resume_instance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -111,6 +116,7 @@ async fn resume_instance(
     Ok(Json(inst))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn cancel_instance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -119,6 +125,7 @@ async fn cancel_instance(
     Ok(Json(inst))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn delete_instance(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -127,6 +134,7 @@ async fn delete_instance(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn list_history(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -135,6 +143,7 @@ async fn list_history(
     Ok(Json(rows))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn list_events(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -143,6 +152,7 @@ async fn list_events(
     Ok(Json(rows))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn list_jobs(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

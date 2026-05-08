@@ -34,6 +34,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/tasks/{id}/complete", post(complete_task))
 }
 
+#[tracing::instrument(skip_all)]
 async fn list_tasks(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListTasksQuery>,
@@ -44,6 +45,7 @@ async fn list_tasks(
     Ok(with_total(TaskListResponse { items }, total))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn get_task(State(state): State<Arc<AppState>>, Path(id): Path<Uuid>) -> Result<Json<Task>> {
     let task = tasks::get_by_id(&state.pool, id).await?;
     Ok(Json(task))
@@ -54,6 +56,7 @@ struct CompleteTaskRequest {
     variables: Option<Vec<VariableInput>>,
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn complete_task(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

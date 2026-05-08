@@ -34,6 +34,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/orgs/{id}", delete(delete_org))
 }
 
+#[tracing::instrument(skip_all)]
 async fn list_orgs(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListOrgsQuery>,
@@ -43,6 +44,7 @@ async fn list_orgs(
     Ok(with_total(rows, total))
 }
 
+#[tracing::instrument(skip_all, fields(slug = %req.slug))]
 async fn create_org(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateOrgRequest>,
@@ -56,6 +58,7 @@ async fn create_org(
     Ok((StatusCode::CREATED, Json(org)))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn delete_org(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

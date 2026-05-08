@@ -94,6 +94,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/deployments/{id}/disabled", patch(set_disabled))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %params.org_id))]
 async fn list_deployments(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ListDeploymentsQuery>,
@@ -102,6 +103,7 @@ async fn list_deployments(
     Ok(Json(defs))
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn get_deployment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -110,6 +112,7 @@ async fn get_deployment(
     Ok(Json(def))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.key))]
 async fn deploy(
     State(state): State<Arc<AppState>>,
     Json(req): Json<DeployRequest>,
@@ -229,6 +232,7 @@ async fn deploy(
     ))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.key))]
 async fn save_draft(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SaveDraftRequest>,
@@ -266,6 +270,7 @@ async fn save_draft(
     ))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.key))]
 async fn create_draft(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SaveDraftRequest>,
@@ -311,6 +316,7 @@ pub struct RenameByKeyRequest {
     pub name: String,
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.process_key))]
 async fn rename_by_key(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RenameByKeyRequest>,
@@ -327,6 +333,7 @@ async fn rename_by_key(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn delete_deployment(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -348,6 +355,7 @@ async fn delete_deployment(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[tracing::instrument(skip_all, fields(id = %id))]
 async fn promote_draft(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -456,6 +464,7 @@ struct SetDisabledRequest {
 /// Body: { "disabled": true | false }
 /// Toggles whether a deployed version can start NEW instances.
 /// Existing instances are unaffected. Drafts cannot be disabled.
+#[tracing::instrument(skip_all, fields(id = %id, disabled = req.disabled))]
 async fn set_disabled(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,

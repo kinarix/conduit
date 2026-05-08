@@ -21,6 +21,7 @@ pub fn routes() -> Router<Arc<AppState>> {
     Router::new().route("/api/v1/users", post(create_user))
 }
 
+#[tracing::instrument(skip_all, fields(org_id = %req.org_id, auth_provider = %req.auth_provider))]
 async fn create_user(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateUserRequest>,

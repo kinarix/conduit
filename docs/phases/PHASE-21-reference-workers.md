@@ -13,39 +13,33 @@ These workers are reference implementations, not a runtime customers must use �
 
 ## Scope
 
+The reference workers are written in **Rust** so the SDK shares the engine's toolchain. Python and Node ports are out of scope for this phase.
+
 ### Sibling repo: `conduit-workers/`
 
 ```
 conduit-workers/
 ├── README.md                  ← worker pattern overview, quick-start
-├── python/
-│   ├── pyproject.toml
-│   ├── conduit_worker/
-│   │   ├── __init__.py
-│   │   ├── client.py          ← fetch-and-lock + complete + fail
-│   │   ├── handlers/
-│   │   │   ├── http.py        ← REST calls (replaces <conduit:http>)
-│   │   │   ├── csv_io.py      ← CSV read/write
-│   │   │   ├── gcs.py         ← GCS read/write (service-account auth)
-│   │   │   └── kafka_produce.py
-│   │   └── __main__.py
-│   └── examples/
-│       └── http-worker.bpmn   ← matching BPMN sample
-├── node/
-│   ├── package.json
-│   ├── src/
-│   │   ├── client.ts
-│   │   ├── handlers/
-│   │   │   ├── http.ts
-│   │   │   ├── csv.ts
-│   │   │   ├── gcs.ts
-│   │   │   └── kafkaProduce.ts
-│   │   └── index.ts
-│   └── examples/
+├── Cargo.toml                 ← workspace manifest
+├── crates/
+│   ├── conduit-worker/        ← library: fetch-and-lock + complete + fail loop
+│   │   └── src/
+│   │       ├── client.rs
+│   │       ├── handler.rs     ← Handler trait
+│   │       └── lib.rs
+│   ├── http-worker/           ← binary: implements `http.call` (replaces <conduit:http>)
+│   │   ├── src/main.rs
+│   │   └── examples/
+│   │       └── http-worker.bpmn
+│   ├── csv-worker/            ← binary: csv.read / csv.write
+│   ├── gcs-worker/            ← binary: gcs.read / gcs.write (service-account auth)
+│   └── kafka-produce-worker/  ← binary: kafka.produce
 └── triggers/                  ← inbound: external system → engine
     ├── kafka-consumer/        ← reads a topic, calls /messages/correlate
     └── webhook-receiver/      ← HTTP endpoint, calls /messages/correlate
 ```
+
+The MVP that gates Phase 20 connector removal is just `crates/conduit-worker/` + `crates/http-worker/`. The other handlers ship incrementally.
 
 ### Worker handlers shipped
 
@@ -114,16 +108,8 @@ Each handler's README in `conduit-workers/` documents the strategy explicitly so
 ### Idempotency-key store
 Several handlers (notably `http`) need a small piece of persistent state: a table mapping `(task_id, attempt)` → response. The reference workers default to a Postgres table next to the engine's database; a Redis adapter is provided for fleets that prefer it. **One store per worker fleet, not per process** — durability of the dedupe table is what makes a handler safe across worker restarts. Store schema and rotation policy are documented in `conduit-workers/docs/idempotency-store.md`.
 
-### Step-level durability inside a single task — the escape hatch
-When a single Conduit task is itself a long-running, multi-step computation that needs replayable state (Temporal/Restate territory), customers compose two durable runtimes:
-
-```
-Conduit serviceTask  →  worker fetches → starts/joins a Temporal workflow
-                                       → polls Temporal until terminal
-                                       → completes Conduit task with result
-```
-
-The worker is a thin adapter; durable execution within the task lives in Temporal/Restate. Conduit doesn't try to absorb that capability — two layers, cleanly composed. A reference adapter (`conduit-workers/python/adapters/temporal/`) ships as part of this phase to demonstrate the pattern; we explicitly do **not** build a "durable workflows" feature into Conduit itself.
+### Step-level durability inside a single task
+If a single Conduit task is itself a long-running, multi-step computation that needs replayable state (Temporal/Restate territory), customers compose two durable runtimes themselves: the worker becomes a thin adapter that starts a workflow in the durable runtime, polls until terminal, and completes the Conduit task. We do **not** ship a reference adapter for this in `conduit-workers/` — Conduit explicitly stays out of durable-workflow territory and we don't want a reference implementation that implies otherwise.
 
 ### What's intentionally out of scope
 - Step-level checkpointing primitives in the engine.
@@ -134,7 +120,8 @@ The worker is a thin adapter; durable execution within the task lives in Tempora
 
 ## Excluded
 - Engine-side changes. Reference workers are downstream consumers of the existing external-task API.
-- Worker SDKs in any language beyond Python and Node for v1. (Go can come later.)
+- Worker SDKs in any language beyond Rust for this phase. (Python, Node, Go can come later if there's demand.)
+- A reference Temporal/Restate adapter. Customers who want step-level durability inside a single task can compose that themselves; we don't ship a reference for it because it would imply Conduit owns the pattern.
 - A "marketplace" or auto-discovery mechanism. Workers are deployed by the customer alongside the engine.
 
 ## Test Plan (in the sibling repo)
@@ -155,6 +142,5 @@ The worker is a thin adapter; durable execution within the task lives in Tempora
 - [ ] At least one example BPMN in this repo's `examples/` uses the worker pattern end-to-end with a topic recognised by the reference worker
 - [ ] Each handler's README documents its idempotency strategy (matching the table above)
 - [ ] Idempotency-key store schema documented in `conduit-workers/docs/idempotency-store.md`
-- [ ] Temporal adapter example present and tested (proves the "wrap a durable workflow" pattern works)
 - [ ] Crash test per handler: kill worker mid-execution, confirm task completes correctly on retry without duplicating side effects
 - [ ] No engine-side code changes required (this is the win)

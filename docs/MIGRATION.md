@@ -76,7 +76,7 @@ The HTTP-call configuration (URL, method, auth, transforms, retries) **moves out
 
 #### 2. Run the reference HTTP worker
 
-The reference HTTP worker ships in the [`conduit-workers`](https://github.com/anthropics/conduit-workers) sibling repository (Phase 21). Two things need configuring:
+The reference HTTP worker ships in the [`conduit-workers`](https://github.com/kinarix/conduit-workers) sibling repository (Phase 21). Two things need configuring:
 
 - The engine address + auth credentials (so the worker can fetch tasks).
 - The mapping from process variables to HTTP-call configuration (URL template, headers, body shape, response-to-variables mapping).

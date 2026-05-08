@@ -98,7 +98,7 @@ In parallel with Phase 16 work, the engine and UI have grown several operational
 | `inclusiveGateway` (OR routing with selective join) | Phase 13 |
 | `businessRuleTask` (with `conduit:decisionRef`, optional `version` pin) | Phase 14 |
 
-Standard BPMN 2.0 is supported, with `bpmn:` as the prefix and Conduit's own `conduit:` namespace (`http://conduit.io/bpmn`) for extension attributes such as `conduit:topic`, `conduit:assignee`, and `conduit:decisionRef`.
+Standard BPMN 2.0 is supported, with `bpmn:` as the prefix and Conduit's own `conduit:` namespace (`http://conduit.io/ext`) for extension attributes such as `conduit:topic`, `conduit:assignee`, `conduit:decisionRef`, and the worker-pattern `conduit:taskTopic` element.
 
 ## Getting Started
 
@@ -207,25 +207,49 @@ curl http://localhost:8080/health
 { "status": "ok", "database": "connected", "version": "0.1.0" }
 ```
 
+## Workers
+
+Conduit orchestrates; **workers execute**. A `serviceTask` with `<conduit:taskTopic>` is delivered to whichever worker subscribes to that topic — the engine never speaks the wire protocol itself.
+
+```xml
+<bpmn:serviceTask id="post_order">
+  <bpmn:extensionElements>
+    <conduit:taskTopic>http.call</conduit:taskTopic>
+  </bpmn:extensionElements>
+</bpmn:serviceTask>
+```
+
+Reference workers live in the sibling [`conduit-workers`](https://github.com/kinarix/conduit-workers) repository (Rust). For v1 they cover the most common integrations:
+
+| Topic | What it does | Replaces |
+|---|---|---|
+| `http.call` | REST calls with retry + idempotency-key support | `<conduit:http>` (deprecated, see [`docs/MIGRATION.md`](docs/MIGRATION.md)) |
+| `csv.read` / `csv.write` | CSV file I/O with atomic-rename writes | — |
+| `gcs.read` / `gcs.write` | GCS object I/O with generation-pinning | — |
+| `kafka.produce` | Idempotent Kafka producer | — |
+
+The boundary is documented in [ADR-008](docs/adr/ADR-008-engine-stays-pure-bpmn.md) and the full reference-worker spec lives at [`docs/phases/PHASE-21-reference-workers.md`](docs/phases/PHASE-21-reference-workers.md).
+
 ## Configuration
+
+`DATABASE_URL` follows the SQLx convention (no prefix). All other Conduit settings use the `CONDUIT_` prefix.
 
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | — | PostgreSQL connection string (required) |
-| `SERVER_HOST` | `0.0.0.0` | Bind address |
-| `SERVER_PORT` | `8080` | Listen port |
-| `LOG_LEVEL` | `info` | Tracing filter (e.g. `debug`, `conduit=trace`) |
+| `CONDUIT_SECRETS_KEY` | — | Base64-encoded 32-byte AEAD key for the secrets table (required) |
+| `CONDUIT_SERVER_HOST` | `0.0.0.0` | Bind address |
+| `CONDUIT_SERVER_PORT` | `8080` | Listen port |
+| `CONDUIT_LOG_LEVEL` | `info` | Tracing filter (e.g. `debug`, `conduit=trace`) |
+| `CONDUIT_AUTH_PROVIDER` | `internal` | `internal` or `external` |
 
 ## Running Tests
 
-Integration tests require a running PostgreSQL instance.
+Integration tests require a running PostgreSQL instance — `make test` brings it up, runs migrations, and runs the suite.
 
 ```bash
-# Run everything
-DATABASE_URL=postgres://conduit:conduit_secret@localhost/conduit cargo test
-
-# Parser unit tests only (no DB needed)
-cargo test --test parser_test
+make test                       # full suite (recommended)
+cargo test --test parser_test   # parser unit tests only (no DB needed)
 ```
 
 ## Technology Stack

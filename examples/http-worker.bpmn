@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Reference example for the worker-based service-task pattern.
+
+  The serviceTask below carries a <conduit:taskTopic> tag. The engine treats
+  it as opaque routing — it never opens a socket. A worker that subscribes to
+  the `http.call` topic (see https://github.com/kinarix/conduit-workers) picks
+  up the task via /external-tasks/fetch-and-lock, runs the HTTP call, and
+  reports the result back. This replaces the deprecated <conduit:http>
+  element from Phase 16; see docs/MIGRATION.md.
+-->
+<bpmn:definitions
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:conduit="http://conduit.io/bpmn"
+  id="def_http_worker_example"
+  targetNamespace="http://conduit.io/examples">
+  <bpmn:process id="http_worker_example" name="HTTP Worker Example" isExecutable="true">
+
+    <bpmn:startEvent id="start" name="Start"/>
+
+    <bpmn:serviceTask id="post_order" name="POST /orders">
+      <bpmn:extensionElements>
+        <conduit:taskTopic>http.call</conduit:taskTopic>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_start_post</bpmn:incoming>
+      <bpmn:outgoing>flow_post_log</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="log_result" name="Log result">
+      <bpmn:extensionElements>
+        <conduit:taskTopic>log.write</conduit:taskTopic>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_post_log</bpmn:incoming>
+      <bpmn:outgoing>flow_log_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="end" name="Done"/>
+
+    <bpmn:sequenceFlow id="flow_start_post" sourceRef="start"      targetRef="post_order"/>
+    <bpmn:sequenceFlow id="flow_post_log"   sourceRef="post_order" targetRef="log_result"/>
+    <bpmn:sequenceFlow id="flow_log_end"    sourceRef="log_result" targetRef="end"/>
+
+  </bpmn:process>
+</bpmn:definitions>

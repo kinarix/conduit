@@ -3,6 +3,14 @@ use sqlx::PgPool;
 use crate::db::models::Org;
 use crate::error::Result;
 
+pub async fn get_by_id(pool: &PgPool, id: uuid::Uuid) -> Result<Option<Org>> {
+    let row = sqlx::query_as::<_, Org>("SELECT * FROM orgs WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
 pub async fn list_all(pool: &PgPool) -> Result<Vec<Org>> {
     let rows = sqlx::query_as::<_, Org>("SELECT * FROM orgs ORDER BY created_at DESC")
         .fetch_all(pool)

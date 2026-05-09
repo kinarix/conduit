@@ -34,16 +34,15 @@ fn start_to_end_bpmn() -> String {
 
 async fn deploy_definition(
     app: &common::TestApp,
-    org_id: Uuid,
+    _org_id: Uuid,
     process_group_id: Uuid,
     key: &str,
     bpmn: &str,
 ) -> Uuid {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": bpmn,
@@ -63,7 +62,7 @@ async fn start_instance_returns_201() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -96,7 +95,7 @@ async fn start_instance_start_to_end_returns_completed() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -124,7 +123,7 @@ async fn start_instance_start_to_end_returns_completed() {
 async fn start_instance_unknown_definition_returns_404() {
     let app = common::spawn_test_app().await;
     let (org_id, _groups) = common::create_test_org_with_groups(&app, 2).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
@@ -141,7 +140,7 @@ async fn start_instance_unknown_definition_returns_404() {
 #[tokio::test]
 async fn start_instance_missing_definition_id_returns_400() {
     let app = common::spawn_test_app().await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
@@ -160,7 +159,7 @@ async fn get_instance_returns_200() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -199,7 +198,7 @@ async fn get_instance_returns_200() {
 #[tokio::test]
 async fn get_instance_not_found_returns_404() {
     let app = common::spawn_test_app().await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .get(format!(
@@ -223,7 +222,7 @@ async fn list_tasks_returns_pending_task() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -270,7 +269,7 @@ async fn get_task_returns_200() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -321,7 +320,7 @@ async fn get_task_returns_200() {
 #[tokio::test]
 async fn get_task_not_found_returns_404() {
     let app = common::spawn_test_app().await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .get(format!("{}/api/v1/tasks/{}", app.address, Uuid::new_v4()))
@@ -341,7 +340,7 @@ async fn complete_task_returns_204() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -392,7 +391,7 @@ async fn complete_task_advances_instance_to_completed() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -452,7 +451,7 @@ async fn complete_task_advances_instance_to_completed() {
 #[tokio::test]
 async fn complete_task_not_found_returns_404() {
     let app = common::spawn_test_app().await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!(
@@ -475,7 +474,7 @@ async fn complete_already_completed_task_returns_409() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,
@@ -535,14 +534,13 @@ async fn complete_already_completed_task_returns_409() {
 #[tokio::test]
 async fn deploy_with_labels_roundtrips_on_get_instance() {
     let app = common::spawn_test_app().await;
-    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let deploy_resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": unique_key("labels-def"),
             "bpmn_xml": start_to_end_bpmn(),
@@ -558,7 +556,6 @@ async fn deploy_with_labels_roundtrips_on_get_instance() {
     let inst_resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "definition_id": def_id,
             "labels": { "customer": "acme", "priority": "high" }
         }))
@@ -591,7 +588,7 @@ async fn start_instance_default_labels_is_empty_object() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy_definition(
         &app,

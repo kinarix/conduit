@@ -21,6 +21,29 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
+/// Internal-auth row including the argon2 password hash. Never serialized
+/// over the wire — `User` is the public projection.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UserCredentials {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub auth_provider: String,
+    pub email: String,
+    pub password_hash: Option<String>,
+}
+
+/// Public projection of `api_keys`. Never includes the plaintext or hash.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ApiKeyMetadata {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub name: String,
+    pub prefix: String,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ProcessGroup {
     pub id: Uuid,

@@ -85,6 +85,12 @@ urlencoding = "2"
 # TOML parsing for error_codes.toml (embedded at compile time via include_str!).
 toml = "0.8"
 
+# Auth (Phase 22). JWT for interactive users; argon2 for password and API-key
+# hashing (the prefix lookup hits a unique index, then argon2 verifies the
+# full secret in constant time, so no separate constant-time compare needed).
+jsonwebtoken = "9"
+argon2 = "0.5"
+
 [dev-dependencies]
 tokio-test = "0.4"
 testcontainers = "0.27.3"

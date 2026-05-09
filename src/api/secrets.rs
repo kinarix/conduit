@@ -7,6 +7,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::auth::Principal;
 use crate::db::models::SecretMetadata;
 use crate::db::secrets;
 use crate::error::{EngineError, Result};
@@ -33,8 +34,10 @@ pub fn routes() -> Router<Arc<AppState>> {
 #[tracing::instrument(skip_all, fields(org_id = %org_id))]
 async fn list_secrets(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(org_id): Path<Uuid>,
 ) -> Result<Json<Vec<SecretMetadata>>> {
+    assert_caller_org(&principal, org_id)?;
     let rows = secrets::list(&state.pool, org_id).await?;
     Ok(Json(rows))
 }
@@ -43,9 +46,11 @@ async fn list_secrets(
 #[tracing::instrument(skip_all, fields(org_id = %org_id, name = %req.name))]
 async fn create_secret(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(org_id): Path<Uuid>,
     Json(req): Json<CreateSecretRequest>,
 ) -> Result<(StatusCode, Json<SecretMetadata>)> {
+    assert_caller_org(&principal, org_id)?;
     let name = req.name.trim();
     if name.is_empty() {
         return Err(EngineError::Validation("name must not be empty".into()));
@@ -60,8 +65,10 @@ async fn create_secret(
 #[tracing::instrument(skip_all, fields(org_id = %org_id, name = %name))]
 async fn get_secret(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path((org_id, name)): Path<(Uuid, String)>,
 ) -> Result<Json<SecretMetadata>> {
+    assert_caller_org(&principal, org_id)?;
     let row = secrets::get_metadata(&state.pool, org_id, &name)
         .await?
         .ok_or_else(|| EngineError::NotFound(format!("secret '{name}' not found")))?;
@@ -71,8 +78,17 @@ async fn get_secret(
 #[tracing::instrument(skip_all, fields(org_id = %org_id, name = %name))]
 async fn delete_secret(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path((org_id, name)): Path<(Uuid, String)>,
 ) -> Result<StatusCode> {
+    assert_caller_org(&principal, org_id)?;
     secrets::delete(&state.pool, org_id, &name).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+fn assert_caller_org(principal: &Principal, path_org: Uuid) -> Result<()> {
+    if principal.org_id != path_org {
+        return Err(EngineError::NotFound(format!("org {path_org}")));
+    }
+    Ok(())
 }

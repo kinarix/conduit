@@ -80,16 +80,15 @@ fn vars_from_object(obj: serde_json::Value) -> serde_json::Value {
 
 async fn deploy_and_start(
     app: &common::TestApp,
-    org_id: Uuid,
+    _org_id: Uuid,
     process_group_id: Uuid,
     bpmn: &str,
     initial_vars: serde_json::Value,
 ) -> Uuid {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let deploy_resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": unique_key("http"),
             "bpmn_xml": bpmn,
@@ -107,7 +106,6 @@ async fn deploy_and_start(
     let def_id = Uuid::parse_str(def["id"].as_str().unwrap()).unwrap();
 
     let mut body = json!({
-        "org_id": org_id,
         "definition_id": def_id,
     });
     if !initial_vars.as_object().is_none_or(|o| o.is_empty()) {
@@ -130,7 +128,7 @@ async fn deploy_and_start(
 }
 
 async fn create_secret(app: &common::TestApp, org_id: Uuid, name: &str, value: &str) {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_id))
         .json(&json!({ "name": name, "value": value }))

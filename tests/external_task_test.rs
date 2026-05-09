@@ -28,13 +28,12 @@ async fn deploy_and_start(
     process_group_id: Uuid,
     topic: &str,
 ) -> (Uuid, serde_json::Value) {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let key = unique_key("ext");
 
     let deploy_resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": service_task_bpmn(topic)
@@ -65,7 +64,7 @@ async fn fetch_and_lock_returns_pending_service_task() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("payments-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -105,7 +104,7 @@ async fn fetch_and_lock_by_topic_filters() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic_other = format!("invoicing-{}", Uuid::new_v4());
     let topic_target = format!("email-sender-{}", Uuid::new_v4());
@@ -147,7 +146,7 @@ async fn fetch_and_lock_exclusive() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("exclusive-{}", Uuid::new_v4());
     deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -201,7 +200,7 @@ async fn complete_advances_token_to_end() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("complete-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -263,7 +262,7 @@ async fn complete_with_output_variables() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("vars-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -334,7 +333,7 @@ async fn complete_wrong_worker_returns_409() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("wrong-worker-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -383,7 +382,7 @@ async fn failure_decrements_retries() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("fail-retry-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -450,7 +449,7 @@ async fn failure_max_retries_marks_instance_error() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("fail-max-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;
@@ -507,7 +506,7 @@ async fn extend_lock_updates_deadline() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let topic = format!("extend-{}", Uuid::new_v4());
     let (_, instance) = deploy_and_start(&app, org_id, process_group_id, &topic).await;

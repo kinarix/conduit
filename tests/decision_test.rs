@@ -28,7 +28,7 @@ async fn deploy_single_decision() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let _process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/decisions", app.address))
@@ -59,7 +59,7 @@ async fn deploy_increments_version() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let _process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     // First deploy
     let resp1 = client
@@ -91,7 +91,7 @@ async fn deploy_multi_decision_file() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let _process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/decisions", app.address))
@@ -120,7 +120,7 @@ async fn list_decisions_returns_latest_versions() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let _process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     // Deploy once, then again to bump version
     for _ in 0..2 {
@@ -159,7 +159,7 @@ async fn deploy_invalid_xml_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let _process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/decisions", app.address))
@@ -176,7 +176,7 @@ async fn deploy_invalid_xml_returns_400() {
 // ── Engine integration ────────────────────────────────────────────────────────
 
 async fn deploy_decision(app: &common::TestApp, org_id: Uuid, dmn_xml: &str) {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .post(format!("{}/api/v1/decisions", app.address))
         .header("Content-Type", "application/xml")
@@ -190,16 +190,15 @@ async fn deploy_decision(app: &common::TestApp, org_id: Uuid, dmn_xml: &str) {
 
 async fn deploy_bpmn(
     app: &common::TestApp,
-    org_id: Uuid,
+    _org_id: Uuid,
     process_group_id: Uuid,
     key: &str,
     bpmn: &str,
 ) -> serde_json::Value {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": bpmn,
@@ -213,15 +212,14 @@ async fn deploy_bpmn(
 
 async fn start_instance(
     app: &common::TestApp,
-    org_id: Uuid,
+    _org_id: Uuid,
     def_id: Uuid,
     variables: serde_json::Value,
 ) -> serde_json::Value {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "definition_id": def_id,
             "variables": variables
         }))
@@ -320,7 +318,7 @@ async fn engine_decision_not_found_errors_instance() {
     let instance_id = instance["id"].as_str().unwrap();
 
     // Instance should be in a failed state
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .get(format!(
             "{}/api/v1/process-instances/{}",

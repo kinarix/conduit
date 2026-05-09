@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::db::models::User;
+use crate::db::models::{User, UserCredentials};
 use crate::error::Result;
 
 pub async fn insert(
@@ -10,11 +10,12 @@ pub async fn insert(
     auth_provider: &str,
     external_id: Option<&str>,
     email: &str,
+    password_hash: Option<&str>,
 ) -> Result<User> {
     let row = sqlx::query_as::<_, User>(
         r#"
-        INSERT INTO users (org_id, auth_provider, external_id, email)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO users (org_id, auth_provider, external_id, email, password_hash)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING id, org_id, auth_provider, external_id, email, created_at
         "#,
     )
@@ -22,7 +23,55 @@ pub async fn insert(
     .bind(auth_provider)
     .bind(external_id)
     .bind(email)
+    .bind(password_hash)
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+/// Look up the credentials row for `(org slug, email)`. Returns `None` if
+/// either is unknown — the caller must NOT distinguish between "no such
+/// org", "no such user", and "wrong password" in its response.
+pub async fn find_credentials_by_org_slug_and_email(
+    pool: &PgPool,
+    org_slug: &str,
+    email: &str,
+) -> Result<Option<UserCredentials>> {
+    let row = sqlx::query_as::<_, UserCredentials>(
+        r#"
+        SELECT u.id, u.org_id, u.auth_provider, u.email, u.password_hash
+        FROM users u
+        JOIN orgs o ON o.id = u.org_id
+        WHERE o.slug = $1 AND u.email = $2
+        "#,
+    )
+    .bind(org_slug)
+    .bind(email)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+/// Used by the `Principal` extractor to confirm a JWT's subject still
+/// exists. Returns `None` if the user has been deleted since the token
+/// was issued — extractor surfaces `U401`.
+pub async fn find_by_id(pool: &PgPool, user_id: Uuid) -> Result<Option<User>> {
+    let row = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, org_id, auth_provider, external_id, email, created_at
+        FROM users
+        WHERE id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
+pub async fn count(pool: &PgPool) -> Result<i64> {
+    let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await?;
+    Ok(n)
 }

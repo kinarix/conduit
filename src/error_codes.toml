@@ -59,6 +59,27 @@ action  = "Fix the decision table so at most one rule matches for any given inpu
 display = "A deprecated BPMN extension element was used."
 action  = "Migrate to the worker-based pattern documented in docs/MIGRATION.md."
 
+[U011]
+# Login rejected. Generic by design — never tell the caller whether it was
+# the email, the password, or a disabled account. Returned by POST /auth/login.
+display = "Login failed."
+action  = "Check the email and password and try again."
+
+[U401]
+# No or invalid Authorization Bearer token. Generic by design — do not say
+# whether the token was missing, malformed, expired, or signed with the
+# wrong key.
+display = "Authentication required."
+action  = "Provide a valid `Authorization: Bearer <token>` header."
+
+[U403]
+# Authenticated but the principal lacks the permission required by the
+# handler. Phase 23 (RBAC) populates the permissions; in Phase 22 this is
+# only emitted by tenant-isolation checks (e.g. accessing another org's
+# resource by ID).
+display = "You do not have permission for this action."
+action  = "Contact your administrator if you believe you should have access."
+
 # ─── S-codes: system errors (5xx) ────────────────────────────────────────────
 
 [S001]

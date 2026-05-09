@@ -26,7 +26,7 @@ async fn deploy_valid_bpmn_returns_201() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("deploy");
     let bpmn = minimal_bpmn("p1");
@@ -55,7 +55,7 @@ async fn deploy_with_optional_name() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("named");
     let bpmn = minimal_bpmn("p2");
@@ -75,7 +75,7 @@ async fn deploy_same_key_twice_increments_version() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("versioned");
     let bpmn = minimal_bpmn("p3");
@@ -110,7 +110,7 @@ async fn deploy_stores_bpmn_xml_in_db() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("stored");
     let bpmn = minimal_bpmn("p4");
@@ -142,7 +142,7 @@ async fn deploy_empty_key_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let bpmn = minimal_bpmn("p5");
 
@@ -164,7 +164,7 @@ async fn deploy_invalid_xml_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("badxml");
 
@@ -188,7 +188,7 @@ async fn deploy_unsupported_gateway_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("gateway");
     let bpmn = r#"<?xml version="1.0"?>
@@ -227,7 +227,7 @@ async fn deploy_missing_start_event_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("nostart");
     let bpmn = r#"<?xml version="1.0"?>
@@ -254,7 +254,7 @@ async fn deploy_does_not_persist_on_parse_failure() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("nopersist");
 
@@ -285,7 +285,7 @@ async fn deploy_missing_key_field_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let bpmn = minimal_bpmn("p6");
 
@@ -304,7 +304,7 @@ async fn deploy_missing_bpmn_xml_field_returns_400() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
@@ -344,9 +344,9 @@ fn http_connector_bpmn(process_id: &str, task_id: &str) -> String {
 #[tokio::test]
 async fn deploy_with_conduit_http_returns_u010_warning() {
     let app = common::spawn_test_app().await;
-    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("deprecated-http");
     let bpmn = http_connector_bpmn("dep_http_proc", "call_api");
@@ -354,7 +354,6 @@ async fn deploy_with_conduit_http_returns_u010_warning() {
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": bpmn,
@@ -392,9 +391,9 @@ async fn deploy_with_conduit_http_returns_u010_warning() {
 #[tokio::test]
 async fn deploy_without_deprecated_elements_has_empty_warnings() {
     let app = common::spawn_test_app().await;
-    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("no-warnings");
     let bpmn = minimal_bpmn("clean_proc");
@@ -402,7 +401,6 @@ async fn deploy_without_deprecated_elements_has_empty_warnings() {
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": bpmn,
@@ -426,9 +424,9 @@ async fn deploy_without_deprecated_elements_has_empty_warnings() {
 #[tokio::test]
 async fn deploy_with_two_conduit_http_emits_two_warnings() {
     let app = common::spawn_test_app().await;
-    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let key = unique_key("two-deprecated");
     let bpmn = r#"<?xml version="1.0"?>
@@ -460,7 +458,6 @@ async fn deploy_with_two_conduit_http_emits_two_warnings() {
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": bpmn,

@@ -33,13 +33,16 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&pool).await?;
     tracing::info!("Migrations applied");
 
+    conduit::auth::bootstrap::run_if_needed(&pool, &config).await?;
+
     // Install the Prometheus recorder as the global metrics backend.
     // The handle is stored in AppState so the /metrics endpoint can render it.
     let prometheus_handle = PrometheusBuilder::new()
         .install_recorder()
         .expect("failed to install Prometheus recorder");
 
-    let mut state = AppState::new(pool, config.secrets_key);
+    let auth = conduit::auth::AuthSettings::from_config(&config);
+    let mut state = AppState::new(pool, config.secrets_key, auth);
     state.prometheus_handle = Some(prometheus_handle);
 
     let token = CancellationToken::new();
@@ -163,6 +166,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .merge(api::health::routes())
+        .merge(api::auth::routes())
         .merge(api::orgs::routes())
         .merge(api::users::routes())
         .merge(api::deployments::routes())

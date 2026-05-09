@@ -7,7 +7,7 @@ use uuid::Uuid;
 async fn create_secret_returns_201_without_value() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_id))
@@ -29,7 +29,7 @@ async fn create_secret_returns_201_without_value() {
 async fn list_secrets_omits_values() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     for n in &["k1", "k2", "k3"] {
         client
@@ -59,7 +59,7 @@ async fn list_secrets_omits_values() {
 async fn get_secret_metadata_omits_value() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     client
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_id))
@@ -86,7 +86,7 @@ async fn get_secret_metadata_omits_value() {
 async fn duplicate_name_in_same_org_returns_409() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let body = json!({ "name": "dup", "value": "v1" });
     let r1 = client
@@ -109,11 +109,15 @@ async fn duplicate_name_in_same_org_returns_409() {
 #[tokio::test]
 async fn same_name_in_different_orgs_is_allowed() {
     let app = common::spawn_test_app().await;
-    let org_a = common::create_test_org(&app).await;
-    let org_b = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let principal_a = app.principal.clone();
+    let principal_b = common::create_principal(&app.pool, "secrets-b").await;
+    let client_a = app.client.clone();
+    let client_b = common::auth::authed_client(&principal_b.token);
 
-    for org in &[org_a, org_b] {
+    for (client, org) in [
+        (&client_a, principal_a.org_id),
+        (&client_b, principal_b.org_id),
+    ] {
         let resp = client
             .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org))
             .json(&json!({ "name": "shared_name", "value": "any" }))
@@ -127,29 +131,36 @@ async fn same_name_in_different_orgs_is_allowed() {
 #[tokio::test]
 async fn list_is_org_isolated() {
     let app = common::spawn_test_app().await;
-    let org_a = common::create_test_org(&app).await;
-    let org_b = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let org_a = app.principal.org_id;
+    let principal_b = common::create_principal(&app.pool, "secrets-b").await;
+    let client_a = app.client.clone();
+    let client_b = common::auth::authed_client(&principal_b.token);
 
-    client
+    client_a
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_a))
         .json(&json!({ "name": "only_in_a", "value": "x" }))
         .send()
         .await
         .unwrap();
 
-    let resp = client
-        .get(format!("{}/api/v1/orgs/{}/secrets", app.address, org_b))
+    let resp = client_b
+        .get(format!(
+            "{}/api/v1/orgs/{}/secrets",
+            app.address, principal_b.org_id
+        ))
         .send()
         .await
         .unwrap();
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body.as_array().unwrap().len(), 0);
 
-    let resp = client
+    // Org B's authenticated principal asking for org A's secret URL must
+    // get a 404 — both because the path org_id doesn't match the principal
+    // and because cross-tenant lookups are barred.
+    let resp = client_b
         .get(format!(
             "{}/api/v1/orgs/{}/secrets/only_in_a",
-            app.address, org_b
+            app.address, org_a
         ))
         .send()
         .await
@@ -161,7 +172,7 @@ async fn list_is_org_isolated() {
 async fn delete_secret_removes_it() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     client
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_id))
@@ -195,7 +206,7 @@ async fn delete_secret_removes_it() {
 async fn delete_unknown_returns_404() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let resp = client
         .delete(format!(
@@ -212,7 +223,7 @@ async fn delete_unknown_returns_404() {
 async fn empty_name_or_value_rejected() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let r1 = client
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_id))
@@ -235,7 +246,7 @@ async fn empty_name_or_value_rejected() {
 async fn ciphertext_in_db_is_not_plaintext() {
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let plaintext = "this-is-the-secret-value-do-not-leak";
     client
@@ -268,7 +279,7 @@ async fn reveal_round_trips_via_db_helper() {
     // This is what the HTTP connector will call at fire time (C3).
     let app = common::spawn_test_app().await;
     let org_id = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let plaintext = "bearer-token-1234567890";
     client
@@ -291,9 +302,9 @@ async fn reveal_round_trips_via_db_helper() {
 #[tokio::test]
 async fn reveal_with_wrong_org_returns_not_found() {
     let app = common::spawn_test_app().await;
-    let org_a = common::create_test_org(&app).await;
-    let org_b = common::create_test_org(&app).await;
-    let client = reqwest::Client::new();
+    let org_a = app.principal.org_id;
+    let principal_b = common::create_principal(&app.pool, "secrets-reveal-b").await;
+    let client = app.client.clone();
 
     client
         .post(format!("{}/api/v1/orgs/{}/secrets", app.address, org_a))
@@ -303,7 +314,8 @@ async fn reveal_with_wrong_org_returns_not_found() {
         .unwrap();
 
     let test_key = [0xA5u8; 32];
-    let result = conduit::db::secrets::reveal(&app.pool, &test_key, org_b, "private_a").await;
+    let result =
+        conduit::db::secrets::reveal(&app.pool, &test_key, principal_b.org_id, "private_a").await;
     assert!(result.is_err(), "org B must not see org A's secret value");
     let _unused = Uuid::nil();
 }

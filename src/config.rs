@@ -4,6 +4,15 @@ pub enum AuthProvider {
     External,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TenantIsolation {
+    /// Many orgs share one deployment. Cross-org access is a hard boundary.
+    Multi,
+    /// One org per deployment. Bootstrap-admin env vars are required to
+    /// seed the single root org and admin user on first boot.
+    Single,
+}
+
 /// Application configuration loaded from environment variables.
 /// See .env.example for all available settings.
 #[derive(Debug, Clone)]
@@ -36,6 +45,21 @@ pub struct Config {
     // ChaCha20-Poly1305 master key. Loaded eagerly so a misconfigured
     // deployment fails at startup, not on first secret read.
     pub secrets_key: [u8; 32],
+
+    // Auth (Phase 22). HS256 signing key for Conduit-issued JWTs; the
+    // authenticator both signs (login) and verifies (extractor) with this key.
+    pub jwt_signing_key: String,
+    pub jwt_ttl_seconds: i64,
+    pub jwt_issuer: String,
+
+    pub tenant_isolation: TenantIsolation,
+
+    // First-boot bootstrap. When the users table is empty and these are set,
+    // an org + internal-auth admin user are created so the deployment is
+    // immediately usable. Required for `tenant_isolation = Single`.
+    pub bootstrap_admin_email: Option<String>,
+    pub bootstrap_admin_password: Option<String>,
+    pub bootstrap_admin_org_slug: Option<String>,
 }
 
 impl Config {
@@ -48,6 +72,19 @@ impl Config {
         let auth_provider = match optional_env("CONDUIT_AUTH_PROVIDER", "internal").as_str() {
             "external" => AuthProvider::External,
             _ => AuthProvider::Internal,
+        };
+
+        let tenant_isolation = match optional_env("CONDUIT_TENANT_ISOLATION", "multi")
+            .to_lowercase()
+            .as_str()
+        {
+            "single" => TenantIsolation::Single,
+            "multi" => TenantIsolation::Multi,
+            other => {
+                return Err(anyhow::anyhow!(
+                    "CONDUIT_TENANT_ISOLATION must be 'multi' or 'single', got '{other}'"
+                ));
+            }
         };
 
         Ok(Config {
@@ -94,6 +131,18 @@ impl Config {
                 })?,
 
             secrets_key: load_secrets_key()?,
+
+            jwt_signing_key: require_env("CONDUIT_JWT_SIGNING_KEY")?,
+            jwt_ttl_seconds: optional_env("CONDUIT_JWT_TTL_SECONDS", "3600")
+                .parse()
+                .map_err(|_| anyhow::anyhow!("CONDUIT_JWT_TTL_SECONDS must be an integer"))?,
+            jwt_issuer: optional_env("CONDUIT_JWT_ISSUER", "conduit"),
+
+            tenant_isolation,
+
+            bootstrap_admin_email: std::env::var("CONDUIT_BOOTSTRAP_ADMIN_EMAIL").ok(),
+            bootstrap_admin_password: std::env::var("CONDUIT_BOOTSTRAP_ADMIN_PASSWORD").ok(),
+            bootstrap_admin_org_slug: std::env::var("CONDUIT_BOOTSTRAP_ADMIN_ORG_SLUG").ok(),
         })
     }
 }
@@ -136,57 +185,104 @@ mod tests {
 
     /// 32 zero bytes, base64-encoded. Suitable for tests; never use in prod.
     const TEST_KEY_B64: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    const TEST_JWT_KEY: &str = "test-jwt-signing-key-do-not-use-in-prod";
+
+    fn clear_required_env() {
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("CONDUIT_SECRETS_KEY");
+        std::env::remove_var("CONDUIT_JWT_SIGNING_KEY");
+        std::env::remove_var("CONDUIT_TENANT_ISOLATION");
+    }
 
     #[test]
     fn config_fails_without_database_url() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::remove_var("DATABASE_URL");
+        clear_required_env();
         std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
+        std::env::set_var("CONDUIT_JWT_SIGNING_KEY", TEST_JWT_KEY);
         let result = Config::from_env();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("DATABASE_URL"));
-        std::env::remove_var("CONDUIT_SECRETS_KEY");
+        clear_required_env();
     }
 
     #[test]
     fn config_fails_without_secrets_key() {
         let _guard = ENV_LOCK.lock().unwrap();
+        clear_required_env();
         std::env::set_var("DATABASE_URL", "postgres://test");
-        std::env::remove_var("CONDUIT_SECRETS_KEY");
+        std::env::set_var("CONDUIT_JWT_SIGNING_KEY", TEST_JWT_KEY);
         let result = Config::from_env();
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
             .contains("CONDUIT_SECRETS_KEY"));
-        std::env::remove_var("DATABASE_URL");
+        clear_required_env();
+    }
+
+    #[test]
+    fn config_fails_without_jwt_signing_key() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_required_env();
+        std::env::set_var("DATABASE_URL", "postgres://test");
+        std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
+        let result = Config::from_env();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("CONDUIT_JWT_SIGNING_KEY"));
+        clear_required_env();
     }
 
     #[test]
     fn config_rejects_short_secrets_key() {
         let _guard = ENV_LOCK.lock().unwrap();
+        clear_required_env();
         std::env::set_var("DATABASE_URL", "postgres://test");
         std::env::set_var("CONDUIT_SECRETS_KEY", "dG9vc2hvcnQ="); // "tooshort"
+        std::env::set_var("CONDUIT_JWT_SIGNING_KEY", TEST_JWT_KEY);
         let result = Config::from_env();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("32 bytes"));
-        std::env::remove_var("DATABASE_URL");
-        std::env::remove_var("CONDUIT_SECRETS_KEY");
+        clear_required_env();
+    }
+
+    #[test]
+    fn config_rejects_invalid_tenant_isolation() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        clear_required_env();
+        std::env::set_var("DATABASE_URL", "postgres://test");
+        std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
+        std::env::set_var("CONDUIT_JWT_SIGNING_KEY", TEST_JWT_KEY);
+        std::env::set_var("CONDUIT_TENANT_ISOLATION", "neither");
+        let result = Config::from_env();
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("CONDUIT_TENANT_ISOLATION"));
+        clear_required_env();
     }
 
     #[test]
     fn config_uses_defaults_for_optional_vars() {
         let _guard = ENV_LOCK.lock().unwrap();
+        clear_required_env();
         std::env::set_var("DATABASE_URL", "postgres://test");
         std::env::set_var("CONDUIT_SECRETS_KEY", TEST_KEY_B64);
+        std::env::set_var("CONDUIT_JWT_SIGNING_KEY", TEST_JWT_KEY);
         std::env::remove_var("CONDUIT_SERVER_PORT");
         std::env::remove_var("CONDUIT_LOG_LEVEL");
 
         let config = Config::from_env().unwrap();
         assert_eq!(config.server_port, 8080);
         assert_eq!(config.log_level, "info");
+        assert_eq!(config.tenant_isolation, TenantIsolation::Multi);
+        assert_eq!(config.jwt_ttl_seconds, 3600);
+        assert_eq!(config.jwt_issuer, "conduit");
 
-        std::env::remove_var("DATABASE_URL");
-        std::env::remove_var("CONDUIT_SECRETS_KEY");
+        clear_required_env();
     }
 }

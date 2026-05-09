@@ -8,9 +8,29 @@ use conduit::engine::{Engine, VariableInput};
 use conduit::state::{AppState, GraphCache};
 
 #[allow(dead_code)]
+pub mod auth;
+
+#[allow(dead_code)]
 pub struct TestApp {
     pub address: String,
     pub pool: PgPool,
+    /// A default org + internal-auth user created at app spawn. Tests that
+    /// don't care about multi-tenant isolation use `principal.token` to
+    /// authenticate. Tests that need cross-org checks call
+    /// `create_extra_principal()` for a second principal.
+    pub principal: TestPrincipal,
+    /// reqwest client with the default principal's Bearer token already
+    /// attached as a default header. Use `app.client.clone()` instead of
+    /// `reqwest::Client::new()` for protected endpoints.
+    pub client: reqwest::Client,
+}
+
+#[allow(dead_code)]
+#[derive(Clone)]
+pub struct TestPrincipal {
+    pub user_id: Uuid,
+    pub org_id: Uuid,
+    pub token: String,
 }
 
 #[allow(dead_code)]
@@ -28,13 +48,19 @@ pub async fn spawn_test_app() -> TestApp {
         .await
         .expect("Failed to run migrations");
 
-    // Fixed test key — deterministic so tests are reproducible. Real
-    // deployments load this from CONDUIT_SECRETS_KEY env.
+    // Fixed test key — deterministic so tests are reproducible.
     let test_secrets_key = [0xA5u8; 32];
-    let state = Arc::new(AppState::new(pool.clone(), test_secrets_key));
+    let auth_settings = conduit::auth::AuthSettings {
+        jwt_keys: conduit::auth::JwtKeys::from_secret(auth::TEST_JWT_KEY),
+        jwt_ttl: chrono::Duration::seconds(3600),
+        jwt_issuer: auth::TEST_JWT_ISSUER.to_string(),
+        tenant_isolation: conduit::config::TenantIsolation::Multi,
+    };
+    let state = Arc::new(AppState::new(pool.clone(), test_secrets_key, auth_settings));
 
     let app = Router::new()
         .merge(conduit::api::health::routes())
+        .merge(conduit::api::auth::routes())
         .merge(conduit::api::orgs::routes())
         .merge(conduit::api::users::routes())
         .merge(conduit::api::process_groups::routes())
@@ -42,7 +68,10 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::instances::routes())
         .merge(conduit::api::tasks::routes())
         .merge(conduit::api::external_tasks::routes())
+        .merge(conduit::api::messages::routes())
+        .merge(conduit::api::signals::routes())
         .merge(conduit::api::decisions::routes())
+        .merge(conduit::api::process_layouts::routes())
         .merge(conduit::api::secrets::routes())
         .with_state(state);
 
@@ -57,51 +86,61 @@ pub async fn spawn_test_app() -> TestApp {
         axum::serve(listener, app).await.unwrap();
     });
 
-    TestApp { address, pool }
+    let principal = create_principal(&pool, "test-org").await;
+    let client = auth::authed_client(&principal.token);
+
+    TestApp {
+        address,
+        pool,
+        principal,
+        client,
+    }
 }
 
+/// Create an org + internal-auth user + JWT directly in the DB, bypassing
+/// the (now-authenticated) HTTP endpoints. Used by `spawn_test_app` for
+/// the default principal and by tests that need additional principals.
+#[allow(dead_code)]
+pub async fn create_principal(pool: &PgPool, slug_prefix: &str) -> TestPrincipal {
+    let slug = format!("{slug_prefix}-{}", Uuid::new_v4());
+    let org = conduit::db::orgs::insert(pool, "Test Org", &slug)
+        .await
+        .expect("create org");
+    let email = format!("user-{}@test.local", Uuid::new_v4());
+    let user = conduit::db::users::insert(pool, org.id, "internal", None, &email, None)
+        .await
+        .expect("create user");
+    let token = auth::mint_jwt(user.id, org.id);
+    TestPrincipal {
+        user_id: user.id,
+        org_id: org.id,
+        token,
+    }
+}
+
+/// Returns the default principal's org_id. The default principal's JWT
+/// is already attached to `app.client`, so HTTP calls using `app.client`
+/// will be scoped to this org. Tests that specifically need a SECOND
+/// org (e.g. cross-tenant isolation tests) should call `create_principal`
+/// and `auth::authed_client(&p.token)` for the extra principal.
 #[allow(dead_code)]
 pub async fn create_test_org(app: &TestApp) -> Uuid {
-    let client = reqwest::Client::new();
-    let slug = format!("test-org-{}", Uuid::new_v4());
-    let resp = client
-        .post(format!("{}/api/v1/orgs", app.address))
-        .json(&serde_json::json!({ "name": "Test Org", "slug": slug }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 201, "create_test_org failed");
-    let body: serde_json::Value = resp.json().await.unwrap();
-    Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
+    app.principal.org_id
 }
 
-/// Create a process group via the HTTP API. Used by integration tests that
-/// exercise the deploy endpoints.
+/// Direct DB insert of a process group. No HTTP, no auth.
 #[allow(dead_code)]
 pub async fn create_test_process_group(app: &TestApp, org_id: Uuid, name: &str) -> Uuid {
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(format!("{}/api/v1/process-groups", app.address))
-        .json(&serde_json::json!({ "org_id": org_id, "name": name }))
-        .send()
+    conduit::db::process_groups::insert(&app.pool, org_id, name)
         .await
-        .unwrap();
-    assert_eq!(
-        resp.status(),
-        201,
-        "create_test_process_group failed: {:?}",
-        resp.text().await
-    );
-    let body: serde_json::Value = resp.json().await.unwrap();
-    Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
+        .expect("create process group")
+        .id
 }
 
-/// Create an org plus `count` process groups. Returns (org_id, group_ids).
-/// Tests that only need a single primary group typically destructure as
-/// `(org_id, groups)` and pass `groups[0]` to deployments.
+/// Returns the default-principal's org plus `count` process groups under it.
 #[allow(dead_code)]
 pub async fn create_test_org_with_groups(app: &TestApp, count: usize) -> (Uuid, Vec<Uuid>) {
-    let org_id = create_test_org(app).await;
+    let org_id = app.principal.org_id;
     let mut groups = Vec::with_capacity(count);
     for i in 0..count {
         let name = format!("Group {}", i + 1);

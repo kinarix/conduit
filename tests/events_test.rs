@@ -22,16 +22,15 @@ fn user_task_bpmn() -> String {
 
 async fn deploy(
     app: &common::TestApp,
-    org_id: Uuid,
+    _org_id: Uuid,
     process_group_id: Uuid,
     key: &str,
     bpmn: &str,
 ) -> Uuid {
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
     let resp = client
         .post(format!("{}/api/v1/deployments", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "process_group_id": process_group_id,
             "key": key,
             "bpmn_xml": bpmn,
@@ -49,7 +48,7 @@ async fn events_endpoint_records_lifecycle() {
     let app = common::spawn_test_app().await;
     let (org_id, groups) = common::create_test_org_with_groups(&app, 1).await;
     let process_group_id = groups[0];
-    let client = reqwest::Client::new();
+    let client = app.client.clone();
 
     let def_id = deploy(
         &app,
@@ -64,7 +63,6 @@ async fn events_endpoint_records_lifecycle() {
     let resp = client
         .post(format!("{}/api/v1/process-instances", app.address))
         .json(&serde_json::json!({
-            "org_id": org_id,
             "definition_id": def_id,
             "variables": [
                 {"name": "amount", "value_type": "integer", "value": 100}

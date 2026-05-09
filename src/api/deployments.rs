@@ -11,6 +11,7 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::auth::Principal;
 use crate::db::models::ProcessDefinition;
 use crate::db::process_definitions;
 use crate::error::{EngineError, Result};
@@ -19,13 +20,10 @@ use crate::parser::FlowNodeKind;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize)]
-pub struct ListDeploymentsQuery {
-    pub org_id: Uuid,
-}
+pub struct ListDeploymentsQuery {}
 
 #[derive(Debug, Deserialize)]
 pub struct DeployRequest {
-    pub org_id: Uuid,
     pub process_group_id: Uuid,
     pub owner_id: Option<Uuid>,
     pub key: String,
@@ -36,7 +34,6 @@ pub struct DeployRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct SaveDraftRequest {
-    pub org_id: Uuid,
     pub process_group_id: Uuid,
     pub owner_id: Option<Uuid>,
     pub key: String,
@@ -94,43 +91,42 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/deployments/{id}/disabled", patch(set_disabled))
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %params.org_id))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id))]
 async fn list_deployments(
     State(state): State<Arc<AppState>>,
-    Query(params): Query<ListDeploymentsQuery>,
+    principal: Principal,
+    Query(_params): Query<ListDeploymentsQuery>,
 ) -> Result<Json<Vec<ProcessDefinition>>> {
-    let defs = process_definitions::list_by_org(&state.pool, params.org_id).await?;
+    let defs = process_definitions::list_by_org(&state.pool, principal.org_id).await?;
     Ok(Json(defs))
 }
 
 #[tracing::instrument(skip_all, fields(id = %id))]
 async fn get_deployment(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProcessDefinition>> {
-    let def = process_definitions::get_by_id(&state.pool, id).await?;
+    let def = fetch_definition_in_org(&state, id, principal.org_id).await?;
     Ok(Json(def))
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, process_key = %req.key))]
 async fn deploy(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Json(req): Json<DeployRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
 
-    ensure_process_group_in_org(&state.pool, req.process_group_id, req.org_id).await?;
+    ensure_process_group_in_org(&state.pool, req.process_group_id, principal.org_id).await?;
 
     // Parse first — fail fast before touching the DB
     let graph = Arc::new(parser::parse(&req.bpmn_xml)?);
-    // Capture parser-emitted warnings before `graph` is moved into the cache.
     let warnings = graph.warnings.clone();
 
-    // Warn if a gateway sits immediately after a start event and no input schema is defined.
-    // Without a schema, callers get no pre-flight 422 — missing variables silently produce
-    // a runtime instance with state='error' instead.
     if graph.input_schema.is_none() {
         let gateway_first = graph
             .nodes
@@ -167,25 +163,25 @@ async fn deploy(
         }
     }
 
-    // Find any currently-deployed version so we can cancel its timer-start triggers.
     let prev_id: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM process_definitions \
          WHERE org_id = $1 AND process_key = $2 AND status = 'deployed' \
          ORDER BY version DESC LIMIT 1",
     )
-    .bind(req.org_id)
+    .bind(principal.org_id)
     .bind(&req.key)
     .fetch_optional(&state.pool)
     .await
     .map_err(crate::error::EngineError::Database)?;
 
-    let version = process_definitions::next_version(&state.pool, req.org_id, &req.key).await?;
+    let version =
+        process_definitions::next_version(&state.pool, principal.org_id, &req.key).await?;
 
     let labels = req.labels.unwrap_or_else(|| serde_json::json!({}));
 
     let def = process_definitions::insert(
         &state.pool,
-        req.org_id,
+        principal.org_id,
         req.owner_id,
         req.process_group_id,
         &req.key,
@@ -232,22 +228,23 @@ async fn deploy(
     ))
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, process_key = %req.key))]
 async fn save_draft(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
 
-    ensure_process_group_in_org(&state.pool, req.process_group_id, req.org_id).await?;
+    ensure_process_group_in_org(&state.pool, req.process_group_id, principal.org_id).await?;
 
     let labels = req.labels.unwrap_or_else(|| serde_json::json!({}));
 
     let def = process_definitions::save_draft(
         &state.pool,
-        req.org_id,
+        principal.org_id,
         req.owner_id,
         req.process_group_id,
         &req.key,
@@ -270,22 +267,23 @@ async fn save_draft(
     ))
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, process_key = %req.key))]
 async fn create_draft(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
 
-    ensure_process_group_in_org(&state.pool, req.process_group_id, req.org_id).await?;
+    ensure_process_group_in_org(&state.pool, req.process_group_id, principal.org_id).await?;
 
     let labels = req.labels.unwrap_or_else(|| serde_json::json!({}));
 
     let def = process_definitions::create_draft(
         &state.pool,
-        req.org_id,
+        principal.org_id,
         req.owner_id,
         req.process_group_id,
         &req.key,
@@ -310,21 +308,21 @@ async fn create_draft(
 
 #[derive(Debug, Deserialize)]
 pub struct RenameByKeyRequest {
-    pub org_id: Uuid,
     pub process_group_id: Uuid,
     pub process_key: String,
     pub name: String,
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %req.org_id, process_key = %req.process_key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, process_key = %req.process_key))]
 async fn rename_by_key(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Json(req): Json<RenameByKeyRequest>,
 ) -> Result<StatusCode> {
-    ensure_process_group_in_org(&state.pool, req.process_group_id, req.org_id).await?;
+    ensure_process_group_in_org(&state.pool, req.process_group_id, principal.org_id).await?;
     process_definitions::rename_all_versions(
         &state.pool,
-        req.org_id,
+        principal.org_id,
         req.process_group_id,
         &req.process_key,
         &req.name,
@@ -336,12 +334,12 @@ async fn rename_by_key(
 #[tracing::instrument(skip_all, fields(id = %id))]
 async fn delete_deployment(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode> {
-    // Cancel any pending timer-start triggers up-front so workers don't fire them
-    // between the cascade delete and pool propagation.
-    state.engine.cancel_timer_start_jobs(id).await?;
+    fetch_definition_in_org(&state, id, principal.org_id).await?;
 
+    state.engine.cancel_timer_start_jobs(id).await?;
     process_definitions::delete(&state.pool, id).await?;
 
     {
@@ -358,10 +356,10 @@ async fn delete_deployment(
 #[tracing::instrument(skip_all, fields(id = %id))]
 async fn promote_draft(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeployResponse>> {
-    // Fetch the draft XML to parse and cache before promoting
-    let draft = process_definitions::get_by_id(&state.pool, id).await?;
+    let draft = fetch_definition_in_org(&state, id, principal.org_id).await?;
     if draft.status != "draft" {
         return Err(EngineError::Validation(format!(
             "Definition {id} is not a draft"
@@ -406,7 +404,6 @@ async fn promote_draft(
         }
     }
 
-    // Find any currently-deployed version so we can cancel its timer-start triggers.
     let prev_id: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM process_definitions \
          WHERE org_id = $1 AND process_key = $2 AND status = 'deployed' \
@@ -460,16 +457,14 @@ struct SetDisabledRequest {
     disabled: bool,
 }
 
-/// PATCH /api/v1/deployments/{id}/disabled
-/// Body: { "disabled": true | false }
-/// Toggles whether a deployed version can start NEW instances.
-/// Existing instances are unaffected. Drafts cannot be disabled.
 #[tracing::instrument(skip_all, fields(id = %id, disabled = req.disabled))]
 async fn set_disabled(
     State(state): State<Arc<AppState>>,
+    principal: Principal,
     Path(id): Path<Uuid>,
     Json(req): Json<SetDisabledRequest>,
 ) -> Result<Json<ProcessDefinition>> {
+    fetch_definition_in_org(&state, id, principal.org_id).await?;
     let def = process_definitions::set_disabled(&state.pool, id, req.disabled).await?;
     if req.disabled {
         state.engine.cancel_timer_start_jobs(def.id).await?;
@@ -477,4 +472,18 @@ async fn set_disabled(
         state.engine.schedule_timer_start_events(def.id).await?;
     }
     Ok(Json(def))
+}
+
+/// Tenant-isolation guard. Returns NotFound if the definition doesn't
+/// exist or belongs to another org.
+async fn fetch_definition_in_org(
+    state: &Arc<AppState>,
+    id: Uuid,
+    org_id: Uuid,
+) -> Result<ProcessDefinition> {
+    let def = process_definitions::get_by_id(&state.pool, id).await?;
+    if def.org_id != org_id {
+        return Err(EngineError::NotFound(format!("process_definition {id}")));
+    }
+    Ok(def)
 }

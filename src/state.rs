@@ -1,3 +1,4 @@
+use crate::auth::AuthSettings;
 use crate::engine::Engine;
 use crate::leader::LeaderElector;
 use crate::parser::ProcessGraph;
@@ -16,6 +17,9 @@ pub struct AppState {
     pub engine: Engine,
     /// ChaCha20-Poly1305 master key for `secrets` table values. 32 bytes.
     pub secrets_key: [u8; 32],
+    /// JWT keys, TTL, issuer, tenancy mode. Read by the `Principal` extractor
+    /// on every request and by `POST /auth/login` to mint tokens.
+    pub auth: AuthSettings,
     /// Process start time for uptime reporting.
     pub started_at: Instant,
     /// Leader election handle. `None` in single-instance (no election) mode.
@@ -25,7 +29,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(pool: PgPool, secrets_key: [u8; 32]) -> Self {
+    pub fn new(pool: PgPool, secrets_key: [u8; 32], auth: AuthSettings) -> Self {
         let process_cache: GraphCache = Arc::new(RwLock::new(HashMap::new()));
         let engine = Engine::new(pool.clone(), Arc::clone(&process_cache), secrets_key);
         Self {
@@ -33,6 +37,7 @@ impl AppState {
             process_cache,
             engine,
             secrets_key,
+            auth,
             started_at: Instant::now(),
             leader: None,
             prometheus_handle: None,

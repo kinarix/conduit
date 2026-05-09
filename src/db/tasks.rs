@@ -67,19 +67,36 @@ pub async fn list_pending(pool: &PgPool) -> Result<Vec<Task>> {
 /// because callers there iterate over the full set.
 pub async fn list_pending_paginated(
     pool: &PgPool,
+    org_id: Uuid,
     limit: i64,
     offset: i64,
 ) -> Result<(Vec<Task>, i64)> {
     let rows = sqlx::query_as::<_, Task>(
-        "SELECT * FROM tasks WHERE state = 'pending' ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+        r#"
+        SELECT t.*
+        FROM tasks t
+        JOIN process_instances i ON i.id = t.instance_id
+        WHERE t.state = 'pending' AND i.org_id = $1
+        ORDER BY t.created_at DESC
+        LIMIT $2 OFFSET $3
+        "#,
     )
+    .bind(org_id)
     .bind(limit)
     .bind(offset)
     .fetch_all(pool)
     .await?;
-    let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM tasks WHERE state = 'pending'")
-        .fetch_one(pool)
-        .await?;
+    let (total,): (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)
+        FROM tasks t
+        JOIN process_instances i ON i.id = t.instance_id
+        WHERE t.state = 'pending' AND i.org_id = $1
+        "#,
+    )
+    .bind(org_id)
+    .fetch_one(pool)
+    .await?;
     Ok((rows, total))
 }
 

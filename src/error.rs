@@ -32,8 +32,8 @@ fn codes() -> &'static HashMap<String, ErrorCodeEntry> {
 pub fn assert_error_codes_complete() {
     let map = codes();
     let required = [
-        "U001", "U002", "U003", "U004", "U005", "U006", "U007", "U008", "U009", "S001", "S002",
-        "S003",
+        "U001", "U002", "U003", "U004", "U005", "U006", "U007", "U008", "U009", "U011", "U401",
+        "U403", "S001", "S002", "S003",
     ];
     for code in required {
         assert!(
@@ -87,6 +87,15 @@ pub enum EngineError {
 
     #[error("Multiple DMN rules matched (UNIQUE hit policy)")]
     DmnMultipleMatches,
+
+    #[error("Authentication required")]
+    Unauthenticated,
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
+    #[error("Login failed")]
+    LoginFailed,
 }
 
 impl EngineError {
@@ -105,6 +114,9 @@ impl EngineError {
     ///   U007 — DmnFeel         FEEL expression in DMN produced an error
     ///   U008 — DmnNoMatch      No DMN rule matched the input
     ///   U009 — DmnMultiple     Multiple DMN rules matched (UNIQUE hit policy)
+    ///   U011 — LoginFailed     Email/password rejected (no detail leaked)
+    ///   U401 — Unauthenticated Missing/invalid Bearer token
+    ///   U403 — Forbidden       Authenticated but lacks required permission
     ///
     ///   S001 — Database        Unexpected database-level failure
     ///   S002 — Internal        Unexpected internal server error
@@ -120,6 +132,9 @@ impl EngineError {
             EngineError::DmnFeel(_) => "U007",
             EngineError::DmnNoMatch => "U008",
             EngineError::DmnMultipleMatches => "U009",
+            EngineError::LoginFailed => "U011",
+            EngineError::Unauthenticated => "U401",
+            EngineError::Forbidden(_) => "U403",
             EngineError::Database(_) => "S001",
             EngineError::Internal(_) => "S002",
             EngineError::Expression(_) => "S003",
@@ -139,6 +154,8 @@ impl EngineError {
             EngineError::DmnNoMatch | EngineError::DmnMultipleMatches => {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
+            EngineError::Unauthenticated | EngineError::LoginFailed => StatusCode::UNAUTHORIZED,
+            EngineError::Forbidden(_) => StatusCode::FORBIDDEN,
             EngineError::Database(_) | EngineError::Internal(_) | EngineError::Expression(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
@@ -162,6 +179,14 @@ impl EngineError {
             EngineError::DmnMultipleMatches => {
                 "Multiple DMN rules matched (UNIQUE hit policy violated)".to_string()
             }
+            EngineError::Forbidden(msg) => msg.clone(),
+            // Auth errors: generic display from registry. Never leak whether
+            // it was the email, the password, the token signature, or
+            // expiry that was wrong.
+            EngineError::Unauthenticated | EngineError::LoginFailed => codes()
+                .get(self.code())
+                .map(|e| e.display.clone())
+                .unwrap_or_else(|| "Authentication failed.".to_string()),
             // S-codes: use the generic display from the registry.
             EngineError::Database(_) | EngineError::Internal(_) | EngineError::Expression(_) => {
                 codes()

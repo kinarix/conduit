@@ -1,6 +1,6 @@
 use axum::{
     extract::State,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     routing::{delete, get, patch, post},
     Router,
 };
@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use super::extractors::{Json, Path, Query};
 use super::pagination::{with_total, Page};
+use crate::auth::Principal;
 use crate::db::decision_definitions;
 use crate::error::{EngineError, Result};
 use crate::state::AppState;
@@ -42,16 +43,15 @@ struct ListDecisionsQuery {
 
 /// POST /api/v1/decisions
 /// Body: raw DMN XML
-/// Header: X-Org-Id: <uuid>
 /// Query: process_group_id=<uuid>  (optional)
-#[tracing::instrument(skip_all, fields(process_group_id = ?q.process_group_id, body_bytes = body.len()))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, process_group_id = ?q.process_group_id, body_bytes = body.len()))]
 async fn deploy_decisions(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    principal: Principal,
     Query(q): Query<DeployDecisionsQuery>,
     body: String,
 ) -> Result<(StatusCode, Json<serde_json::Value>)> {
-    let org_id = extract_org_id(&headers)?;
+    let org_id = principal.org_id;
 
     if let Some(group_id) = q.process_group_id {
         ensure_process_group_in_org(&state.pool, group_id, org_id).await?;
@@ -84,17 +84,16 @@ async fn deploy_decisions(
 }
 
 /// GET /api/v1/decisions
-/// Header: X-Org-Id: <uuid>
 /// Query: process_group_id=<uuid>  (optional — filters to that group)
 /// Query: all_versions=true        (optional — return every version, default keeps latest only)
 /// Query: limit, offset            (optional — defaults: 100, 0; X-Total-Count returned)
-#[tracing::instrument(skip_all, fields(process_group_id = ?q.process_group_id, all_versions = q.all_versions))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, process_group_id = ?q.process_group_id, all_versions = q.all_versions))]
 async fn list_decisions(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    principal: Principal,
     Query(q): Query<ListDecisionsQuery>,
 ) -> Result<axum::response::Response> {
-    let org_id = extract_org_id(&headers)?;
+    let org_id = principal.org_id;
     let page = Page::from_query(q.limit, q.offset);
     let (defs, total) = decision_definitions::list_paginated(
         &state.pool,
@@ -125,14 +124,13 @@ async fn list_decisions(
 
 /// GET /api/v1/decisions/:key
 /// Returns the latest version of a decision with its parsed table structure.
-/// Header: X-Org-Id: <uuid>
-#[tracing::instrument(skip_all, fields(key = %key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, key = %key))]
 async fn get_decision(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    principal: Principal,
     Path(key): Path<String>,
 ) -> Result<Json<serde_json::Value>> {
-    let org_id = extract_org_id(&headers)?;
+    let org_id = principal.org_id;
     let def = decision_definitions::get_latest(&state.pool, org_id, &key).await?;
 
     let tables = crate::dmn::parse(&def.dmn_xml)?;
@@ -164,8 +162,11 @@ struct TestDecisionBody {
     context: HashMap<String, serde_json::Value>,
 }
 
-#[tracing::instrument(skip_all, fields(dmn_bytes = req.dmn_xml.len()))]
-async fn test_decision(Json(req): Json<TestDecisionBody>) -> Result<Json<serde_json::Value>> {
+#[tracing::instrument(skip_all, fields(org_id = %_principal.org_id, dmn_bytes = req.dmn_xml.len()))]
+async fn test_decision(
+    _principal: Principal,
+    Json(req): Json<TestDecisionBody>,
+) -> Result<Json<serde_json::Value>> {
     let tables = crate::dmn::parse(&req.dmn_xml)?;
     let table = tables
         .into_iter()
@@ -186,14 +187,13 @@ async fn test_decision(Json(req): Json<TestDecisionBody>) -> Result<Json<serde_j
 
 /// DELETE /api/v1/decisions/:key
 /// Deletes all versions of a decision. Returns 409 if referenced by another decision or process.
-#[tracing::instrument(skip_all, fields(key = %key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, key = %key))]
 async fn delete_decision(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    principal: Principal,
     Path(key): Path<String>,
 ) -> Result<StatusCode> {
-    let org_id = extract_org_id(&headers)?;
-    decision_definitions::delete(&state.pool, org_id, &key).await?;
+    decision_definitions::delete(&state.pool, principal.org_id, &key).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -203,13 +203,13 @@ struct RenameDecisionRequest {
     name: String,
 }
 
-#[tracing::instrument(skip_all, fields(decision_key = %req.decision_key))]
+#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, decision_key = %req.decision_key))]
 async fn rename_by_key(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
+    principal: Principal,
     Json(req): Json<RenameDecisionRequest>,
 ) -> Result<StatusCode> {
-    let org_id = extract_org_id(&headers)?;
+    let org_id = principal.org_id;
     let def = decision_definitions::get_latest(&state.pool, org_id, &req.decision_key).await?;
     decision_definitions::rename_all_versions(
         &state.pool,
@@ -220,17 +220,6 @@ async fn rename_by_key(
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn extract_org_id(headers: &HeaderMap) -> Result<Uuid> {
-    let val = headers
-        .get("x-org-id")
-        .ok_or_else(|| EngineError::Validation("Missing X-Org-Id header".to_string()))?
-        .to_str()
-        .map_err(|_| EngineError::Validation("X-Org-Id header is not valid UTF-8".to_string()))?;
-
-    val.parse::<Uuid>()
-        .map_err(|_| EngineError::Validation(format!("X-Org-Id is not a valid UUID: {val}")))
 }
 
 async fn ensure_process_group_in_org(

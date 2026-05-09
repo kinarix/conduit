@@ -4,6 +4,14 @@ use uuid::Uuid;
 use crate::db::models::ProcessGroup;
 use crate::error::{EngineError, Result};
 
+pub async fn get_by_id(pool: &PgPool, id: Uuid) -> Result<Option<ProcessGroup>> {
+    let row = sqlx::query_as::<_, ProcessGroup>("SELECT * FROM process_groups WHERE id = $1")
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
 pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessGroup>> {
     let rows = sqlx::query_as::<_, ProcessGroup>(
         "SELECT * FROM process_groups WHERE org_id = $1 ORDER BY name",

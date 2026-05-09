@@ -24,6 +24,7 @@ Query it with `/graphify query "<question>"`. Rebuild after major changes with `
 5. **Incremental phases** — every phase is working and deployable
 6. **Test first** — integration tests with real DB via testcontainers
 7. **Structured error codes** — every error has a U/S code, a client message, an optional user-action hint, and an optional server-side debug hint. U-prefix = user/client errors (4xx, actionable). S-prefix = system errors (5xx, never leaks internals). Codes are defined in `src/error_codes.toml` and asserted complete at startup. Wire format: `{"code": "U001", "message": "...", "action": "..."}`. See `src/error.rs`.
+8. **Auth model (Phase 22)** — every endpoint except `/health`, `/metrics`, `/api/v1/auth/login`, and the external-task callbacks (deferred to Phase 24) requires `Authorization: Bearer <token>`. Token is either a Conduit-issued JWT (HS256, signed with `CONDUIT_JWT_SIGNING_KEY`) or a `ck_…` API key. The `Principal` extractor resolves the caller's `(user_id, org_id)`; handlers MUST use `principal.org_id` and never trust client-supplied org references. See `src/auth/`, `src/api/extractors.rs`, and `docs/adr/ADR-009-auth-architecture.md`. RBAC is Phase 23, worker tokens are Phase 24.
 
 ## Repository Structure
 
@@ -47,7 +48,8 @@ conduit/
 │   │   ├── ADR-005-expression-evaluator.md
 │   │   ├── ADR-006-migrations.md
 │   │   ├── ADR-007-connector-architecture.md  ← rejected
-│   │   └── ADR-008-engine-stays-pure-bpmn.md  ← supersedes ADR-007
+│   │   ├── ADR-008-engine-stays-pure-bpmn.md  ← supersedes ADR-007
+│   │   └── ADR-009-auth-architecture.md       ← Phase 22 auth model
 │   └── phases/                  ← Detailed spec per phase
 │       ├── PHASE-0-evaluation.md
 │       ├── PHASE-1-foundation.md
@@ -71,12 +73,13 @@ conduit/
 │       ├── PHASE-18-element-documentation.md
 │       ├── PHASE-19-instance-notes.md
 │       ├── PHASE-20-deprecate-http-connector.md
-│       └── PHASE-21-reference-workers.md
+│       ├── PHASE-21-reference-workers.md
+│       └── PHASE-22-access-control.md  ← AuthN + tenant isolation
 │
-├── migrations/                  ← SQL migrations (SQLx) — 001..023
-│   ├── 001_initial.sql          ← uuid-ossp, schema_info, orgs
-│   ├── 002_users.sql            ← users + auth
-│   ├── 003_orgs_users.sql
+├── migrations/                  ← SQL migrations (SQLx) — see migrations/ for the full list
+│   ├── 001_extensions.sql       ← uuid-ossp
+│   ├── 002_orgs.sql
+│   ├── 003_users.sql            ← users + auth_provider/password_hash/external_id
 │   ├── 004_process_groups.sql   ← orgs → groups → processes/decisions hierarchy
 │   ├── 005_process_definitions.sql
 │   ├── 006_process_instances.sql
@@ -86,11 +89,8 @@ conduit/
 │   ├── 016_process_events.sql
 │   ├── 017_secrets.sql          ← encrypted secret storage
 │   ├── 018_jobs_http_config.sql ← HTTP connector job config
-│   ├── 019_event_subscriptions_error_type.sql
-│   ├── 020_process_layouts.sql  ← persisted modeller positions
-│   ├── 021_decision_group_scoping.sql
-│   ├── 022_process_definition_disabled.sql ← per-version disable
-│   └── 023_process_instance_counter.sql    ← human-friendly sequential ID
+│   ├── 019_process_layouts.sql  ← persisted modeller positions
+│   └── 020_api_keys.sql         ← Phase 22: long-lived API tokens (ck_…)
 │
 ├── src/
 │   ├── main.rs                  ← Entry point
@@ -100,6 +100,7 @@ conduit/
 │   ├── db.rs                    ← DB pool setup
 │   ├── api/                     ← HTTP handlers (Axum)
 │   │   ├── mod.rs, extractors.rs, health.rs
+│   │   ├── auth.rs              ← Phase 22: /auth/login, /me, /api-keys
 │   │   ├── orgs.rs, users.rs, process_groups.rs
 │   │   ├── deployments.rs       ← deploy + disable + rename-by-key
 │   │   ├── instances.rs         ← paginated list, start, cancel
@@ -108,6 +109,10 @@ conduit/
 │   │   ├── messages.rs, signals.rs
 │   │   ├── process_layouts.rs   ← modeller layout persistence
 │   │   └── secrets.rs           ← secret CRUD
+│   ├── auth/                    ← Phase 22: JWT + password + API keys + Principal
+│   │   ├── mod.rs, jwt.rs, password.rs, api_key.rs
+│   │   ├── principal.rs         ← extracted on every authed request
+│   │   └── bootstrap.rs         ← first-boot admin seeding
 │   ├── engine/                  ← Core execution engine
 │   │   ├── mod.rs, instance.rs, token.rs, helpers.rs
 │   │   ├── timer.rs, message.rs, signal.rs

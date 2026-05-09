@@ -11,7 +11,7 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::models::ProcessDefinition;
 use crate::db::process_definitions;
 use crate::error::{EngineError, Result};
@@ -117,6 +117,7 @@ async fn deploy(
     principal: Principal,
     Json(req): Json<DeployRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
+    principal.require(Permission::ProcessDeploy)?;
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
@@ -234,6 +235,7 @@ async fn save_draft(
     principal: Principal,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
+    principal.require(Permission::ProcessDeploy)?;
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
@@ -273,6 +275,7 @@ async fn create_draft(
     principal: Principal,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
+    principal.require(Permission::ProcessDeploy)?;
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
@@ -319,6 +322,7 @@ async fn rename_by_key(
     principal: Principal,
     Json(req): Json<RenameByKeyRequest>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::ProcessDeploy)?;
     ensure_process_group_in_org(&state.pool, req.process_group_id, principal.org_id).await?;
     process_definitions::rename_all_versions(
         &state.pool,
@@ -337,6 +341,7 @@ async fn delete_deployment(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::ProcessDeploy)?;
     fetch_definition_in_org(&state, id, principal.org_id).await?;
 
     state.engine.cancel_timer_start_jobs(id).await?;
@@ -359,6 +364,7 @@ async fn promote_draft(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeployResponse>> {
+    principal.require(Permission::ProcessDeploy)?;
     let draft = fetch_definition_in_org(&state, id, principal.org_id).await?;
     if draft.status != "draft" {
         return Err(EngineError::Validation(format!(
@@ -464,6 +470,7 @@ async fn set_disabled(
     Path(id): Path<Uuid>,
     Json(req): Json<SetDisabledRequest>,
 ) -> Result<Json<ProcessDefinition>> {
+    principal.require(Permission::ProcessDisable)?;
     fetch_definition_in_org(&state, id, principal.org_id).await?;
     let def = process_definitions::set_disabled(&state.pool, id, req.disabled).await?;
     if req.disabled {

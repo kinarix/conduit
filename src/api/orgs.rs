@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::models::Org;
 use crate::db::orgs;
 use crate::error::{EngineError, Result};
@@ -54,19 +54,21 @@ async fn list_orgs(
     }
 }
 
-// Reserved for Phase 23 RBAC (`org.manage` permission). Until then, no
-// authenticated user can mint new orgs from the API — only the
-// bootstrap-admin env vars create one on first boot.
 #[tracing::instrument(skip_all, fields(slug = %req.slug))]
 async fn create_org(
-    State(_state): State<Arc<AppState>>,
-    _principal: Principal,
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
     Json(req): Json<CreateOrgRequest>,
 ) -> Result<(StatusCode, Json<Org>)> {
-    let _ = req;
-    Err(EngineError::Forbidden(
-        "creating orgs requires the org.manage permission (Phase 23)".to_string(),
-    ))
+    principal.require(Permission::OrgManage)?;
+    if req.name.trim().is_empty() {
+        return Err(EngineError::Validation("name must not be empty".to_string()));
+    }
+    if req.slug.trim().is_empty() {
+        return Err(EngineError::Validation("slug must not be empty".to_string()));
+    }
+    let org = orgs::insert(&state.pool, req.name.trim(), req.slug.trim()).await?;
+    Ok((StatusCode::CREATED, Json(org)))
 }
 
 // Soft-deleting your own org is an irreversible self-destruct; gating to
@@ -79,6 +81,7 @@ async fn delete_org(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::OrgManage)?;
     if id != principal.org_id {
         return Err(EngineError::NotFound(format!("org {id}")));
     }

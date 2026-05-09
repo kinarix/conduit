@@ -72,6 +72,7 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::signals::routes())
         .merge(conduit::api::decisions::routes())
         .merge(conduit::api::process_layouts::routes())
+        .merge(conduit::api::roles::routes())
         .merge(conduit::api::secrets::routes())
         .with_state(state);
 
@@ -110,6 +111,10 @@ pub async fn create_principal(pool: &PgPool, slug_prefix: &str) -> TestPrincipal
     let user = conduit::db::users::insert(pool, org.id, "internal", None, &email, None)
         .await
         .expect("create user");
+    // Grant Admin so all existing tests continue to pass without permission errors.
+    conduit::db::roles::assign_admin(pool, user.id)
+        .await
+        .expect("assign admin role");
     let token = auth::mint_jwt(user.id, org.id);
     TestPrincipal {
         user_id: user.id,

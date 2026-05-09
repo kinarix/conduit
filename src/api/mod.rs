@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod decisions;
+pub mod roles;
 pub mod deployments;
 pub mod external_tasks;
 pub mod extractors;

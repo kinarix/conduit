@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::models::ProcessGroup;
 use crate::db::process_groups;
 use crate::error::{EngineError, Result};
@@ -68,6 +68,7 @@ async fn create_process_group(
     principal: Principal,
     Json(req): Json<CreateProcessGroupRequest>,
 ) -> Result<(StatusCode, Json<ProcessGroup>)> {
+    principal.require(Permission::ProcessDeploy)?;
     if req.name.trim().is_empty() {
         return Err(EngineError::Validation(
             "name must not be empty".to_string(),
@@ -84,6 +85,7 @@ async fn rename_process_group(
     Path(id): Path<Uuid>,
     Json(req): Json<RenameProcessGroupRequest>,
 ) -> Result<Json<ProcessGroup>> {
+    principal.require(Permission::ProcessDeploy)?;
     if req.name.trim().is_empty() {
         return Err(EngineError::Validation(
             "name must not be empty".to_string(),
@@ -100,6 +102,7 @@ async fn delete_process_group(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::ProcessDeploy)?;
     ensure_group_in_org(&state, id, principal.org_id).await?;
     process_groups::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -112,6 +115,7 @@ async fn assign_process_group(
     Path(id): Path<Uuid>,
     Json(req): Json<AssignProcessGroupRequest>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::ProcessDeploy)?;
     ensure_group_in_org(&state, req.process_group_id, principal.org_id).await?;
     process_groups::assign_definition(&state.pool, id, req.process_group_id).await?;
     Ok(StatusCode::NO_CONTENT)

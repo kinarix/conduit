@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT r.id AS role_id, r.name AS role_name,\n               ur.granted_by, ur.granted_at\n        FROM user_roles ur\n        JOIN roles r ON r.id = ur.role_id\n        WHERE ur.user_id = $1\n        ORDER BY r.name\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "role_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "granted_by",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "granted_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "93eb7ba5c9ac98b9c0ecf9e718b758fe3b2aa8830fbb16d051aac352f098c6a5"
+}

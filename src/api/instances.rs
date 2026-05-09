@@ -11,7 +11,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::pagination::{with_total, Page};
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::execution_history;
 use crate::db::jobs;
 use crate::db::models::{ExecutionHistory, Job, ProcessEvent, ProcessInstance};
@@ -82,6 +82,7 @@ async fn start_instance(
     principal: Principal,
     Json(req): Json<StartInstanceRequest>,
 ) -> Result<(StatusCode, Json<ProcessInstance>)> {
+    principal.require(Permission::InstanceStart)?;
     // The definition's org is authoritative. Cross-org starts are denied.
     let def = process_definitions::get_by_id(&state.pool, req.definition_id).await?;
     if def.org_id != principal.org_id {
@@ -115,6 +116,7 @@ async fn pause_instance(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProcessInstance>> {
+    principal.require(Permission::InstanceCancel)?;
     fetch_instance_in_org(&state, id, principal.org_id).await?;
     let inst = process_instances::pause(&state.pool, id).await?;
     Ok(Json(inst))
@@ -126,6 +128,7 @@ async fn resume_instance(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProcessInstance>> {
+    principal.require(Permission::InstanceCancel)?;
     fetch_instance_in_org(&state, id, principal.org_id).await?;
     let inst = process_instances::resume(&state.pool, id).await?;
     Ok(Json(inst))
@@ -137,6 +140,7 @@ async fn cancel_instance(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ProcessInstance>> {
+    principal.require(Permission::InstanceCancel)?;
     fetch_instance_in_org(&state, id, principal.org_id).await?;
     let inst = process_instances::cancel(&state.pool, id).await?;
     Ok(Json(inst))
@@ -148,6 +152,7 @@ async fn delete_instance(
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::InstanceCancel)?;
     fetch_instance_in_org(&state, id, principal.org_id).await?;
     process_instances::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)

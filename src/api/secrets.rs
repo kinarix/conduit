@@ -7,7 +7,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::models::SecretMetadata;
 use crate::db::secrets;
 use crate::error::{EngineError, Result};
@@ -50,6 +50,7 @@ async fn create_secret(
     Path(org_id): Path<Uuid>,
     Json(req): Json<CreateSecretRequest>,
 ) -> Result<(StatusCode, Json<SecretMetadata>)> {
+    principal.require(Permission::SecretManage)?;
     assert_caller_org(&principal, org_id)?;
     let name = req.name.trim();
     if name.is_empty() {
@@ -81,6 +82,7 @@ async fn delete_secret(
     principal: Principal,
     Path((org_id, name)): Path<(Uuid, String)>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::SecretManage)?;
     assert_caller_org(&principal, org_id)?;
     secrets::delete(&state.pool, org_id, &name).await?;
     Ok(StatusCode::NO_CONTENT)

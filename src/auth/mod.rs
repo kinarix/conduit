@@ -1,21 +1,24 @@
-//! Phase 22 — authentication primitives.
+//! Phase 22/23 — authentication and authorisation primitives.
 //!
 //! Submodules:
-//!   * `jwt`       — encode/decode HS256 access tokens.
-//!   * `password`  — argon2id hash + verify for user passwords.
-//!   * `api_key`   — generate + verify long-lived `ck_…` tokens.
-//!   * `principal` — `Principal` type carried by authenticated requests.
+//!   * `jwt`        — encode/decode HS256 access tokens.
+//!   * `password`   — argon2id hash + verify for user passwords.
+//!   * `api_key`    — generate + verify long-lived `ck_…` tokens.
+//!   * `principal`  — `Principal` type carried by authenticated requests.
+//!   * `permission` — `Permission` enum (Phase 23 RBAC).
 
 pub mod api_key;
 pub mod bootstrap;
 pub mod jwt;
 pub mod password;
+pub mod permission;
 pub mod principal;
 
 use crate::config::{Config, TenantIsolation};
 use chrono::Duration;
 use jsonwebtoken::{DecodingKey, EncodingKey};
 
+pub use permission::Permission;
 pub use principal::{Principal, PrincipalKind};
 
 /// Symmetric HS256 keys derived from `CONDUIT_JWT_SIGNING_KEY`. The same

@@ -448,18 +448,17 @@ async fn cross_org_delete_returns_404_and_does_not_remove_target() {
 }
 
 #[tokio::test]
-async fn create_org_endpoint_is_reserved_for_phase_23() {
+async fn admin_can_create_org() {
     let app = common::spawn_test_app().await;
+    let slug = format!("test-org-{}", uuid::Uuid::new_v4());
     let resp = app
         .client
         .post(format!("{}/api/v1/orgs", app.address))
-        .json(&json!({ "name": "Sneaky", "slug": "sneaky" }))
+        .json(&json!({ "name": "New Org", "slug": slug }))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 403);
-    let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["code"], "U403");
+    assert_eq!(resp.status(), 201);
 }
 
 // ─── /health and /auth/login remain public ────────────────────────────────

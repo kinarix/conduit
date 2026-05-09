@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::models::Task;
 use crate::db::{process_instances, tasks};
 use crate::engine::VariableInput;
@@ -70,6 +70,7 @@ async fn complete_task(
     Path(id): Path<Uuid>,
     body: Option<Json<CompleteTaskRequest>>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::TaskComplete)?;
     fetch_task_in_org(&state, id, principal.org_id).await?;
     let vars = body.and_then(|b| b.0.variables).unwrap_or_default();
     state.engine.complete_user_task(id, &vars).await?;

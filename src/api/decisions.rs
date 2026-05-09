@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use super::extractors::{Json, Path, Query};
 use super::pagination::{with_total, Page};
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::decision_definitions;
 use crate::error::{EngineError, Result};
 use crate::state::AppState;
@@ -51,6 +51,7 @@ async fn deploy_decisions(
     Query(q): Query<DeployDecisionsQuery>,
     body: String,
 ) -> Result<(StatusCode, Json<serde_json::Value>)> {
+    principal.require(Permission::DecisionDeploy)?;
     let org_id = principal.org_id;
 
     if let Some(group_id) = q.process_group_id {
@@ -193,6 +194,7 @@ async fn delete_decision(
     principal: Principal,
     Path(key): Path<String>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::DecisionDeploy)?;
     decision_definitions::delete(&state.pool, principal.org_id, &key).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -209,6 +211,7 @@ async fn rename_by_key(
     principal: Principal,
     Json(req): Json<RenameDecisionRequest>,
 ) -> Result<StatusCode> {
+    principal.require(Permission::DecisionDeploy)?;
     let org_id = principal.org_id;
     let def = decision_definitions::get_latest(&state.pool, org_id, &req.decision_key).await?;
     decision_definitions::rename_all_versions(

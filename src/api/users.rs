@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::auth;
-use crate::auth::Principal;
+use crate::auth::{Permission, Principal};
 use crate::db::models::User;
 use crate::db::users;
 use crate::error::{EngineError, Result};
@@ -30,6 +30,7 @@ async fn create_user(
     principal: Principal,
     Json(req): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, Json<User>)> {
+    principal.require(Permission::UserManage)?;
     if !matches!(req.auth_provider.as_str(), "internal" | "external") {
         return Err(EngineError::Validation(
             "auth_provider must be 'internal' or 'external'".to_string(),

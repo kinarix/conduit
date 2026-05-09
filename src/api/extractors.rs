@@ -158,11 +158,13 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     tracing::debug!(error = %e, "failed to update api_key.last_used_at");
                 }
             });
+            let permissions = db::roles::load_user_permissions(&state.pool, row.user_id).await?;
             return Ok(Principal {
                 user_id: row.user_id,
                 org_id: row.org_id,
                 email: row.email,
                 kind: PrincipalKind::ApiKey,
+                permissions,
             });
         }
 
@@ -179,11 +181,13 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         if user.org_id != claims.org {
             return Err(EngineError::Unauthenticated);
         }
+        let permissions = db::roles::load_user_permissions(&state.pool, user.id).await?;
         Ok(Principal {
             user_id: user.id,
             org_id: user.org_id,
             email: user.email,
             kind: PrincipalKind::Jwt,
+            permissions,
         })
     }
 }

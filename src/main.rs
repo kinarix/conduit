@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::decisions::routes())
         .merge(api::process_groups::routes())
         .merge(api::process_layouts::routes())
+        .merge(api::roles::routes())
         .merge(api::secrets::routes())
         .fallback(|| async {
             (

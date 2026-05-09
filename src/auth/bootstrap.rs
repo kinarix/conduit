@@ -37,6 +37,7 @@ pub async fn run_if_needed(pool: &PgPool, config: &Config) -> anyhow::Result<()>
     let org = db::orgs::insert(pool, "Default", slug).await?;
     let hash = crate::auth::password::hash(password)?;
     let user = db::users::insert(pool, org.id, "internal", None, email, Some(&hash)).await?;
+    db::roles::assign_admin(pool, user.id).await?;
     tracing::warn!(
         org_id = %org.id,
         user_id = %user.id,

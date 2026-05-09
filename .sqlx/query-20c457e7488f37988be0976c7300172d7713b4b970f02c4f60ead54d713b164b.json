@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_roles (user_id, role_id, granted_by)\n        SELECT $1, r.id, $1\n        FROM roles r\n        WHERE r.name = 'Admin' AND r.org_id IS NULL\n        ON CONFLICT DO NOTHING\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "20c457e7488f37988be0976c7300172d7713b4b970f02c4f60ead54d713b164b"
+}

@@ -1,4 +1,5 @@
 pub mod api_keys;
+pub mod roles;
 pub mod decision_definitions;
 pub mod event_subscriptions;
 pub mod execution_history;

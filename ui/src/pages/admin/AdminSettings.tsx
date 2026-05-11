@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchAdminOrg, patchAdminOrg } from '../../api/admin'
+import { useOrg } from '../../App'
 
 export default function AdminSettings() {
   const qc = useQueryClient()
-  const orgQ = useQuery({ queryKey: ['admin-org'], queryFn: fetchAdminOrg })
+  const { org: ctxOrg } = useOrg()
+  const orgId = ctxOrg?.id
+  const orgQ = useQuery({
+    queryKey: ['admin-org', orgId],
+    queryFn: () => fetchAdminOrg(orgId!),
+    enabled: !!orgId,
+  })
 
   const [name, setName] = useState('')
 
@@ -13,10 +20,11 @@ export default function AdminSettings() {
   }, [orgQ.data])
 
   const renameMut = useMutation({
-    mutationFn: () => patchAdminOrg({ name: name.trim() }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-org'] }),
+    mutationFn: () => patchAdminOrg(orgId!, { name: name.trim() }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-org', orgId] }),
   })
 
+  if (!orgId) return <div style={{ padding: 8, fontSize: 13 }}>Select an organisation.</div>
   if (orgQ.isLoading) return <div style={{ padding: 8 }}><div className="spinner" /></div>
   if (orgQ.isError) return <div style={{ color: 'var(--status-error)', fontSize: 13 }}>Failed to load org.</div>
 

@@ -102,7 +102,8 @@ export default function Welcome() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { setOrg } = useOrg()
-  const { refreshUser } = useAuth()
+  const { refreshUser, user } = useAuth()
+  const currentOrgId = user?.orgs?.[0]?.id ?? null
 
   const [step, setStep] = useState<StepNum>(1)
   const [createdGroup, setCreatedGroup] = useState<ProcessGroup | null>(null)
@@ -127,8 +128,16 @@ export default function Welcome() {
   const [error, setError] = useState('')
   const [completing, setCompleting] = useState(false)
 
-  const orgQ = useQuery({ queryKey: ['admin-org'], queryFn: fetchAdminOrg })
-  const authConfigQ = useQuery({ queryKey: ['admin-auth-config'], queryFn: fetchAuthConfig })
+  const orgQ = useQuery({
+    queryKey: ['admin-org', currentOrgId],
+    queryFn: () => fetchAdminOrg(currentOrgId!),
+    enabled: !!currentOrgId,
+  })
+  const authConfigQ = useQuery({
+    queryKey: ['admin-auth-config', currentOrgId],
+    queryFn: () => fetchAuthConfig(currentOrgId!),
+    enabled: !!currentOrgId,
+  })
 
   useEffect(() => {
     if (!authConfigQ.data) return
@@ -140,7 +149,9 @@ export default function Welcome() {
     )
   }, [authConfigQ.data]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const patchAuthMut = useMutation({ mutationFn: patchAuthConfig })
+  const patchAuthMut = useMutation({
+    mutationFn: (body: Parameters<typeof patchAuthConfig>[1]) => patchAuthConfig(currentOrgId!, body),
+  })
 
   const createGroupMut = useMutation({
     mutationFn: () => createProcessGroup(orgQ.data!.id, groupName),
@@ -149,8 +160,7 @@ export default function Welcome() {
   })
 
   const createProcessMut = useMutation({
-    mutationFn: () => createDraft({
-      org_id: orgQ.data!.id,
+    mutationFn: () => createDraft(orgQ.data!.id, {
       process_group_id: createdGroup!.id,
       key: processKey,
       name: processName,
@@ -161,7 +171,7 @@ export default function Welcome() {
   const completeSetup = async (defId?: string) => {
     setCompleting(true)
     try {
-      await patchAdminOrg({ setup_completed: true })
+      if (currentOrgId) await patchAdminOrg(currentOrgId, { setup_completed: true })
     } catch { /* best-effort */ }
     if (localStorage.getItem(TOKEN_KEY)) {
       await refreshUser()

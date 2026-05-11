@@ -34,8 +34,8 @@ export default function OrgDashboard() {
     enabled: !!org,
   })
   const tasksQ = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
+    queryKey: ['tasks', org?.id],
+    queryFn: () => fetchTasks(org!.id),
     enabled: !!org,
     refetchInterval: 5_000,
   })

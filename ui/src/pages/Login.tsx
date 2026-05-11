@@ -1,6 +1,6 @@
-import { useEffect, useState, FormEvent } from 'react'
+import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { fetchLoginOrgs, login, type LoginOrg } from '../api/auth'
+import { login } from '../api/auth'
 import { useAuth } from '../context/AuthContext'
 import { ApiError } from '../api/client'
 
@@ -8,32 +8,17 @@ export default function Login() {
   const navigate = useNavigate()
   const { setToken } = useAuth()
 
-  const [orgs, setOrgs] = useState<LoginOrg[] | null>(null)
-  const [orgSlug, setOrgSlug] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    fetchLoginOrgs()
-      .then(list => {
-        setOrgs(list)
-        // Preselect the first real org; fall back to the only entry if no
-        // real orgs exist (first install — only Conduit is present).
-        const firstReal = list.find(o => !o.is_system)
-        const initial = firstReal ?? list[0]
-        if (initial) setOrgSlug(initial.slug)
-      })
-      .catch(() => setOrgs([]))
-  }, [])
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
     setLoading(true)
     try {
-      const res = await login(orgSlug, email.trim(), password)
+      const res = await login(email.trim(), password)
       setToken(res.access_token)
       navigate('/', { replace: true })
     } catch (err) {
@@ -69,29 +54,11 @@ export default function Login() {
             Sign in to Conduit
           </h1>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-            Select your organisation and enter your credentials.
+            Enter your email and password.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              Organisation
-            </span>
-            <select
-              required
-              value={orgSlug}
-              onChange={e => setOrgSlug(e.target.value)}
-              style={inputStyle}
-              disabled={orgs === null}
-            >
-              {orgs === null && <option value="">Loading…</option>}
-              {orgs?.map(o => (
-                <option key={o.slug} value={o.slug}>{o.name}</option>
-              ))}
-            </select>
-          </label>
-
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
               Email
@@ -136,7 +103,7 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={loading || orgs === null}
+            disabled={loading}
             className="btn-primary"
             style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
           >

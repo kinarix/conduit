@@ -39,10 +39,11 @@ export const useOrg = () => useContext(OrgContext)
 
 function DefinitionRedirect() {
   const { id = '' } = useParams<{ id: string }>()
+  const { org } = useOrg()
   const { data, isLoading, error } = useQuery({
-    queryKey: ['deployment', id],
-    queryFn: () => fetchDeployment(id),
-    enabled: !!id,
+    queryKey: ['deployment', org?.id, id],
+    queryFn: () => fetchDeployment(org!.id, id),
+    enabled: !!id && !!org,
   })
   if (isLoading) return <div style={{ padding: 24 }}>Loading…</div>
   if (error || !data) return <Navigate to="/" replace />
@@ -69,7 +70,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 function RequirePerm({ anyOf, children }: { anyOf: string[]; children: React.ReactNode }) {
   const { user } = useAuth()
-  const perms = new Set(user?.permissions ?? [])
+  // Global admins bypass UI permission gates — server-side authorisation
+  // still applies on every request.
+  if (user?.is_global_admin) return <>{children}</>
+  const perms = new Set(user?.global_permissions ?? [])
   const ok = anyOf.some(p => perms.has(p))
   if (!ok) return <Navigate to="/" replace />
   return <>{children}</>
@@ -105,7 +109,7 @@ export default function App() {
           <Route path="tasks" element={<TaskList />} />
           <Route
             path="secrets"
-            element={<RequirePerm anyOf={['secret.manage']}><Secrets /></RequirePerm>}
+            element={<RequirePerm anyOf={['secret.create', 'secret.read_metadata', 'secret.update', 'secret.delete']}><Secrets /></RequirePerm>}
           />
           <Route path="decisions" element={<Decisions />} />
           <Route path="decisions/new" element={<DecisionTableEditor />} />
@@ -117,7 +121,13 @@ export default function App() {
           <Route
             path="admin"
             element={
-              <RequirePerm anyOf={['org.manage', 'user.manage', 'role.manage']}>
+              <RequirePerm anyOf={[
+                'org.read', 'org.update',
+                'user.read', 'user.create',
+                'role.read', 'role.create',
+                'role_assignment.read', 'role_assignment.create',
+                'auth_config.read', 'auth_config.update',
+              ]}>
                 <AdminShell />
               </RequirePerm>
             }
@@ -125,19 +135,19 @@ export default function App() {
             <Route index element={<Navigate to="users" replace />} />
             <Route
               path="users"
-              element={<RequirePerm anyOf={['user.manage', 'role.manage']}><AdminUsers /></RequirePerm>}
+              element={<RequirePerm anyOf={['user.read', 'user.create', 'role_assignment.read']}><AdminUsers /></RequirePerm>}
             />
             <Route
               path="roles"
-              element={<RequirePerm anyOf={['role.manage']}><AdminRoles /></RequirePerm>}
+              element={<RequirePerm anyOf={['role.read', 'role.create']}><AdminRoles /></RequirePerm>}
             />
             <Route
               path="auth"
-              element={<RequirePerm anyOf={['org.manage']}><AdminAuth /></RequirePerm>}
+              element={<RequirePerm anyOf={['auth_config.read', 'auth_config.update']}><AdminAuth /></RequirePerm>}
             />
             <Route
               path="settings"
-              element={<RequirePerm anyOf={['org.manage']}><AdminSettings /></RequirePerm>}
+              element={<RequirePerm anyOf={['org.read', 'org.update']}><AdminSettings /></RequirePerm>}
             />
           </Route>
         </Route>

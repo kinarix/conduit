@@ -17,10 +17,9 @@ export interface TaskListResponse {
   items: Task[]
 }
 
-export const fetchTasks = () =>
-  apiFetch<TaskListResponse>('/api/v1/tasks').then(r => r.items)
+export const fetchTasks = (orgId: string) =>
+  apiFetch<TaskListResponse>(`/api/v1/orgs/${orgId}/tasks`).then(r => r.items)
 
-/** Convert a flat JSON object {"key": value} to VariableInput[] */
 export function toVariableInputs(
   obj: Record<string, unknown>,
 ): Array<{ name: string; value_type: string; value: unknown }> {
@@ -32,10 +31,11 @@ export function toVariableInputs(
 }
 
 export const completeTask = (
+  orgId: string,
   id: string,
   variables?: Array<{ name: string; value_type: string; value: unknown }>,
 ) =>
-  apiFetch<void>(`/api/v1/tasks/${id}/complete`, {
+  apiFetch<void>(`/api/v1/orgs/${orgId}/tasks/${id}/complete`, {
     method: 'POST',
     body: JSON.stringify({ variables: variables ?? [] }),
   })

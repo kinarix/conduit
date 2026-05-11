@@ -1,13 +1,22 @@
 import { apiFetch } from './client'
 
+export interface MeOrgEntry {
+  id: string
+  name: string
+  slug: string
+  setup_completed: boolean
+  roles: string[]
+}
+
 export interface MeResponse {
   user_id: string
-  org_id: string
   email: string
   auth_kind: 'jwt' | 'api_key'
-  permissions: string[]
-  roles: string[]
-  setup_completed: boolean
+  is_global_admin: boolean
+  /// Permissions held globally (apply across every org).
+  global_permissions: string[]
+  global_roles: string[]
+  orgs: MeOrgEntry[]
 }
 
 export interface LoginResponse {
@@ -16,22 +25,15 @@ export interface LoginResponse {
   expires_in: number
 }
 
-export interface LoginOrg {
-  name: string
-  slug: string
-  is_system: boolean
-}
-
-/** Pass `org_slug = ''` (or omit) to sign in as platform admin. */
-export const login = (org_slug: string, email: string, password: string) =>
+/**
+ * Login takes email + password only — email is globally unique since the
+ * phase-23.1 RBAC redesign. Choice of org happens after login via the
+ * org switcher (URL or local-storage state).
+ */
+export const login = (email: string, password: string) =>
   apiFetch<LoginResponse>('/api/v1/auth/login', {
     method: 'POST',
-    body: JSON.stringify(
-      org_slug ? { org_slug, email, password } : { email, password }
-    ),
+    body: JSON.stringify({ email, password }),
   })
-
-export const fetchLoginOrgs = () =>
-  apiFetch<LoginOrg[]>('/api/v1/auth/orgs')
 
 export const fetchMe = () => apiFetch<MeResponse>('/api/v1/me')

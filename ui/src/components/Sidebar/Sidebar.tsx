@@ -47,7 +47,7 @@ export default function Sidebar({ width }: { width?: number }) {
   })
 
   const deleteGroupMut = useMutation({
-    mutationFn: () => deleteProcessGroup(confirmGroup!.id),
+    mutationFn: () => deleteProcessGroup(confirmGroup!.org_id, confirmGroup!.id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['process-groups'] })
       qc.invalidateQueries({ queryKey: ['deployments'] })
@@ -56,11 +56,9 @@ export default function Sidebar({ width }: { width?: number }) {
   })
 
   const deleteProcessMut = useMutation({
-    // Deleting a logical process deletes every version. Easier to call once per
-    // version than to invent a new endpoint.
     mutationFn: async () => {
       if (!confirmProcess) return
-      for (const v of confirmProcess.versions) await deleteDeployment(v.id)
+      for (const v of confirmProcess.versions) await deleteDeployment(v.org_id, v.id)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['deployments'] })

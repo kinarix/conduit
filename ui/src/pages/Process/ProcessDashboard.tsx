@@ -64,8 +64,9 @@ export default function ProcessDashboard() {
   })
 
   const tasksQ = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
+    queryKey: ['tasks', org?.id],
+    queryFn: () => fetchTasks(org!.id),
+    enabled: !!org,
     refetchInterval: 5_000,
   })
 
@@ -333,11 +334,11 @@ function VersionCard({
   const disabled = !!version.disabled_at
   const [confirmOpen, setConfirmOpen] = useState(false)
   const toggleMut = useMutation({
-    mutationFn: () => setDeploymentDisabled(version.id, !disabled),
+    mutationFn: () => setDeploymentDisabled(version.org_id, version.id, !disabled),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deployments'] }),
   })
   const deleteMut = useMutation({
-    mutationFn: () => deleteDeployment(version.id),
+    mutationFn: () => deleteDeployment(version.org_id, version.id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['deployments'] })
       setConfirmOpen(false)

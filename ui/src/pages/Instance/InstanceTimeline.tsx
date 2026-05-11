@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchInstanceEvents } from '../../api/events'
+import { useOrg } from '../../App'
 import EventRow from './EventRow'
 import { ALL_CATEGORIES, formatEvent, type EventCategory } from './eventFormatters'
 import styles from './InstanceTimeline.module.css'
@@ -11,10 +12,12 @@ interface Props {
 
 export default function InstanceTimeline({ instanceId }: Props) {
   const [filter, setFilter] = useState<EventCategory | 'all'>('all')
+  const { org } = useOrg()
 
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ['instance-events', instanceId],
-    queryFn: () => fetchInstanceEvents(instanceId),
+    queryKey: ['instance-events', org?.id, instanceId],
+    queryFn: () => fetchInstanceEvents(org!.id, instanceId),
+    enabled: !!org,
     refetchInterval: 5_000,
   })
 

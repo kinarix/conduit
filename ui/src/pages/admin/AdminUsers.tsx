@@ -1,51 +1,120 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  listAdminUsers, createAdminUser, removeAdminUser, setUserRoles, listAdminRoles,
-  type AdminUser, type AdminRole,
+  listOrgUsers,
+  createOrgUser,
+  removeOrgUser,
+  listBuiltinRoles,
+  listOrgRoles,
+  listOrgRoleAssignments,
+  grantOrgRole,
+  revokeOrgRole,
+  type OrgUser,
+  type AdminRole,
 } from '../../api/admin'
+import { useOrg } from '../../App'
 
 export default function AdminUsers() {
   const qc = useQueryClient()
-  const usersQ = useQuery({ queryKey: ['admin-users'], queryFn: listAdminUsers })
-  const rolesQ = useQuery({ queryKey: ['admin-roles'], queryFn: listAdminRoles })
+  const { org } = useOrg()
+  const orgId = org?.id
 
-  const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
+  const usersQ = useQuery({
+    queryKey: ['org-users', orgId],
+    queryFn: () => listOrgUsers(orgId!),
+    enabled: !!orgId,
+  })
+  const builtinRolesQ = useQuery({
+    queryKey: ['builtin-roles'],
+    queryFn: listBuiltinRoles,
+  })
+  const customRolesQ = useQuery({
+    queryKey: ['org-roles', orgId],
+    queryFn: () => listOrgRoles(orgId!),
+    enabled: !!orgId,
+  })
+  const assignmentsQ = useQuery({
+    queryKey: ['org-role-assignments', orgId],
+    queryFn: () => listOrgRoleAssignments(orgId!),
+    enabled: !!orgId,
+  })
+
+  const [editingUser, setEditingUser] = useState<OrgUser | null>(null)
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([])
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [showAdd, setShowAdd] = useState(false)
 
-  const removeMut = useMutation({
-    mutationFn: removeAdminUser,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users'] })
-      setRemovingId(null)
-    },
-  })
+  const allRoles: AdminRole[] = useMemo(
+    () => [...(builtinRolesQ.data ?? []), ...(customRolesQ.data ?? [])],
+    [builtinRolesQ.data, customRolesQ.data],
+  )
 
-  const setRolesMut = useMutation({
-    mutationFn: ({ userId, roleIds }: { userId: string; roleIds: string[] }) =>
-      setUserRoles(userId, roleIds),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users'] })
-      setEditingUser(null)
-    },
+  const rolesByUser = useMemo(() => {
+    const map = new Map<string, { assignmentId: string; role: AdminRole }[]>()
+    for (const a of assignmentsQ.data ?? []) {
+      const role = allRoles.find(r => r.id === a.role_id)
+      if (!role) continue
+      const arr = map.get(a.user_id) ?? []
+      arr.push({ assignmentId: a.id, role })
+      map.set(a.user_id, arr)
+    }
+    return map
+  }, [assignmentsQ.data, allRoles])
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['org-users', orgId] })
+    qc.invalidateQueries({ queryKey: ['org-role-assignments', orgId] })
+  }
+
+  const removeMut = useMutation({
+    mutationFn: (userId: string) => removeOrgUser(orgId!, userId),
+    onSuccess: () => { invalidate(); setRemovingId(null) },
   })
 
   const createMut = useMutation({
-    mutationFn: createAdminUser,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-users'] })
-      setShowAdd(false)
+    mutationFn: async (body: {
+      email: string
+      auth_provider: 'internal' | 'external'
+      password?: string
+      external_id?: string
+      role_ids: string[]
+    }) => {
+      const user = await createOrgUser(orgId!, {
+        email: body.email,
+        auth_provider: body.auth_provider,
+        password: body.password,
+        external_id: body.external_id,
+      })
+      for (const rid of body.role_ids) {
+        await grantOrgRole(orgId!, user.id, rid)
+      }
+      return user
     },
+    onSuccess: () => { invalidate(); setShowAdd(false) },
   })
 
-  const openEdit = (user: AdminUser) => {
-    const roles = rolesQ.data ?? []
-    const currentIds = roles
-      .filter(r => user.roles.includes(r.name))
-      .map(r => r.id)
-    setSelectedRoleIds(currentIds)
+  const setRolesMut = useMutation({
+    mutationFn: async ({ userId, desired }: { userId: string; desired: string[] }) => {
+      const current = rolesByUser.get(userId) ?? []
+      const currentRoleIds = new Set(current.map(c => c.role.id))
+      const desiredSet = new Set(desired)
+      for (const c of current) {
+        if (!desiredSet.has(c.role.id)) {
+          await revokeOrgRole(orgId!, c.assignmentId)
+        }
+      }
+      for (const rid of desired) {
+        if (!currentRoleIds.has(rid)) {
+          await grantOrgRole(orgId!, userId, rid)
+        }
+      }
+    },
+    onSuccess: () => { invalidate(); setEditingUser(null) },
+  })
+
+  const openEdit = (user: OrgUser) => {
+    const current = rolesByUser.get(user.id) ?? []
+    setSelectedRoleIds(current.map(c => c.role.id))
     setEditingUser(user)
   }
 
@@ -54,11 +123,11 @@ export default function AdminUsers() {
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     )
 
+  if (!orgId) return <div style={{ padding: 8, fontSize: 13 }}>Select an organisation.</div>
   if (usersQ.isLoading) return <div style={{ padding: 8 }}><div className="spinner" /></div>
   if (usersQ.isError) return <div style={{ color: 'var(--status-error)', fontSize: 13 }}>Failed to load users.</div>
 
   const users = usersQ.data ?? []
-  const roles = rolesQ.data ?? []
 
   return (
     <div>
@@ -92,87 +161,89 @@ export default function AdminUsers() {
               </tr>
             </thead>
             <tbody>
-              {users.map((user, idx) => (
-                <tr
-                  key={user.id}
-                  style={{
-                    borderBottom: idx < users.length - 1 ? '1px solid var(--color-border)' : 'none',
-                    background: removingId === user.id ? 'var(--status-error-soft)' : 'transparent',
-                  }}
-                >
-                  <td style={tdStyle}>
-                    <span style={{ fontSize: 13 }}>{user.email}</span>
-                  </td>
-                  <td style={tdStyle}>
-                    <span style={{
-                      fontSize: 11,
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                      background: 'var(--color-surface-2)',
-                      color: 'var(--color-text-muted)',
-                    }}>
-                      {user.auth_provider}
-                    </span>
-                  </td>
-                  <td style={tdStyle}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {user.roles.length === 0
-                        ? <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>No roles</span>
-                        : user.roles.map(r => (
-                          <span key={r} style={roleChipStyle}>{r}</span>
-                        ))
-                      }
-                    </div>
-                  </td>
-                  <td style={{ ...tdStyle, textAlign: 'right' }}>
-                    {removingId === user.id ? (
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button
-                          className="btn-ghost"
-                          style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
-                          disabled={removeMut.isPending}
-                          onClick={() => removeMut.mutate(user.id)}
-                        >
-                          {removeMut.isPending ? 'Removing…' : 'Confirm remove'}
-                        </button>
-                        <button
-                          className="btn-ghost"
-                          style={{ fontSize: 12, padding: '3px 8px' }}
-                          onClick={() => setRemovingId(null)}
-                        >
-                          Cancel
-                        </button>
+              {users.map((user, idx) => {
+                const userRoles = rolesByUser.get(user.id) ?? []
+                return (
+                  <tr
+                    key={user.id}
+                    style={{
+                      borderBottom: idx < users.length - 1 ? '1px solid var(--color-border)' : 'none',
+                      background: removingId === user.id ? 'var(--status-error-soft)' : 'transparent',
+                    }}
+                  >
+                    <td style={tdStyle}>
+                      <span style={{ fontSize: 13 }}>{user.email}</span>
+                    </td>
+                    <td style={tdStyle}>
+                      <span style={{
+                        fontSize: 11,
+                        padding: '2px 6px',
+                        borderRadius: 4,
+                        background: 'var(--color-surface-2)',
+                        color: 'var(--color-text-muted)',
+                      }}>
+                        {user.auth_provider}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {userRoles.length === 0
+                          ? <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>No roles</span>
+                          : userRoles.map(r => (
+                            <span key={r.assignmentId} style={roleChipStyle}>{r.role.name}</span>
+                          ))
+                        }
                       </div>
-                    ) : (
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                        <button
-                          className="btn-ghost"
-                          style={{ fontSize: 12, padding: '3px 8px' }}
-                          onClick={() => openEdit(user)}
-                        >
-                          Edit roles
-                        </button>
-                        <button
-                          className="btn-ghost"
-                          style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
-                          onClick={() => setRemovingId(user.id)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      {removingId === user.id ? (
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn-ghost"
+                            style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
+                            disabled={removeMut.isPending}
+                            onClick={() => removeMut.mutate(user.id)}
+                          >
+                            {removeMut.isPending ? 'Removing…' : 'Confirm remove'}
+                          </button>
+                          <button
+                            className="btn-ghost"
+                            style={{ fontSize: 12, padding: '3px 8px' }}
+                            onClick={() => setRemovingId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn-ghost"
+                            style={{ fontSize: 12, padding: '3px 8px' }}
+                            onClick={() => openEdit(user)}
+                          >
+                            Edit roles
+                          </button>
+                          <button
+                            className="btn-ghost"
+                            style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
+                            onClick={() => setRemovingId(user.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         )}
       </div>
 
-      {/* Add user modal */}
       {showAdd && (
         <AddUserModal
-          roles={roles}
+          roles={allRoles}
           pending={createMut.isPending}
           error={createMut.error as Error | null}
           onCancel={() => setShowAdd(false)}
@@ -180,7 +251,6 @@ export default function AdminUsers() {
         />
       )}
 
-      {/* Role edit modal */}
       {editingUser && (
         <div style={{
           position: 'fixed', inset: 0,
@@ -202,7 +272,7 @@ export default function AdminUsers() {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflowY: 'auto' }}>
-              {roles.map(role => (
+              {allRoles.map(role => (
                 <label
                   key={role.id}
                   style={{
@@ -245,7 +315,7 @@ export default function AdminUsers() {
               <button
                 className="btn-primary"
                 disabled={setRolesMut.isPending}
-                onClick={() => setRolesMut.mutate({ userId: editingUser.id, roleIds: selectedRoleIds })}
+                onClick={() => setRolesMut.mutate({ userId: editingUser.id, desired: selectedRoleIds })}
               >
                 {setRolesMut.isPending ? 'Saving…' : 'Save roles'}
               </button>
@@ -298,7 +368,7 @@ function AddUserModal({
     auth_provider: 'internal' | 'external'
     password?: string
     external_id?: string
-    role_ids?: string[]
+    role_ids: string[]
   }) => void
 }) {
   const [email, setEmail] = useState('')
@@ -323,7 +393,7 @@ function AddUserModal({
       auth_provider: provider,
       password: provider === 'internal' ? password : undefined,
       external_id: provider === 'external' ? externalId.trim() : undefined,
-      role_ids: selectedRoleIds.length > 0 ? selectedRoleIds : undefined,
+      role_ids: selectedRoleIds,
     })
   }
 

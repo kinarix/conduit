@@ -21,7 +21,7 @@ function readSavedWidth() {
 
 export default function Layout() {
   const { user } = useAuth()
-  const isPlatformAdmin = user?.permissions?.includes('org.create') ?? false
+  const isPlatformAdmin = user?.is_global_admin ?? false
 
   const { isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['orgs'],
@@ -90,7 +90,15 @@ export default function Layout() {
       />
 
       <main style={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
-        {user?.setup_completed === false ? <Welcome /> : <Outlet />}
+        {/* setup_completed is per-org under phase-23.1; show Welcome if the
+            user's first/only org is still pending setup. Multi-org users
+            see the regular shell — the org switcher (TODO) will let them
+            pick which one to operate in. */}
+        {user?.orgs?.length === 1 && user.orgs[0].setup_completed === false ? (
+          <Welcome />
+        ) : (
+          <Outlet />
+        )}
       </main>
     </div>
   )

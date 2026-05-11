@@ -48,11 +48,8 @@ function ModellerCreate({ groupId, orgId }: { groupId: string; orgId: string }) 
 
   const createMut = useMutation({
     mutationFn: () => {
-      // Generate a unique-ish key client-side. The user can rename + change
-      // the key from inside the modeller.
       const stub = `process-${Math.random().toString(36).slice(2, 8)}`
-      return createDraft({
-        org_id: orgId,
+      return createDraft(orgId, {
         process_group_id: groupId,
         key: stub,
         name: 'Untitled process',
@@ -111,8 +108,9 @@ function ModellerEdit({ defId }: { defId: string }) {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null)
 
   const { data: existing } = useQuery({
-    queryKey: ['deployment', defId],
-    queryFn: () => fetchDeployment(defId),
+    queryKey: ['deployment', org?.id, defId],
+    queryFn: () => fetchDeployment(org!.id, defId),
+    enabled: !!org,
   })
 
   const { data: savedLayout } = useQuery({
@@ -148,7 +146,7 @@ function ModellerEdit({ defId }: { defId: string }) {
       if (!org) throw new Error('No organisation selected')
       if (!process_group_id) throw new Error('Process is not assigned to a process group')
       const bpmn_xml = await modRef.current!.getXml()
-      return saveDraft({ org_id: org.id, process_group_id, key: overrides?.key ?? key, name: overrides?.name ?? name, bpmn_xml })
+      return saveDraft(org.id, { process_group_id, key: overrides?.key ?? key, name: overrides?.name ?? name, bpmn_xml })
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['deployments'] })
@@ -169,10 +167,10 @@ function ModellerEdit({ defId }: { defId: string }) {
 
       const existingDraftId = draftId ?? (existing?.status === 'draft' ? existing.id : null)
       if (existingDraftId) {
-        await saveDraft({ org_id: org.id, process_group_id, key, name, bpmn_xml })
-        return promoteDraft(existingDraftId)
+        await saveDraft(org.id, { process_group_id, key, name, bpmn_xml })
+        return promoteDraft(org.id, existingDraftId)
       }
-      return deployProcess({ org_id: org.id, process_group_id, key, name, bpmn_xml })
+      return deployProcess(org.id, { process_group_id, key, name, bpmn_xml })
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['deployments'] })

@@ -2,14 +2,17 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchTasks, type Task } from '../api/tasks'
 import CompleteTaskPanel from './Tasks/CompleteTaskPanel'
+import { useOrg } from '../App'
 
 export default function TaskList() {
   const [completing, setCompleting] = useState<Task | null>(null)
+  const { org } = useOrg()
 
   const { data: tasks, isLoading } = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
+    queryKey: ['tasks', org?.id],
+    queryFn: () => fetchTasks(org!.id),
     refetchInterval: 5_000,
+    enabled: !!org,
   })
 
   if (isLoading) {

@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchAuthConfig, patchAuthConfig } from '../../api/admin'
+import { useOrg } from '../../App'
 
 export default function AdminAuth() {
   const qc = useQueryClient()
-  const configQ = useQuery({ queryKey: ['admin-auth-config'], queryFn: fetchAuthConfig })
+  const { org } = useOrg()
+  const orgId = org?.id
+  const configQ = useQuery({
+    queryKey: ['admin-auth-config', orgId],
+    queryFn: () => fetchAuthConfig(orgId!),
+    enabled: !!orgId,
+  })
 
   const [provider, setProvider] = useState<'internal' | 'oidc'>('internal')
   const [issuer, setIssuer] = useState('')
@@ -21,7 +28,7 @@ export default function AdminAuth() {
   }, [configQ.data])
 
   const saveMut = useMutation({
-    mutationFn: () => patchAuthConfig({
+    mutationFn: () => patchAuthConfig(orgId!, {
       provider,
       oidc_issuer: provider === 'oidc' ? issuer || null : null,
       oidc_client_id: provider === 'oidc' ? clientId || null : null,
@@ -29,11 +36,12 @@ export default function AdminAuth() {
       oidc_redirect_uri: provider === 'oidc' ? redirectUri || null : null,
     }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-auth-config'] })
+      qc.invalidateQueries({ queryKey: ['admin-auth-config', orgId] })
       setClientSecret('')
     },
   })
 
+  if (!orgId) return <div style={{ padding: 8, fontSize: 13 }}>Select an organisation.</div>
   if (configQ.isLoading) return <div style={{ padding: 8 }}><div className="spinner" /></div>
   if (configQ.isError) return <div style={{ color: 'var(--status-error)', fontSize: 13 }}>Failed to load auth config.</div>
 

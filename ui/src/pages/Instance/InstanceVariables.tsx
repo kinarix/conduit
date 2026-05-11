@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchInstanceEvents, type ProcessEvent } from '../../api/events'
+import { useOrg } from '../../App'
 import styles from './InstanceVariables.module.css'
 
 interface Props {
@@ -49,9 +50,11 @@ function display(v: unknown): string {
 }
 
 export default function InstanceVariables({ instanceId }: Props) {
+  const { org } = useOrg()
   const { data: events = [], isLoading } = useQuery({
-    queryKey: ['instance-events', instanceId],
-    queryFn: () => fetchInstanceEvents(instanceId),
+    queryKey: ['instance-events', org?.id, instanceId],
+    queryFn: () => fetchInstanceEvents(org!.id, instanceId),
+    enabled: !!org,
     refetchInterval: 5_000,
   })
 

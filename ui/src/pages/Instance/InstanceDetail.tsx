@@ -12,6 +12,7 @@ import { fetchDeployment, type ProcessDefinition } from '../../api/deployments'
 import { fetchTasks, type Task } from '../../api/tasks'
 import { fetchInstanceEvents, type ProcessEvent } from '../../api/events'
 import { InstanceActions } from '../../components/InstanceActions'
+import { useOrg } from '../../App'
 import InstanceTabs, { type TabSpec } from './InstanceTabs'
 import InstanceTimeline from './InstanceTimeline'
 import InstanceVariables from './InstanceVariables'
@@ -21,44 +22,47 @@ import styles from './InstanceDetail.module.css'
 export default function InstanceDetail() {
   const { instanceId = '' } = useParams<{ instanceId: string }>()
   const navigate = useNavigate()
+  const { org } = useOrg()
+  const orgId = org?.id
 
   const instanceQ = useQuery({
-    queryKey: ['instance', instanceId],
-    queryFn: () => fetchInstance(instanceId),
-    enabled: !!instanceId,
+    queryKey: ['instance', orgId, instanceId],
+    queryFn: () => fetchInstance(orgId!, instanceId),
+    enabled: !!instanceId && !!orgId,
     refetchInterval: 5_000,
   })
 
   const defQ = useQuery({
-    queryKey: ['deployment', instanceQ.data?.definition_id],
-    queryFn: () => fetchDeployment(instanceQ.data!.definition_id),
-    enabled: !!instanceQ.data?.definition_id,
+    queryKey: ['deployment', orgId, instanceQ.data?.definition_id],
+    queryFn: () => fetchDeployment(orgId!, instanceQ.data!.definition_id),
+    enabled: !!instanceQ.data?.definition_id && !!orgId,
   })
 
   const tasksQ = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
+    queryKey: ['tasks', orgId],
+    queryFn: () => fetchTasks(orgId!),
+    enabled: !!orgId,
     refetchInterval: 5_000,
   })
 
   const historyQ = useQuery({
-    queryKey: ['instance-history', instanceId],
-    queryFn: () => fetchInstanceHistory(instanceId),
-    enabled: !!instanceId,
+    queryKey: ['instance-history', orgId, instanceId],
+    queryFn: () => fetchInstanceHistory(orgId!, instanceId),
+    enabled: !!instanceId && !!orgId,
     refetchInterval: 5_000,
   })
 
   const jobsQ = useQuery({
-    queryKey: ['instance-jobs', instanceId],
-    queryFn: () => fetchInstanceJobs(instanceId),
-    enabled: !!instanceId,
+    queryKey: ['instance-jobs', orgId, instanceId],
+    queryFn: () => fetchInstanceJobs(orgId!, instanceId),
+    enabled: !!instanceId && !!orgId,
     refetchInterval: 5_000,
   })
 
   const eventsQ = useQuery({
-    queryKey: ['instance-events', instanceId],
-    queryFn: () => fetchInstanceEvents(instanceId),
-    enabled: !!instanceId,
+    queryKey: ['instance-events', orgId, instanceId],
+    queryFn: () => fetchInstanceEvents(orgId!, instanceId),
+    enabled: !!instanceId && !!orgId,
     refetchInterval: 5_000,
   })
 

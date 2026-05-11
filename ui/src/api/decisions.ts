@@ -48,23 +48,19 @@ export const fetchDecisions = (
   if (processGroupId) params.set('process_group_id', processGroupId)
   if (allVersions) params.set('all_versions', 'true')
   const qs = params.toString()
-  return apiFetch<DecisionSummary[]>(`/api/v1/decisions${qs ? `?${qs}` : ''}`, {
-    headers: { 'X-Org-Id': orgId },
-  })
+  return apiFetch<DecisionSummary[]>(`/api/v1/orgs/${orgId}/decisions${qs ? `?${qs}` : ''}`)
 }
 
 export const fetchDecision = (orgId: string, key: string): Promise<DecisionDetail> =>
-  apiFetch<DecisionDetail>(`/api/v1/decisions/${encodeURIComponent(key)}`, {
-    headers: { 'X-Org-Id': orgId },
-  })
+  apiFetch<DecisionDetail>(`/api/v1/orgs/${orgId}/decisions/${encodeURIComponent(key)}`)
 
 export const deployDecision = (orgId: string, xml: string, processGroupId?: string): Promise<void> => {
   const url = processGroupId
-    ? `/api/v1/decisions?process_group_id=${encodeURIComponent(processGroupId)}`
-    : `/api/v1/decisions`
+    ? `/api/v1/orgs/${orgId}/decisions?process_group_id=${encodeURIComponent(processGroupId)}`
+    : `/api/v1/orgs/${orgId}/decisions`
   return apiFetch<void>(url, {
     method: 'POST',
-    headers: { 'X-Org-Id': orgId, 'Content-Type': 'text/xml' },
+    headers: { 'Content-Type': 'text/xml' },
     body: xml,
   })
 }
@@ -105,16 +101,15 @@ export function makeStubDmn(key: string, name: string): string {
 }
 
 export const renameDecision = (orgId: string, decisionKey: string, name: string): Promise<void> =>
-  apiFetch<void>('/api/v1/decisions/by-key', {
+  apiFetch<void>(`/api/v1/orgs/${orgId}/decisions/by-key`, {
     method: 'PATCH',
-    headers: { 'X-Org-Id': orgId, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ decision_key: decisionKey, name }),
   })
 
 export const deleteDecision = (orgId: string, key: string): Promise<void> =>
-  apiFetch<void>(`/api/v1/decisions/${encodeURIComponent(key)}`, {
+  apiFetch<void>(`/api/v1/orgs/${orgId}/decisions/${encodeURIComponent(key)}`, {
     method: 'DELETE',
-    headers: { 'X-Org-Id': orgId },
   })
 
 export const testDecision = (
@@ -122,8 +117,7 @@ export const testDecision = (
   xml: string,
   context: Record<string, unknown>,
 ): Promise<TestResult> =>
-  apiFetch<TestResult>(`/api/v1/decisions/test`, {
+  apiFetch<TestResult>(`/api/v1/orgs/${orgId}/decisions/test`, {
     method: 'POST',
-    headers: { 'X-Org-Id': orgId },
     body: JSON.stringify({ dmn_xml: xml, context }),
   })

@@ -9,6 +9,7 @@ import { fetchDeployment } from '../../api/deployments'
 import { fetchTasks } from '../../api/tasks'
 import { fetchInstanceEvents } from '../../api/events'
 import BpmnViewer from '../../components/bpmn/BpmnViewer'
+import { useOrg } from '../../App'
 import type { RuntimeStatus } from '../../components/bpmn/bpmnTypes'
 
 interface Props {
@@ -16,39 +17,47 @@ interface Props {
 }
 
 export default function InstanceDiagram({ instanceId }: Props) {
+  const { org } = useOrg()
+  const orgId = org?.id
+
   const instanceQ = useQuery({
-    queryKey: ['instance', instanceId],
-    queryFn: () => fetchInstance(instanceId),
+    queryKey: ['instance', orgId, instanceId],
+    queryFn: () => fetchInstance(orgId!, instanceId),
+    enabled: !!orgId,
     refetchInterval: 5_000,
   })
 
   const defQ = useQuery({
-    queryKey: ['deployment', instanceQ.data?.definition_id],
-    queryFn: () => fetchDeployment(instanceQ.data!.definition_id),
-    enabled: !!instanceQ.data?.definition_id,
+    queryKey: ['deployment', orgId, instanceQ.data?.definition_id],
+    queryFn: () => fetchDeployment(orgId!, instanceQ.data!.definition_id),
+    enabled: !!instanceQ.data?.definition_id && !!orgId,
   })
 
   const historyQ = useQuery({
-    queryKey: ['instance-history', instanceId],
-    queryFn: () => fetchInstanceHistory(instanceId),
+    queryKey: ['instance-history', orgId, instanceId],
+    queryFn: () => fetchInstanceHistory(orgId!, instanceId),
+    enabled: !!orgId,
     refetchInterval: 5_000,
   })
 
   const tasksQ = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
+    queryKey: ['tasks', orgId],
+    queryFn: () => fetchTasks(orgId!),
+    enabled: !!orgId,
     refetchInterval: 5_000,
   })
 
   const jobsQ = useQuery({
-    queryKey: ['instance-jobs', instanceId],
-    queryFn: () => fetchInstanceJobs(instanceId),
+    queryKey: ['instance-jobs', orgId, instanceId],
+    queryFn: () => fetchInstanceJobs(orgId!, instanceId),
+    enabled: !!orgId,
     refetchInterval: 5_000,
   })
 
   const eventsQ = useQuery({
-    queryKey: ['instance-events', instanceId],
-    queryFn: () => fetchInstanceEvents(instanceId),
+    queryKey: ['instance-events', orgId, instanceId],
+    queryFn: () => fetchInstanceEvents(orgId!, instanceId),
+    enabled: !!orgId,
     refetchInterval: 5_000,
   })
 

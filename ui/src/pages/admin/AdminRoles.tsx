@@ -1,31 +1,93 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  listAdminRoles, createAdminRole, updateAdminRole, removeAdminRole,
+  listBuiltinRoles, listOrgRoles, createOrgRole, updateOrgRole, removeOrgRole,
   type AdminRole,
 } from '../../api/admin'
+import { useOrg } from '../../App'
 
 const PERMISSION_DETAILS: { name: string; description: string }[] = [
-  { name: 'process.model',    description: 'Create and edit BPMN/DMN drafts in the modeller. Cannot promote to production.' },
-  { name: 'process.deploy',   description: 'Upload BPMN definitions and promote drafts to production.' },
-  { name: 'process.disable',  description: 'Disable or re-enable specific process definition versions.' },
-  { name: 'instance.start',   description: 'Start new process instances.' },
-  { name: 'instance.cancel',  description: 'Cancel running instances.' },
-  { name: 'instance.read',    description: 'View instances, variables, history, timeline, and audit log.' },
-  { name: 'task.complete',    description: 'Complete user tasks and external tasks.' },
-  { name: 'decision.deploy',  description: 'Upload and version DMN decision definitions.' },
-  { name: 'secret.manage',    description: 'Create, read, update, and delete encrypted secrets.' },
-  { name: 'user.manage',      description: 'Invite users, remove users, and view the org user list.' },
-  { name: 'role.manage',      description: 'Assign and revoke roles; create and delete custom org roles.' },
-  { name: 'worker.manage',    description: 'Create worker service accounts and manage worker tokens.' },
-  { name: 'org.manage',       description: 'Rename the org, configure auth providers, and delete the org.' },
+  { name: 'org.create',              description: 'Create new organisations (global-only).' },
+  { name: 'org.read',                description: 'View organisation details.' },
+  { name: 'org.update',              description: 'Rename the organisation, change settings.' },
+  { name: 'org.delete',              description: 'Delete the organisation and all its data.' },
+  { name: 'org_member.create',       description: 'Add users as members of the organisation.' },
+  { name: 'org_member.read',         description: 'View the org member list.' },
+  { name: 'org_member.delete',       description: 'Remove users from the organisation.' },
+  { name: 'user.create',             description: 'Create new global user identities.' },
+  { name: 'user.read',               description: 'View user identities and metadata.' },
+  { name: 'user.update',             description: 'Update user details (email, password).' },
+  { name: 'user.delete',             description: 'Delete user identities globally.' },
+  { name: 'role.create',             description: 'Create custom role definitions.' },
+  { name: 'role.read',               description: 'View role definitions.' },
+  { name: 'role.update',             description: 'Update custom role definitions.' },
+  { name: 'role.delete',             description: 'Delete custom role definitions.' },
+  { name: 'role_assignment.create',  description: 'Grant roles to users.' },
+  { name: 'role_assignment.read',    description: 'View role grants (audit).' },
+  { name: 'role_assignment.delete',  description: 'Revoke role grants.' },
+  { name: 'auth_config.read',        description: 'View authentication settings.' },
+  { name: 'auth_config.update',      description: 'Configure auth providers (OIDC, etc.).' },
+  { name: 'process.create',          description: 'Create process definitions.' },
+  { name: 'process.read',            description: 'View process definitions.' },
+  { name: 'process.update',          description: 'Edit process definitions and drafts.' },
+  { name: 'process.delete',          description: 'Delete process definition versions.' },
+  { name: 'process.deploy',          description: 'Promote drafts to production.' },
+  { name: 'process.disable',         description: 'Disable/enable specific versions.' },
+  { name: 'process_group.create',    description: 'Create process groups.' },
+  { name: 'process_group.read',      description: 'View process groups.' },
+  { name: 'process_group.update',    description: 'Rename process groups.' },
+  { name: 'process_group.delete',    description: 'Delete process groups.' },
+  { name: 'instance.read',           description: 'View instances and their state.' },
+  { name: 'instance.start',          description: 'Start new process instances.' },
+  { name: 'instance.cancel',         description: 'Cancel running instances.' },
+  { name: 'instance.pause',          description: 'Pause running instances.' },
+  { name: 'instance.resume',         description: 'Resume suspended instances.' },
+  { name: 'instance.delete',         description: 'Delete instances and their history.' },
+  { name: 'task.read',               description: 'View user tasks.' },
+  { name: 'task.complete',           description: 'Complete user tasks.' },
+  { name: 'task.update',             description: 'Claim or reassign tasks.' },
+  { name: 'external_task.execute',   description: 'Workers: fetch, complete, fail, extend.' },
+  { name: 'decision.create',         description: 'Create decision (DMN) definitions.' },
+  { name: 'decision.read',           description: 'View decision definitions.' },
+  { name: 'decision.update',         description: 'Edit decision tables.' },
+  { name: 'decision.delete',         description: 'Delete decision definitions.' },
+  { name: 'decision.deploy',         description: 'Deploy DMN versions.' },
+  { name: 'secret.create',           description: 'Create encrypted secrets.' },
+  { name: 'secret.read_metadata',    description: 'View secret names and timestamps.' },
+  { name: 'secret.read_plaintext',   description: 'Read the actual secret value.' },
+  { name: 'secret.update',           description: 'Update secret values.' },
+  { name: 'secret.delete',           description: 'Delete secrets.' },
+  { name: 'api_key.manage',          description: 'Admin: create/list/revoke API keys.' },
+  { name: 'process_layout.read',     description: 'View modeller layout data.' },
+  { name: 'process_layout.update',   description: 'Save modeller layout data.' },
+  { name: 'message.correlate',       description: 'Send messages to running instances.' },
+  { name: 'signal.broadcast',        description: 'Broadcast signals across instances.' },
 ]
 
 const PERMISSIONS = PERMISSION_DETAILS.map(p => p.name)
 
 export default function AdminRoles() {
   const qc = useQueryClient()
-  const rolesQ = useQuery({ queryKey: ['admin-roles'], queryFn: listAdminRoles })
+  const { org } = useOrg()
+  const orgId = org?.id
+
+  const builtinQ = useQuery({
+    queryKey: ['builtin-roles'],
+    queryFn: listBuiltinRoles,
+  })
+  const customQ = useQuery({
+    queryKey: ['org-roles', orgId],
+    queryFn: () => listOrgRoles(orgId!),
+    enabled: !!orgId,
+  })
+  const rolesQ = {
+    data: useMemo(
+      () => [...(builtinQ.data ?? []), ...(customQ.data ?? [])],
+      [builtinQ.data, customQ.data],
+    ),
+    isLoading: builtinQ.isLoading || customQ.isLoading,
+    isError: builtinQ.isError || customQ.isError,
+  }
 
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -35,26 +97,26 @@ export default function AdminRoles() {
 
   const createMut = useMutation({
     mutationFn: ({ name, permissions }: { name: string; permissions: string[] }) =>
-      createAdminRole(name, permissions),
+      createOrgRole(orgId!, name, permissions),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-roles'] })
+      qc.invalidateQueries({ queryKey: ['org-roles', orgId] })
       setShowCreate(false)
     },
   })
 
   const updateMut = useMutation({
     mutationFn: ({ id, name, permissions }: { id: string; name: string; permissions: string[] }) =>
-      updateAdminRole(id, name, permissions),
+      updateOrgRole(orgId!, id, name, permissions),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-roles'] })
+      qc.invalidateQueries({ queryKey: ['org-roles', orgId] })
       setEditingId(null)
     },
   })
 
   const removeMut = useMutation({
-    mutationFn: removeAdminRole,
+    mutationFn: (id: string) => removeOrgRole(orgId!, id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin-roles'] })
+      qc.invalidateQueries({ queryKey: ['org-roles', orgId] })
       setRemovingId(null)
     },
   })
@@ -65,10 +127,11 @@ export default function AdminRoles() {
     setSelectedPerm(prev => (prev === perm && panelOpen ? null : perm))
   }
 
+  if (!orgId) return <div style={{ padding: 8, fontSize: 13 }}>Select an organisation.</div>
   if (rolesQ.isLoading) return <div style={{ padding: 8 }}><div className="spinner" /></div>
   if (rolesQ.isError) return <div style={{ color: 'var(--status-error)', fontSize: 13 }}>Failed to load roles.</div>
 
-  const roles = rolesQ.data ?? []
+  const roles = rolesQ.data
   const builtIn = roles.filter(r => r.org_id === null)
   const custom = roles.filter(r => r.org_id !== null)
 

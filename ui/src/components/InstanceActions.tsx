@@ -26,14 +26,14 @@ export function InstanceActions({ instance, variant = 'icons', onDeleted }: Prop
     qc.invalidateQueries({ queryKey: ['instances'] })
   }
 
-  const pauseMut = useMutation({ mutationFn: () => pauseInstance(instance.id), onSuccess: invalidate })
-  const resumeMut = useMutation({ mutationFn: () => resumeInstance(instance.id), onSuccess: invalidate })
+  const pauseMut = useMutation({ mutationFn: () => pauseInstance(instance.org_id, instance.id), onSuccess: invalidate })
+  const resumeMut = useMutation({ mutationFn: () => resumeInstance(instance.org_id, instance.id), onSuccess: invalidate })
   const cancelMut = useMutation({
-    mutationFn: () => cancelInstance(instance.id),
+    mutationFn: () => cancelInstance(instance.org_id, instance.id),
     onSuccess: () => { invalidate(); setConfirmCancel(false) },
   })
   const deleteMut = useMutation({
-    mutationFn: () => deleteInstance(instance.id),
+    mutationFn: () => deleteInstance(instance.org_id, instance.id),
     onSuccess: () => { invalidate(); setConfirmDelete(false); onDeleted?.() },
   })
 

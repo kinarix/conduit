@@ -50,8 +50,7 @@ export default function ProcessRow({ proc, org, onConfirmDelete }: Props) {
 
   const renameMut = useMutation({
     mutationFn: (name: string) =>
-      renameProcess({
-        org_id: org.id,
+      renameProcess(org.id, {
         process_group_id: proc.groupId,
         process_key: proc.key,
         name,

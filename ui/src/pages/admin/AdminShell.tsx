@@ -2,16 +2,17 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
 const TABS: { to: string; label: string; perms: string[] }[] = [
-  { to: 'users',    label: 'Users',    perms: ['user.manage', 'role.manage'] },
-  { to: 'roles',    label: 'Roles',    perms: ['role.manage'] },
-  { to: 'auth',     label: 'Auth',     perms: ['org.manage'] },
-  { to: 'settings', label: 'Settings', perms: ['org.manage'] },
+  { to: 'users',    label: 'Users',    perms: ['user.read', 'user.create', 'role_assignment.read', 'role_assignment.create'] },
+  { to: 'roles',    label: 'Roles',    perms: ['role.read', 'role.create'] },
+  { to: 'auth',     label: 'Auth',     perms: ['auth_config.read', 'auth_config.update'] },
+  { to: 'settings', label: 'Settings', perms: ['org.read', 'org.update'] },
 ]
 
 export default function AdminShell() {
   const { user } = useAuth()
-  const perms = new Set(user?.permissions ?? [])
-  const visibleTabs = TABS.filter(t => t.perms.some(p => perms.has(p)))
+  const isGlobalAdmin = user?.is_global_admin ?? false
+  const perms = new Set(user?.global_permissions ?? [])
+  const visibleTabs = isGlobalAdmin ? TABS : TABS.filter(t => t.perms.some(p => perms.has(p)))
 
   return (
     <div style={{ padding: '24px 32px', maxWidth: 960, margin: '0 auto' }}>

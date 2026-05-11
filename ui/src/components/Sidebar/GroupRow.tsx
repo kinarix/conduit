@@ -49,7 +49,7 @@ export default function GroupRow({
   const orgId = org.id
 
   const renameMut = useMutation({
-    mutationFn: (name: string) => renameProcessGroup(group.id, name),
+    mutationFn: (name: string) => renameProcessGroup(orgId, group.id, name),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['process-groups', orgId] })
       setEditing(false)
@@ -58,13 +58,13 @@ export default function GroupRow({
   })
 
   const assignMut = useMutation({
-    mutationFn: (defId: string) => assignProcessGroup(defId, group.id),
+    mutationFn: (defId: string) => assignProcessGroup(orgId, defId, group.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deployments', orgId] }),
   })
 
   const importMut = useMutation({
     mutationFn: ({ key, name, bpmn_xml }: { key: string; name: string; bpmn_xml: string }) =>
-      createDraft({ org_id: orgId, process_group_id: group.id, key, name, bpmn_xml }),
+      createDraft(orgId, { process_group_id: group.id, key, name, bpmn_xml }),
     onSuccess: def => {
       qc.invalidateQueries({ queryKey: ['deployments', orgId] })
       navigate(`/definitions/${def.id}/edit`)

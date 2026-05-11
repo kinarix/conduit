@@ -3,19 +3,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 import { fetchOrgs, type Org } from '../../api/orgs'
 import {
-  createAdminUser,
-  listAdminRoles,
-  type AdminUser,
+  createOrgUser,
+  grantOrgRole,
+  listOrgUsers,
+  listBuiltinRoles,
+  type OrgUser,
   type AdminRole,
 } from '../../api/admin'
-import { apiFetch } from '../../api/client'
 import InstanceSetup from './InstanceSetup'
 
-// Platform admin lists users in a target org via ?org_id=… which the backend
-// gates on `org.create`. Keeping the call inline (rather than extending the
-// admin api module) — it is platform-specific.
-const listUsersInOrg = (orgId: string) =>
-  apiFetch<AdminUser[]>(`/api/v1/admin/users?org_id=${encodeURIComponent(orgId)}`)
+type AdminUser = OrgUser
+
+const listUsersInOrg = (orgId: string) => listOrgUsers(orgId)
 
 type View =
   | { kind: 'list' }
@@ -176,11 +175,29 @@ function OrgUsers({ org, onBack }: { org: Org; onBack: () => void }) {
     queryKey: ['org-users', org.id],
     queryFn: () => listUsersInOrg(org.id),
   })
-  const rolesQ = useQuery({ queryKey: ['admin-roles'], queryFn: listAdminRoles })
+  const rolesQ = useQuery({ queryKey: ['builtin-roles'], queryFn: listBuiltinRoles })
   const [showAdd, setShowAdd] = useState(false)
 
   const createMut = useMutation({
-    mutationFn: createAdminUser,
+    mutationFn: async (body: {
+      org_id: string
+      email: string
+      auth_provider: 'internal' | 'external'
+      password?: string
+      external_id?: string
+      role_ids?: string[]
+    }) => {
+      const user = await createOrgUser(body.org_id, {
+        email: body.email,
+        auth_provider: body.auth_provider,
+        password: body.password,
+        external_id: body.external_id,
+      })
+      for (const rid of body.role_ids ?? []) {
+        await grantOrgRole(body.org_id, user.id, rid)
+      }
+      return user
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['org-users', org.id] })
       setShowAdd(false)
@@ -235,7 +252,6 @@ function OrgUsers({ org, onBack }: { org: Org; onBack: () => void }) {
                 <tr style={{ background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)' }}>
                   <th style={thStyle}>Email</th>
                   <th style={thStyle}>Provider</th>
-                  <th style={thStyle}>Roles</th>
                 </tr>
               </thead>
               <tbody>
@@ -249,16 +265,6 @@ function OrgUsers({ org, onBack }: { org: Org; onBack: () => void }) {
                       }}>
                         {u.auth_provider}
                       </span>
-                    </td>
-                    <td style={tdStyle}>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        {u.roles.length === 0
-                          ? <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>No roles</span>
-                          : u.roles.map(r => (
-                            <span key={r} style={roleChipStyle}>{r}</span>
-                          ))
-                        }
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -308,7 +314,7 @@ function AddUserToOrgModal({
   const [password, setPassword] = useState('')
   const [externalId, setExternalId] = useState('')
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>(() => {
-    const orgAdmin = roles.find(r => r.name === 'Org Admin' && r.org_id === null)
+    const orgAdmin = roles.find(r => r.name === 'OrgAdmin' && r.org_id === null)
     return orgAdmin ? [orgAdmin.id] : []
   })
 

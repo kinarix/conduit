@@ -27,5 +27,5 @@ export interface ProcessEvent {
   metadata: Record<string, unknown>
 }
 
-export const fetchInstanceEvents = (id: string) =>
-  apiFetch<ProcessEvent[]>(`/api/v1/process-instances/${id}/events`)
+export const fetchInstanceEvents = (orgId: string, id: string) =>
+  apiFetch<ProcessEvent[]>(`/api/v1/orgs/${orgId}/process-instances/${id}/events`)

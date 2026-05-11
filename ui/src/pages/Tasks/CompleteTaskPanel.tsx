@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { completeTask, type Task } from '../../api/tasks'
+import { useOrg } from '../../App'
 import SidePanel from '../../components/forms/SidePanel'
 import VariableForm, { type VariableFormHandle } from '../../components/forms/VariableForm'
 
@@ -11,6 +12,7 @@ interface Props {
 
 export default function CompleteTaskPanel({ task, onClose }: Props) {
   const qc = useQueryClient()
+  const { org } = useOrg()
   const formRef = useRef<VariableFormHandle>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -22,7 +24,7 @@ export default function CompleteTaskPanel({ task, onClose }: Props) {
 
   const mut = useMutation({
     mutationFn: (variables: Array<{ name: string; value_type: string; value: unknown }>) =>
-      completeTask(task.id, variables),
+      completeTask(org!.id, task.id, variables),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['instance', task.instance_id] })

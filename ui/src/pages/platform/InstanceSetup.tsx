@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createOrg } from '../../api/orgs'
-import { createAdminUser, listAdminRoles } from '../../api/admin'
+import { createOrgUser, listBuiltinRoles, grantOrgRole } from '../../api/admin'
 
 type Step = 1 | 2
 
@@ -36,26 +36,27 @@ export default function InstanceSetup({ onComplete, onCancel }: Props) {
   const [createdOrgId, setCreatedOrgId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const rolesQ = useQuery({ queryKey: ['admin-roles'], queryFn: listAdminRoles })
+  const rolesQ = useQuery({ queryKey: ['builtin-roles'], queryFn: listBuiltinRoles })
 
   const createOrgMut = useMutation({
     mutationFn: () => createOrg({ name: orgName.trim(), slug: orgSlug.trim() }),
   })
 
   const createUserMut = useMutation({
-    mutationFn: (body: {
+    mutationFn: async (body: {
       org_id: string
       email: string
       password: string
-      role_ids: string[]
-    }) =>
-      createAdminUser({
-        org_id: body.org_id,
+      role_id: string
+    }) => {
+      const user = await createOrgUser(body.org_id, {
         email: body.email,
         auth_provider: 'internal',
         password: body.password,
-        role_ids: body.role_ids,
-      }),
+      })
+      await grantOrgRole(body.org_id, user.id, body.role_id)
+      return user
+    },
   })
 
   const handleStep1 = async () => {
@@ -84,10 +85,10 @@ export default function InstanceSetup({ onComplete, onCancel }: Props) {
       return
     }
     const orgAdminRole = (rolesQ.data ?? []).find(
-      r => r.name === 'Org Admin' && r.org_id === null
+      r => r.name === 'OrgAdmin' && r.org_id === null
     )
     if (!orgAdminRole) {
-      setError('Built-in "Org Admin" role missing — migration 025 not applied?')
+      setError('Built-in "OrgAdmin" role missing — migrations not applied?')
       return
     }
     try {
@@ -95,7 +96,7 @@ export default function InstanceSetup({ onComplete, onCancel }: Props) {
         org_id: createdOrgId,
         email: adminEmail.trim(),
         password: adminPassword,
-        role_ids: [orgAdminRole.id],
+        role_id: orgAdminRole.id,
       })
       onComplete()
     } catch (e) {

@@ -13,70 +13,57 @@ export interface ProcessDefinition {
   disabled_at: string | null
 }
 
-export const setDeploymentDisabled = (id: string, disabled: boolean) =>
-  apiFetch<ProcessDefinition>(`/api/v1/deployments/${id}/disabled`, {
+export const setDeploymentDisabled = (orgId: string, id: string, disabled: boolean) =>
+  apiFetch<ProcessDefinition>(`/api/v1/orgs/${orgId}/deployments/${id}/disabled`, {
     method: 'PATCH',
     body: JSON.stringify({ disabled }),
   })
 
-export const fetchDeployments = (org_id: string) =>
-  apiFetch<ProcessDefinition[]>(`/api/v1/deployments?org_id=${org_id}`)
+export const fetchDeployments = (orgId: string) =>
+  apiFetch<ProcessDefinition[]>(`/api/v1/orgs/${orgId}/deployments`)
 
-export const fetchDeployment = (id: string) =>
-  apiFetch<ProcessDefinition>(`/api/v1/deployments/${id}`)
+export const fetchDeployment = (orgId: string, id: string) =>
+  apiFetch<ProcessDefinition>(`/api/v1/orgs/${orgId}/deployments/${id}`)
 
-export const deployProcess = (body: {
-  org_id: string
+export const deployProcess = (orgId: string, body: {
   process_group_id: string
   key: string
   name: string
   bpmn_xml: string
-}) => apiFetch<ProcessDefinition>('/api/v1/deployments', { method: 'POST', body: JSON.stringify(body) })
+}) => apiFetch<ProcessDefinition>(`/api/v1/orgs/${orgId}/deployments`, { method: 'POST', body: JSON.stringify(body) })
 
-export const saveDraft = (body: {
-  org_id: string
+export const saveDraft = (orgId: string, body: {
   process_group_id: string
   key: string
   name: string
   bpmn_xml: string
-}) => apiFetch<ProcessDefinition>('/api/v1/deployments/draft', { method: 'POST', body: JSON.stringify(body) })
+}) => apiFetch<ProcessDefinition>(`/api/v1/orgs/${orgId}/deployments/draft`, { method: 'POST', body: JSON.stringify(body) })
 
-export const createDraft = (body: {
-  org_id: string
+export const createDraft = (orgId: string, body: {
   process_group_id: string
   key: string
   name: string
   bpmn_xml: string
-}) => apiFetch<ProcessDefinition>('/api/v1/deployments/draft/new', { method: 'POST', body: JSON.stringify(body) })
+}) => apiFetch<ProcessDefinition>(`/api/v1/orgs/${orgId}/deployments/draft/new`, { method: 'POST', body: JSON.stringify(body) })
 
-export const promoteDraft = (id: string) =>
-  apiFetch<ProcessDefinition>(`/api/v1/deployments/${id}/promote`, { method: 'POST' })
+export const promoteDraft = (orgId: string, id: string) =>
+  apiFetch<ProcessDefinition>(`/api/v1/orgs/${orgId}/deployments/${id}/promote`, { method: 'POST' })
 
-export const deleteDeployment = (id: string) =>
-  apiFetch<void>(`/api/v1/deployments/${id}`, { method: 'DELETE' })
+export const deleteDeployment = (orgId: string, id: string) =>
+  apiFetch<void>(`/api/v1/orgs/${orgId}/deployments/${id}`, { method: 'DELETE' })
 
-export const renameProcess = (body: {
-  org_id: string
+export const renameProcess = (orgId: string, body: {
   process_group_id: string
   process_key: string
   name: string
-}) => apiFetch<void>('/api/v1/deployments/by-key', { method: 'PATCH', body: JSON.stringify(body) })
+}) => apiFetch<void>(`/api/v1/orgs/${orgId}/deployments/by-key`, { method: 'PATCH', body: JSON.stringify(body) })
 
-/**
- * Logical "process" — a `process_key` within a group, with all of its
- * deployed versions and drafts collected. The latest deployed version (or
- * latest draft if none deployed) is exposed as `latest`.
- */
 export interface LogicalProcess {
   key: string
   groupId: string
-  /** Display name from the latest version. Falls back to key. */
   displayName: string
-  /** Latest deployed version, if any. */
   latestDeployed: ProcessDefinition | null
-  /** All versions (drafts + deployed), newest first. */
   versions: ProcessDefinition[]
-  /** Convenience: pick `latestDeployed ?? versions[0]`. */
   latest: ProcessDefinition
   hasDraft: boolean
 }
@@ -86,12 +73,12 @@ export interface LayoutData {
   edges: Record<string, { sourceHandle?: string; targetHandle?: string }>;
 }
 
-export const fetchLayout = (org_id: string, process_key: string) =>
-  apiFetch<LayoutData>(`/api/v1/orgs/${org_id}/processes/${encodeURIComponent(process_key)}/layout`)
+export const fetchLayout = (orgId: string, process_key: string) =>
+  apiFetch<LayoutData>(`/api/v1/orgs/${orgId}/processes/${encodeURIComponent(process_key)}/layout`)
 
-export const saveLayout = (org_id: string, process_key: string, layout: LayoutData) =>
+export const saveLayout = (orgId: string, process_key: string, layout: LayoutData) =>
   apiFetch<LayoutData>(
-    `/api/v1/orgs/${org_id}/processes/${encodeURIComponent(process_key)}/layout`,
+    `/api/v1/orgs/${orgId}/processes/${encodeURIComponent(process_key)}/layout`,
     { method: 'PUT', body: JSON.stringify(layout) },
   )
 
@@ -106,7 +93,6 @@ export function groupByProcessKey(defs: ProcessDefinition[]): LogicalProcess[] {
   const result: LogicalProcess[] = []
   for (const [, arr] of buckets) {
     arr.sort((a, b) => {
-      // Drafts first, then deployed by version desc.
       if (a.status !== b.status) return a.status === 'draft' ? -1 : 1
       return b.version - a.version
     })

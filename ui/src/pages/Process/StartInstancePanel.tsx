@@ -28,7 +28,7 @@ export default function StartInstancePanel({ org, version, onClose, onStarted }:
 
   const startMut = useMutation({
     mutationFn: (variables: Array<{ name: string; value_type: string; value: unknown }>) =>
-      startInstance({ org_id: org, definition_id: version.id, variables }),
+      startInstance(org, { definition_id: version.id, variables }),
     onSuccess: created => {
       qc.invalidateQueries({ queryKey: ['instances', org] })
       onStarted?.(created.id)

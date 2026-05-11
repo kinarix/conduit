@@ -11,14 +11,17 @@ export default function FooterNav() {
   const location = useLocation()
   const { org } = useOrg()
   const { user } = useAuth()
-  const canAdmin = user?.permissions?.some(p =>
-    p === 'org.manage' || p === 'user.manage' || p === 'role.manage'
-  ) ?? false
-  const canManageSecrets = user?.permissions?.includes('secret.manage') ?? false
+  const isGlobalAdmin = user?.is_global_admin ?? false
+  const globalPerms = new Set(user?.global_permissions ?? [])
+  const adminPerms = ['org.read', 'org.update', 'user.read', 'role.read', 'role_assignment.read', 'auth_config.read']
+  const secretPerms = ['secret.create', 'secret.read_metadata', 'secret.read_plaintext', 'secret.update', 'secret.delete']
+  const canAdmin = isGlobalAdmin || adminPerms.some(p => globalPerms.has(p))
+  const canManageSecrets = isGlobalAdmin || secretPerms.some(p => globalPerms.has(p))
 
   const tasksQ = useQuery({
-    queryKey: ['tasks'],
-    queryFn: fetchTasks,
+    queryKey: ['tasks', org?.id],
+    queryFn: () => fetchTasks(org!.id),
+    enabled: !!org,
     refetchInterval: 30_000,
   })
 

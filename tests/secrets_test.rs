@@ -132,7 +132,8 @@ async fn same_name_in_different_orgs_is_allowed() {
 async fn list_is_org_isolated() {
     let app = common::spawn_test_app().await;
     let org_a = app.principal.org_id;
-    let principal_b = common::create_principal(&app.pool, "secrets-b").await;
+    // Scoped principal — has org-scoped OrgOwner in its own org only.
+    let principal_b = common::create_scoped_principal(&app.pool, "secrets-b", "OrgOwner").await;
     let client_a = app.client.clone();
     let client_b = common::auth::authed_client(&principal_b.token);
 
@@ -154,9 +155,9 @@ async fn list_is_org_isolated() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body.as_array().unwrap().len(), 0);
 
-    // Org B's authenticated principal asking for org A's secret URL must
-    // get a 404 — both because the path org_id doesn't match the principal
-    // and because cross-tenant lookups are barred.
+    // Org B (scoped, not a member of org A) asking for org A's secret URL
+    // must be rejected by the membership check (403), so it never reaches
+    // the secret-lookup logic.
     let resp = client_b
         .get(format!(
             "{}/api/v1/orgs/{}/secrets/only_in_a",
@@ -165,7 +166,7 @@ async fn list_is_org_isolated() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 403);
 }
 
 #[tokio::test]

@@ -66,10 +66,8 @@ impl Principal {
     pub fn current_org(&self) -> Result<Uuid> {
         self.current_org_id.ok_or_else(|| {
             EngineError::Forbidden(
-                "this endpoint requires an org-scoped path (/api/v1/orgs/{org_id}/...)"
-                    .to_string(),
+                "this endpoint requires an org-scoped path (/api/v1/orgs/{org_id}/...)".to_string(),
             )
         })
     }
-
 }

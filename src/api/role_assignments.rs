@@ -117,9 +117,13 @@ async fn grant_global_assignment(
     Json(req): Json<GrantGlobalAssignment>,
 ) -> Result<(StatusCode, Json<GlobalRoleAssignment>)> {
     principal.require(Permission::RoleAssignmentCreate)?;
-    let id =
-        role_assignments::grant_global(&state.pool, req.user_id, req.role_id, Some(principal.user_id))
-            .await?;
+    let id = role_assignments::grant_global(
+        &state.pool,
+        req.user_id,
+        req.role_id,
+        Some(principal.user_id),
+    )
+    .await?;
     let rows = role_assignments::list_global_for_user(&state.pool, req.user_id).await?;
     let row = rows
         .into_iter()

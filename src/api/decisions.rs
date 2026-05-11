@@ -27,10 +27,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/api/v1/orgs/{org_id}/decisions/by-key",
             patch(rename_by_key),
         )
-        .route(
-            "/api/v1/orgs/{org_id}/decisions/test",
-            post(test_decision),
-        )
+        .route("/api/v1/orgs/{org_id}/decisions/test", post(test_decision))
         .route(
             "/api/v1/orgs/{org_id}/decisions/{key}",
             get(get_decision).delete(delete_decision),

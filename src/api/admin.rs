@@ -6,11 +6,7 @@
 //! Routes are nested under `/api/v1/orgs/{org_id}/admin/...` so the
 //! extractor pulls `org_id` from the path automatically.
 
-use axum::{
-    extract::State,
-    routing::get,
-    Router,
-};
+use axum::{extract::State, routing::get, Router};
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -114,6 +110,14 @@ struct AuthConfigResponse {
     oidc_redirect_uri: Option<String>,
 }
 
+type AuthConfigRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<Vec<u8>>,
+    Option<String>,
+);
+
 async fn get_auth_config(
     State(state): State<Arc<AppState>>,
     principal: Principal,
@@ -121,14 +125,13 @@ async fn get_auth_config(
 ) -> Result<Json<AuthConfigResponse>> {
     principal.require(Permission::AuthConfigRead)?;
 
-    let row: Option<(String, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>)> =
-        sqlx::query_as(
-            "SELECT provider, oidc_issuer, oidc_client_id, oidc_client_secret_enc, oidc_redirect_uri \
+    let row: Option<AuthConfigRow> = sqlx::query_as(
+        "SELECT provider, oidc_issuer, oidc_client_id, oidc_client_secret_enc, oidc_redirect_uri \
              FROM org_auth_config WHERE org_id = $1",
-        )
-        .bind(org_id)
-        .fetch_optional(&state.pool)
-        .await?;
+    )
+    .bind(org_id)
+    .fetch_optional(&state.pool)
+    .await?;
 
     Ok(Json(match row {
         Some((provider, issuer, client_id, secret_enc, redirect_uri)) => AuthConfigResponse {
@@ -181,12 +184,11 @@ async fn patch_auth_config(
 
     db::org_auth_config::upsert(&state.pool, &state.secrets_key, org_id, config).await?;
 
-    let row: Option<(Option<Vec<u8>>,)> = sqlx::query_as(
-        "SELECT oidc_client_secret_enc FROM org_auth_config WHERE org_id = $1",
-    )
-    .bind(org_id)
-    .fetch_optional(&state.pool)
-    .await?;
+    let row: Option<(Option<Vec<u8>>,)> =
+        sqlx::query_as("SELECT oidc_client_secret_enc FROM org_auth_config WHERE org_id = $1")
+            .bind(org_id)
+            .fetch_optional(&state.pool)
+            .await?;
     let secret_set = row.and_then(|(s,)| s).is_some();
 
     Ok(Json(AuthConfigResponse {

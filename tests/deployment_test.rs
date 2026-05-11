@@ -32,7 +32,7 @@ async fn deploy_valid_bpmn_returns_201() {
     let bpmn = minimal_bpmn("p1");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": bpmn }))
         .send()
         .await
@@ -61,7 +61,7 @@ async fn deploy_with_optional_name() {
     let bpmn = minimal_bpmn("p2");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "name": "My Process", "bpmn_xml": bpmn }))
         .send()
         .await
@@ -81,7 +81,7 @@ async fn deploy_same_key_twice_increments_version() {
     let bpmn = minimal_bpmn("p3");
 
     let resp1 = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": &bpmn }))
         .send()
         .await
@@ -91,7 +91,7 @@ async fn deploy_same_key_twice_increments_version() {
     assert_eq!(body1["version"], 1);
 
     let resp2 = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": &bpmn }))
         .send()
         .await
@@ -116,7 +116,7 @@ async fn deploy_stores_bpmn_xml_in_db() {
     let bpmn = minimal_bpmn("p4");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": &bpmn }))
         .send()
         .await
@@ -147,7 +147,7 @@ async fn deploy_empty_key_returns_400() {
     let bpmn = minimal_bpmn("p5");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": "   ", "bpmn_xml": bpmn }))
         .send()
         .await
@@ -169,7 +169,7 @@ async fn deploy_invalid_xml_returns_400() {
     let key = unique_key("badxml");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(
             &serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": "<not valid xml <<>>" }),
         )
@@ -203,7 +203,7 @@ async fn deploy_unsupported_gateway_returns_400() {
 </definitions>"#;
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": bpmn }))
         .send()
         .await
@@ -240,7 +240,7 @@ async fn deploy_missing_start_event_returns_400() {
 </definitions>"#;
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": key, "bpmn_xml": bpmn }))
         .send()
         .await
@@ -259,7 +259,7 @@ async fn deploy_does_not_persist_on_parse_failure() {
     let key = unique_key("nopersist");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": &key, "bpmn_xml": "<bad>" }))
         .send()
         .await
@@ -290,7 +290,7 @@ async fn deploy_missing_key_field_returns_400() {
     let bpmn = minimal_bpmn("p6");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "bpmn_xml": bpmn }))
         .send()
         .await
@@ -307,7 +307,7 @@ async fn deploy_missing_bpmn_xml_field_returns_400() {
     let client = app.client.clone();
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_id))
         .json(&serde_json::json!({ "org_id": org_id, "process_group_id": process_group_id, "key": "some-key" }))
         .send()
         .await
@@ -344,7 +344,7 @@ fn http_connector_bpmn(process_id: &str, task_id: &str) -> String {
 #[tokio::test]
 async fn deploy_with_conduit_http_returns_u010_warning() {
     let app = common::spawn_test_app().await;
-    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
     let client = app.client.clone();
 
@@ -352,7 +352,10 @@ async fn deploy_with_conduit_http_returns_u010_warning() {
     let bpmn = http_connector_bpmn("dep_http_proc", "call_api");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,
@@ -391,7 +394,7 @@ async fn deploy_with_conduit_http_returns_u010_warning() {
 #[tokio::test]
 async fn deploy_without_deprecated_elements_has_empty_warnings() {
     let app = common::spawn_test_app().await;
-    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
     let client = app.client.clone();
 
@@ -399,7 +402,10 @@ async fn deploy_without_deprecated_elements_has_empty_warnings() {
     let bpmn = minimal_bpmn("clean_proc");
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,
@@ -424,7 +430,7 @@ async fn deploy_without_deprecated_elements_has_empty_warnings() {
 #[tokio::test]
 async fn deploy_with_two_conduit_http_emits_two_warnings() {
     let app = common::spawn_test_app().await;
-    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
     let client = app.client.clone();
 
@@ -456,7 +462,10 @@ async fn deploy_with_two_conduit_http_emits_two_warnings() {
 </definitions>"#;
 
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,

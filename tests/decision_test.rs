@@ -31,9 +31,8 @@ async fn deploy_single_decision() {
     let client = app.client.clone();
 
     let resp = client
-        .post(format!("{}/api/v1/decisions", app.address))
+        .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .header("Content-Type", "application/xml")
-        .header("X-Org-Id", org_id.to_string())
         .body(risk_check_dmn())
         .send()
         .await
@@ -63,9 +62,8 @@ async fn deploy_increments_version() {
 
     // First deploy
     let resp1 = client
-        .post(format!("{}/api/v1/decisions", app.address))
+        .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .header("Content-Type", "application/xml")
-        .header("X-Org-Id", org_id.to_string())
         .body(risk_check_dmn())
         .send()
         .await
@@ -74,9 +72,8 @@ async fn deploy_increments_version() {
 
     // Second deploy of same decision
     let resp2 = client
-        .post(format!("{}/api/v1/decisions", app.address))
+        .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .header("Content-Type", "application/xml")
-        .header("X-Org-Id", org_id.to_string())
         .body(risk_check_dmn())
         .send()
         .await
@@ -94,9 +91,8 @@ async fn deploy_multi_decision_file() {
     let client = app.client.clone();
 
     let resp = client
-        .post(format!("{}/api/v1/decisions", app.address))
+        .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .header("Content-Type", "application/xml")
-        .header("X-Org-Id", org_id.to_string())
         .body(multi_decision_dmn())
         .send()
         .await
@@ -125,9 +121,8 @@ async fn list_decisions_returns_latest_versions() {
     // Deploy once, then again to bump version
     for _ in 0..2 {
         client
-            .post(format!("{}/api/v1/decisions", app.address))
+            .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
             .header("Content-Type", "application/xml")
-            .header("X-Org-Id", org_id.to_string())
             .body(risk_check_dmn())
             .send()
             .await
@@ -135,8 +130,7 @@ async fn list_decisions_returns_latest_versions() {
     }
 
     let resp = client
-        .get(format!("{}/api/v1/decisions", app.address))
-        .header("X-Org-Id", org_id.to_string())
+        .get(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .send()
         .await
         .unwrap();
@@ -162,9 +156,8 @@ async fn deploy_invalid_xml_returns_400() {
     let client = app.client.clone();
 
     let resp = client
-        .post(format!("{}/api/v1/decisions", app.address))
+        .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .header("Content-Type", "application/xml")
-        .header("X-Org-Id", org_id.to_string())
         .body("<invalid <<xml")
         .send()
         .await
@@ -178,9 +171,8 @@ async fn deploy_invalid_xml_returns_400() {
 async fn deploy_decision(app: &common::TestApp, org_id: Uuid, dmn_xml: &str) {
     let client = app.client.clone();
     let resp = client
-        .post(format!("{}/api/v1/decisions", app.address))
+        .post(format!("{}/api/v1/orgs/{}/decisions", app.address, org_id))
         .header("Content-Type", "application/xml")
-        .header("X-Org-Id", org_id.to_string())
         .body(dmn_xml.to_string())
         .send()
         .await
@@ -190,14 +182,17 @@ async fn deploy_decision(app: &common::TestApp, org_id: Uuid, dmn_xml: &str) {
 
 async fn deploy_bpmn(
     app: &common::TestApp,
-    _org_id: Uuid,
+    org_id: Uuid,
     process_group_id: Uuid,
     key: &str,
     bpmn: &str,
 ) -> serde_json::Value {
     let client = app.client.clone();
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,
@@ -212,13 +207,16 @@ async fn deploy_bpmn(
 
 async fn start_instance(
     app: &common::TestApp,
-    _org_id: Uuid,
+    org_id: Uuid,
     def_id: Uuid,
     variables: serde_json::Value,
 ) -> serde_json::Value {
     let client = app.client.clone();
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "definition_id": def_id,
             "variables": variables
@@ -321,8 +319,8 @@ async fn engine_decision_not_found_errors_instance() {
     let client = app.client.clone();
     let resp = client
         .get(format!(
-            "{}/api/v1/process-instances/{}",
-            app.address, instance_id
+            "{}/api/v1/orgs/{}/process-instances/{}",
+            app.address, org_id, instance_id
         ))
         .send()
         .await

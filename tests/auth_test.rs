@@ -78,15 +78,10 @@ async fn login_fails_for_external_user_attempting_password_login() {
         .await
         .unwrap();
     let email = format!("ext-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(
-        &app.pool,
-        "external",
-        Some("oidc-subject"),
-        &email,
-        None,
-    )
-    .await
-    .unwrap();
+    let user =
+        conduit::db::users::insert(&app.pool, "external", Some("oidc-subject"), &email, None)
+            .await
+            .unwrap();
     conduit::db::org_members::insert(&app.pool, user.id, org.id, None)
         .await
         .unwrap();
@@ -204,8 +199,13 @@ async fn me_returns_principal_summary() {
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["user_id"], app.principal.user_id.to_string());
-    assert_eq!(body["org_id"], app.principal.org_id.to_string());
-    assert_eq!(body["auth_kind"], "jwt");
+    assert_eq!(body["is_global_admin"], true);
+    let orgs = body["orgs"].as_array().expect("orgs array");
+    assert!(
+        orgs.iter()
+            .any(|o| o["id"] == app.principal.org_id.to_string()),
+        "expected default org in /me orgs list"
+    );
 }
 
 // ─── API keys ─────────────────────────────────────────────────────────────
@@ -334,12 +334,13 @@ async fn revoke_api_key_owned_by_other_user_returns_404() {
 #[tokio::test]
 async fn cross_org_get_instance_returns_404() {
     let app = common::spawn_test_app().await;
-    let principal_b = common::create_principal(&app.pool, "tenant-b").await;
+    // Scoped principal — member of its own org with OrgOwner, no global perms.
+    let principal_b = common::create_scoped_principal(&app.pool, "tenant-b", "OrgOwner").await;
     let client_b = authed_client(&principal_b.token);
 
-    // Default principal (org A) deploys + starts an instance.
-    let group_id =
-        common::create_test_process_group(&app, app.principal.org_id, "g-tenant-test").await;
+    // Default principal (org A, PlatformAdmin) deploys + starts an instance.
+    let org_a = app.principal.org_id;
+    let group_id = common::create_test_process_group(&app, org_a, "g-tenant-test").await;
     let bpmn = r#"<?xml version="1.0"?>
 <definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" id="def" targetNamespace="urn:test">
   <process id="p" isExecutable="true">
@@ -352,7 +353,7 @@ async fn cross_org_get_instance_returns_404() {
 </definitions>"#;
     let resp = app
         .client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!("{}/api/v1/orgs/{}/deployments", app.address, org_a))
         .json(&json!({
             "process_group_id": group_id,
             "key": format!("tenant-iso-{}", Uuid::new_v4()),
@@ -369,7 +370,10 @@ async fn cross_org_get_instance_returns_404() {
 
     let resp = app
         .client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_a
+        ))
         .json(&json!({ "definition_id": def_id }))
         .send()
         .await
@@ -379,26 +383,26 @@ async fn cross_org_get_instance_returns_404() {
         .unwrap()
         .to_string();
 
-    // Org B asks for the instance by ID — must 404, not 403, so existence
-    // is not leaked.
+    // Org B (scoped principal) asks for the instance by ID under org A's
+    // URL — must 403 "not a member", existence is not confirmed.
     let resp = client_b
         .get(format!(
-            "{}/api/v1/process-instances/{}",
-            app.address, instance_id
+            "{}/api/v1/orgs/{}/process-instances/{}",
+            app.address, org_a, instance_id
         ))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 403);
 }
 
 #[tokio::test]
 async fn cross_org_secret_path_returns_404() {
     let app = common::spawn_test_app().await;
-    let principal_b = common::create_principal(&app.pool, "secret-b").await;
+    let principal_b = common::create_scoped_principal(&app.pool, "secret-b", "OrgOwner").await;
     let client_b = authed_client(&principal_b.token);
 
-    // Default principal (org A) creates a secret.
+    // Default principal (org A, PlatformAdmin) creates a secret.
     app.client
         .post(format!(
             "{}/api/v1/orgs/{}/secrets",
@@ -409,7 +413,8 @@ async fn cross_org_secret_path_returns_404() {
         .await
         .unwrap();
 
-    // Org B tries to GET org A's secret URL — must 404.
+    // Org B (scoped, not a member of org A) tries to GET org A's secret URL —
+    // must 403, not 200.
     let resp = client_b
         .get(format!(
             "{}/api/v1/orgs/{}/secrets/alpha",
@@ -418,7 +423,7 @@ async fn cross_org_secret_path_returns_404() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 403);
 }
 
 // ─── Org create/delete are tenant-gated ──────────────────────────────────
@@ -426,10 +431,11 @@ async fn cross_org_secret_path_returns_404() {
 #[tokio::test]
 async fn cross_org_delete_returns_404_and_does_not_remove_target() {
     let app = common::spawn_test_app().await;
-    let principal_b = common::create_principal(&app.pool, "victim").await;
+    let principal_b = common::create_scoped_principal(&app.pool, "victim", "OrgOwner").await;
     let client_b = authed_client(&principal_b.token);
 
-    // Org B tries to delete org A. Must 404, and org A must still exist.
+    // Org B (scoped, not a member of org A) tries to delete org A. Must 403,
+    // and org A must still exist.
     let resp = client_b
         .delete(format!(
             "{}/api/v1/orgs/{}",
@@ -438,7 +444,7 @@ async fn cross_org_delete_returns_404_and_does_not_remove_target() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 403);
 
     let still_there = conduit::db::orgs::get_by_id(&app.pool, app.principal.org_id)
         .await

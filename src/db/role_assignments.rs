@@ -26,10 +26,7 @@ use crate::error::{EngineError, Result};
 
 /// Load the set of permissions a user holds via GLOBAL role assignments
 /// (apply across every org).
-pub async fn load_global_permissions(
-    pool: &PgPool,
-    user_id: Uuid,
-) -> Result<HashSet<Permission>> {
+pub async fn load_global_permissions(pool: &PgPool, user_id: Uuid) -> Result<HashSet<Permission>> {
     let rows: Vec<(String,)> = sqlx::query_as(
         r#"
         SELECT rp.permission
@@ -88,12 +85,11 @@ pub async fn load_all_permissions(
 /// `true` iff the user has any global role assignment. Used to mark
 /// platform admins in `/auth/me` and to bypass per-org membership checks.
 pub async fn is_global_admin(pool: &PgPool, user_id: Uuid) -> Result<bool> {
-    let (exists,): (bool,) = sqlx::query_as(
-        "SELECT EXISTS(SELECT 1 FROM global_role_assignments WHERE user_id = $1)",
-    )
-    .bind(user_id)
-    .fetch_one(pool)
-    .await?;
+    let (exists,): (bool,) =
+        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM global_role_assignments WHERE user_id = $1)")
+            .bind(user_id)
+            .fetch_one(pool)
+            .await?;
     Ok(exists)
 }
 
@@ -143,12 +139,11 @@ pub async fn grant_global_by_name(
     role_name: &str,
     granted_by: Option<Uuid>,
 ) -> Result<bool> {
-    let role_id: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM roles WHERE name = $1 AND org_id IS NULL",
-    )
-    .bind(role_name)
-    .fetch_optional(pool)
-    .await?;
+    let role_id: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM roles WHERE name = $1 AND org_id IS NULL")
+            .bind(role_name)
+            .fetch_optional(pool)
+            .await?;
 
     let Some((rid,)) = role_id else {
         return Ok(false);
@@ -179,11 +174,10 @@ pub async fn grant_org(
     granted_in_org_id: Option<Uuid>,
 ) -> Result<Uuid> {
     // Validate the role is grantable in this org.
-    let role: Option<(Option<Uuid>,)> =
-        sqlx::query_as("SELECT org_id FROM roles WHERE id = $1")
-            .bind(role_id)
-            .fetch_optional(pool)
-            .await?;
+    let role: Option<(Option<Uuid>,)> = sqlx::query_as("SELECT org_id FROM roles WHERE id = $1")
+        .bind(role_id)
+        .fetch_optional(pool)
+        .await?;
     let Some((role_org,)) = role else {
         return Err(EngineError::NotFound(format!("role {role_id}")));
     };

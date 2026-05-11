@@ -266,8 +266,10 @@ mod tests {
             }
         }
 
-        let from_enum: std::collections::HashSet<String> =
-            Permission::ALL.iter().map(|p| p.as_str().to_string()).collect();
+        let from_enum: std::collections::HashSet<String> = Permission::ALL
+            .iter()
+            .map(|p| p.as_str().to_string())
+            .collect();
 
         let only_in_enum: Vec<_> = from_enum.difference(&from_sql).collect();
         let only_in_sql: Vec<_> = from_sql.difference(&from_enum).collect();

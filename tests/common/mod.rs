@@ -73,6 +73,9 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::decisions::routes())
         .merge(conduit::api::process_layouts::routes())
         .merge(conduit::api::roles::routes())
+        .merge(conduit::api::role_assignments::routes())
+        .merge(conduit::api::members::routes())
+        .merge(conduit::api::admin::routes())
         .merge(conduit::api::secrets::routes())
         .with_state(state);
 
@@ -134,6 +137,42 @@ pub async fn create_principal(pool: &PgPool, slug_prefix: &str) -> TestPrincipal
 #[allow(dead_code)]
 pub async fn create_test_org(app: &TestApp) -> Uuid {
     app.principal.org_id
+}
+
+/// Create an org + user + JWT, add the user as a member of that org, and
+/// grant a single built-in role *only within that org* (no global admin
+/// bypass). Use this for tenant-isolation tests where you need a principal
+/// that does NOT have platform-wide reach.
+#[allow(dead_code)]
+pub async fn create_scoped_principal(
+    pool: &PgPool,
+    slug_prefix: &str,
+    role_name: &str,
+) -> TestPrincipal {
+    let slug = format!("{slug_prefix}-{}", Uuid::new_v4());
+    let org = conduit::db::orgs::insert(pool, "Scoped Test Org", &slug)
+        .await
+        .expect("create org");
+    let email = format!("scoped-{}@test.local", Uuid::new_v4());
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
+        .await
+        .expect("create user");
+    conduit::db::org_members::insert(pool, user.id, org.id, None)
+        .await
+        .expect("add org member");
+    let role_id = conduit::db::roles::find_builtin_by_name(pool, role_name)
+        .await
+        .expect("lookup builtin role")
+        .unwrap_or_else(|| panic!("builtin role {role_name} not found"));
+    conduit::db::role_assignments::grant_org(pool, user.id, role_id, org.id, None, None)
+        .await
+        .expect("grant org-scoped role");
+    let token = auth::mint_jwt(user.id, org.id);
+    TestPrincipal {
+        user_id: user.id,
+        org_id: org.id,
+        token,
+    }
 }
 
 /// Direct DB insert of a process group. No HTTP, no auth.

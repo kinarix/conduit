@@ -78,10 +78,9 @@ pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<OrgMember>> 
 /// Orgs a user is a member of (raw rows; use `db::orgs::list_for_user` for
 /// the join to `orgs`).
 pub async fn list_org_ids_for_user(pool: &PgPool, user_id: Uuid) -> Result<Vec<Uuid>> {
-    let rows: Vec<(Uuid,)> =
-        sqlx::query_as("SELECT org_id FROM org_members WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_all(pool)
-            .await?;
+    let rows: Vec<(Uuid,)> = sqlx::query_as("SELECT org_id FROM org_members WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
     Ok(rows.into_iter().map(|(id,)| id).collect())
 }

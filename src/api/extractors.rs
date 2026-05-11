@@ -184,8 +184,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
         // Membership check (skipped for global admins).
         if let Some(org_id) = current_org_id {
             if !is_global_admin {
-                let member =
-                    db::org_members::exists(&state.pool, user_id, org_id).await?;
+                let member = db::org_members::exists(&state.pool, user_id, org_id).await?;
                 if !member {
                     return Err(EngineError::Forbidden(format!(
                         "not a member of org {org_id}"

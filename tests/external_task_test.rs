@@ -32,7 +32,10 @@ async fn deploy_and_start(
     let key = unique_key("ext");
 
     let deploy_resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,
@@ -46,7 +49,10 @@ async fn deploy_and_start(
     let def_id = Uuid::parse_str(def["id"].as_str().unwrap()).unwrap();
 
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -246,8 +252,8 @@ async fn complete_advances_token_to_end() {
     // Instance should now be completed
     let get_resp = client
         .get(format!(
-            "{}/api/v1/process-instances/{}",
-            app.address, instance_id
+            "{}/api/v1/orgs/{}/process-instances/{}",
+            app.address, org_id, instance_id
         ))
         .send()
         .await

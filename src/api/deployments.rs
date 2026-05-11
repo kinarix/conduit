@@ -79,10 +79,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/api/v1/orgs/{org_id}/deployments",
             get(list_deployments).post(deploy),
         )
-        .route(
-            "/api/v1/orgs/{org_id}/deployments/draft",
-            post(save_draft),
-        )
+        .route("/api/v1/orgs/{org_id}/deployments/draft", post(save_draft))
         .route(
             "/api/v1/orgs/{org_id}/deployments/draft/new",
             post(create_draft),

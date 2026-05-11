@@ -133,9 +133,7 @@ pub async fn update_custom_role(
     .fetch_optional(&mut *tx)
     .await?;
     let (id, name) = row.ok_or_else(|| {
-        crate::error::EngineError::NotFound(format!(
-            "role {role_id} (must be a custom org role)"
-        ))
+        crate::error::EngineError::NotFound(format!("role {role_id} (must be a custom org role)"))
     })?;
 
     sqlx::query("DELETE FROM role_permissions WHERE role_id = $1")

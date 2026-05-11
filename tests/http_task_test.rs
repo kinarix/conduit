@@ -80,14 +80,17 @@ fn vars_from_object(obj: serde_json::Value) -> serde_json::Value {
 
 async fn deploy_and_start(
     app: &common::TestApp,
-    _org_id: Uuid,
+    org_id: Uuid,
     process_group_id: Uuid,
     bpmn: &str,
     initial_vars: serde_json::Value,
 ) -> Uuid {
     let client = app.client.clone();
     let deploy_resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&json!({
             "process_group_id": process_group_id,
             "key": unique_key("http"),
@@ -112,7 +115,10 @@ async fn deploy_and_start(
         body["variables"] = vars_from_object(initial_vars);
     }
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&body)
         .send()
         .await

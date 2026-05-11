@@ -109,10 +109,7 @@ struct MeResponse {
     orgs: Vec<MeOrgEntry>,
 }
 
-async fn me(
-    State(state): State<Arc<AppState>>,
-    principal: Principal,
-) -> Result<Json<MeResponse>> {
+async fn me(State(state): State<Arc<AppState>>, principal: Principal) -> Result<Json<MeResponse>> {
     let auth_kind = match principal.kind {
         PrincipalKind::Jwt => "jwt",
         PrincipalKind::ApiKey => "api_key",
@@ -130,12 +127,9 @@ async fn me(
     let orgs = db::orgs::list_for_user(&state.pool, principal.user_id).await?;
     let mut org_entries = Vec::with_capacity(orgs.len());
     for o in orgs {
-        let roles = db::role_assignments::role_names_for_user_in_org(
-            &state.pool,
-            principal.user_id,
-            o.id,
-        )
-        .await?;
+        let roles =
+            db::role_assignments::role_names_for_user_in_org(&state.pool, principal.user_id, o.id)
+                .await?;
         org_entries.push(MeOrgEntry {
             id: o.id,
             name: o.name,

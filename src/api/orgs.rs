@@ -64,11 +64,15 @@ async fn create_org(
 ) -> Result<(StatusCode, Json<Org>)> {
     principal.require(Permission::OrgCreate)?;
     if req.name.trim().is_empty() {
-        return Err(EngineError::Validation("name must not be empty".to_string()));
+        return Err(EngineError::Validation(
+            "name must not be empty".to_string(),
+        ));
     }
     let slug = req.slug.trim();
     if slug.is_empty() {
-        return Err(EngineError::Validation("slug must not be empty".to_string()));
+        return Err(EngineError::Validation(
+            "slug must not be empty".to_string(),
+        ));
     }
     let org = orgs::insert(&state.pool, req.name.trim(), slug).await?;
 
@@ -113,12 +117,9 @@ async fn delete_org(
         true
     } else {
         // Membership-scoped delete: load the caller's perms in this specific org.
-        let in_org = crate::db::role_assignments::load_org_permissions(
-            &state.pool,
-            principal.user_id,
-            id,
-        )
-        .await?;
+        let in_org =
+            crate::db::role_assignments::load_org_permissions(&state.pool, principal.user_id, id)
+                .await?;
         in_org.contains(&Permission::OrgDelete)
     };
     if !allowed {

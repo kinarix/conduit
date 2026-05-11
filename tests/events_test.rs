@@ -22,14 +22,17 @@ fn user_task_bpmn() -> String {
 
 async fn deploy(
     app: &common::TestApp,
-    _org_id: Uuid,
+    org_id: Uuid,
     process_group_id: Uuid,
     key: &str,
     bpmn: &str,
 ) -> Uuid {
     let client = app.client.clone();
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,
@@ -61,7 +64,10 @@ async fn events_endpoint_records_lifecycle() {
 
     // Start instance with one variable
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "definition_id": def_id,
             "variables": [
@@ -77,7 +83,7 @@ async fn events_endpoint_records_lifecycle() {
 
     // Find and complete the user task with an output variable
     let tasks_resp: serde_json::Value = client
-        .get(format!("{}/api/v1/tasks", app.address))
+        .get(format!("{}/api/v1/orgs/{}/tasks", app.address, org_id))
         .send()
         .await
         .unwrap()
@@ -94,7 +100,10 @@ async fn events_endpoint_records_lifecycle() {
         .unwrap()
         .to_string();
     client
-        .post(format!("{}/api/v1/tasks/{}/complete", app.address, task_id))
+        .post(format!(
+            "{}/api/v1/orgs/{}/tasks/{}/complete",
+            app.address, org_id, task_id
+        ))
         .json(&serde_json::json!({
             "variables": [{"name": "amount", "value_type": "integer", "value": 250}]
         }))
@@ -105,8 +114,8 @@ async fn events_endpoint_records_lifecycle() {
     // Fetch events
     let events: Vec<serde_json::Value> = client
         .get(format!(
-            "{}/api/v1/process-instances/{}/events",
-            app.address, inst_id
+            "{}/api/v1/orgs/{}/process-instances/{}/events",
+            app.address, org_id, inst_id
         ))
         .send()
         .await

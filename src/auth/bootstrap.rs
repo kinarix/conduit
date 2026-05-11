@@ -49,13 +49,9 @@ pub async fn run_if_needed(pool: &PgPool, config: &Config) -> anyhow::Result<()>
     let hash = crate::auth::password::hash(password)?;
     let user = db::users::insert(pool, "internal", None, email, Some(&hash)).await?;
 
-    let granted = db::role_assignments::grant_global_by_name(
-        pool,
-        user.id,
-        "PlatformAdmin",
-        Some(user.id),
-    )
-    .await?;
+    let granted =
+        db::role_assignments::grant_global_by_name(pool, user.id, "PlatformAdmin", Some(user.id))
+            .await?;
     if !granted {
         anyhow::bail!(
             "Built-in `PlatformAdmin` role not found — migration 031 did not seed the \

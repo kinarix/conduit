@@ -34,14 +34,17 @@ fn start_to_end_bpmn() -> String {
 
 async fn deploy_definition(
     app: &common::TestApp,
-    _org_id: Uuid,
+    org_id: Uuid,
     process_group_id: Uuid,
     key: &str,
     bpmn: &str,
 ) -> Uuid {
     let client = app.client.clone();
     let resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": key,
@@ -55,7 +58,7 @@ async fn deploy_definition(
     Uuid::parse_str(body["id"].as_str().unwrap()).unwrap()
 }
 
-// ─── POST /api/v1/process-instances ──────────────────────────────────────────
+// ─── POST /api/v1/orgs/{}/process-instances ──────────────────────────────────────────
 
 #[tokio::test]
 async fn start_instance_returns_201() {
@@ -74,7 +77,10 @@ async fn start_instance_returns_201() {
     .await;
 
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -107,7 +113,10 @@ async fn start_instance_start_to_end_returns_completed() {
     .await;
 
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -126,7 +135,10 @@ async fn start_instance_unknown_definition_returns_404() {
     let client = app.client.clone();
 
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": Uuid::new_v4() }))
         .send()
         .await
@@ -141,9 +153,13 @@ async fn start_instance_unknown_definition_returns_404() {
 async fn start_instance_missing_definition_id_returns_400() {
     let app = common::spawn_test_app().await;
     let client = app.client.clone();
+    let org_id = app.principal.org_id;
 
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -152,7 +168,7 @@ async fn start_instance_missing_definition_id_returns_400() {
     assert_eq!(resp.status(), 400);
 }
 
-// ─── GET /api/v1/process-instances/:id ───────────────────────────────────────
+// ─── GET /api/v1/orgs/{}/process-instances/:id ───────────────────────────────────────
 
 #[tokio::test]
 async fn get_instance_returns_200() {
@@ -171,7 +187,10 @@ async fn get_instance_returns_200() {
     .await;
 
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -182,8 +201,8 @@ async fn get_instance_returns_200() {
 
     let get_resp = client
         .get(format!(
-            "{}/api/v1/process-instances/{}",
-            app.address, instance_id
+            "{}/api/v1/orgs/{}/process-instances/{}",
+            app.address, org_id, instance_id
         ))
         .send()
         .await
@@ -199,11 +218,13 @@ async fn get_instance_returns_200() {
 async fn get_instance_not_found_returns_404() {
     let app = common::spawn_test_app().await;
     let client = app.client.clone();
+    let org_id = app.principal.org_id;
 
     let resp = client
         .get(format!(
-            "{}/api/v1/process-instances/{}",
+            "{}/api/v1/orgs/{}/process-instances/{}",
             app.address,
+            org_id,
             Uuid::new_v4()
         ))
         .send()
@@ -215,7 +236,7 @@ async fn get_instance_not_found_returns_404() {
     assert!(body["message"].is_string());
 }
 
-// ─── GET /api/v1/tasks ───────────────────────────────────────────────────────
+// ─── GET /api/v1/orgs/{}/tasks ───────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn list_tasks_returns_pending_task() {
@@ -233,7 +254,10 @@ async fn list_tasks_returns_pending_task() {
     )
     .await;
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -243,7 +267,7 @@ async fn list_tasks_returns_pending_task() {
     let instance_id = start_body["id"].as_str().unwrap();
 
     let resp = client
-        .get(format!("{}/api/v1/tasks", app.address))
+        .get(format!("{}/api/v1/orgs/{}/tasks", app.address, org_id))
         .send()
         .await
         .unwrap();
@@ -262,7 +286,7 @@ async fn list_tasks_returns_pending_task() {
     assert_eq!(task["element_id"], "task1");
 }
 
-// ─── GET /api/v1/tasks/:id ────────────────────────────────────────────────────
+// ─── GET /api/v1/orgs/{}/tasks/:id ────────────────────────────────────────────────────
 
 #[tokio::test]
 async fn get_task_returns_200() {
@@ -280,7 +304,10 @@ async fn get_task_returns_200() {
     )
     .await;
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -290,7 +317,7 @@ async fn get_task_returns_200() {
     let instance_id = start_body["id"].as_str().unwrap();
 
     let list_resp = client
-        .get(format!("{}/api/v1/tasks", app.address))
+        .get(format!("{}/api/v1/orgs/{}/tasks", app.address, org_id))
         .send()
         .await
         .unwrap();
@@ -306,7 +333,10 @@ async fn get_task_returns_200() {
         .to_string();
 
     let resp = client
-        .get(format!("{}/api/v1/tasks/{}", app.address, task_id))
+        .get(format!(
+            "{}/api/v1/orgs/{}/tasks/{}",
+            app.address, org_id, task_id
+        ))
         .send()
         .await
         .unwrap();
@@ -321,9 +351,15 @@ async fn get_task_returns_200() {
 async fn get_task_not_found_returns_404() {
     let app = common::spawn_test_app().await;
     let client = app.client.clone();
+    let org_id = app.principal.org_id;
 
     let resp = client
-        .get(format!("{}/api/v1/tasks/{}", app.address, Uuid::new_v4()))
+        .get(format!(
+            "{}/api/v1/orgs/{}/tasks/{}",
+            app.address,
+            org_id,
+            Uuid::new_v4()
+        ))
         .send()
         .await
         .unwrap();
@@ -333,7 +369,7 @@ async fn get_task_not_found_returns_404() {
     assert!(body["message"].is_string());
 }
 
-// ─── POST /api/v1/tasks/:id/complete ─────────────────────────────────────────
+// ─── POST /api/v1/orgs/{}/tasks/:id/complete ─────────────────────────────────────────
 
 #[tokio::test]
 async fn complete_task_returns_204() {
@@ -351,7 +387,10 @@ async fn complete_task_returns_204() {
     )
     .await;
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -361,7 +400,7 @@ async fn complete_task_returns_204() {
     let instance_id = start_body["id"].as_str().unwrap();
 
     let list_resp = client
-        .get(format!("{}/api/v1/tasks", app.address))
+        .get(format!("{}/api/v1/orgs/{}/tasks", app.address, org_id))
         .send()
         .await
         .unwrap();
@@ -377,7 +416,10 @@ async fn complete_task_returns_204() {
         .to_string();
 
     let resp = client
-        .post(format!("{}/api/v1/tasks/{}/complete", app.address, task_id))
+        .post(format!(
+            "{}/api/v1/orgs/{}/tasks/{}/complete",
+            app.address, org_id, task_id
+        ))
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -402,7 +444,10 @@ async fn complete_task_advances_instance_to_completed() {
     )
     .await;
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -412,7 +457,7 @@ async fn complete_task_advances_instance_to_completed() {
     let instance_id = start_body["id"].as_str().unwrap().to_string();
 
     let list_resp = client
-        .get(format!("{}/api/v1/tasks", app.address))
+        .get(format!("{}/api/v1/orgs/{}/tasks", app.address, org_id))
         .send()
         .await
         .unwrap();
@@ -428,7 +473,10 @@ async fn complete_task_advances_instance_to_completed() {
         .to_string();
 
     client
-        .post(format!("{}/api/v1/tasks/{}/complete", app.address, task_id))
+        .post(format!(
+            "{}/api/v1/orgs/{}/tasks/{}/complete",
+            app.address, org_id, task_id
+        ))
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -436,8 +484,8 @@ async fn complete_task_advances_instance_to_completed() {
 
     let get_resp = client
         .get(format!(
-            "{}/api/v1/process-instances/{}",
-            app.address, instance_id
+            "{}/api/v1/orgs/{}/process-instances/{}",
+            app.address, org_id, instance_id
         ))
         .send()
         .await
@@ -452,11 +500,13 @@ async fn complete_task_advances_instance_to_completed() {
 async fn complete_task_not_found_returns_404() {
     let app = common::spawn_test_app().await;
     let client = app.client.clone();
+    let org_id = app.principal.org_id;
 
     let resp = client
         .post(format!(
-            "{}/api/v1/tasks/{}/complete",
+            "{}/api/v1/orgs/{}/tasks/{}/complete",
             app.address,
+            org_id,
             Uuid::new_v4()
         ))
         .json(&serde_json::json!({}))
@@ -485,7 +535,10 @@ async fn complete_already_completed_task_returns_409() {
     )
     .await;
     let start_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await
@@ -495,7 +548,7 @@ async fn complete_already_completed_task_returns_409() {
     let instance_id = start_body["id"].as_str().unwrap();
 
     let list_resp = client
-        .get(format!("{}/api/v1/tasks", app.address))
+        .get(format!("{}/api/v1/orgs/{}/tasks", app.address, org_id))
         .send()
         .await
         .unwrap();
@@ -511,7 +564,10 @@ async fn complete_already_completed_task_returns_409() {
         .to_string();
 
     let r1 = client
-        .post(format!("{}/api/v1/tasks/{}/complete", app.address, task_id))
+        .post(format!(
+            "{}/api/v1/orgs/{}/tasks/{}/complete",
+            app.address, org_id, task_id
+        ))
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -519,7 +575,10 @@ async fn complete_already_completed_task_returns_409() {
     assert_eq!(r1.status(), 204);
 
     let r2 = client
-        .post(format!("{}/api/v1/tasks/{}/complete", app.address, task_id))
+        .post(format!(
+            "{}/api/v1/orgs/{}/tasks/{}/complete",
+            app.address, org_id, task_id
+        ))
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -534,12 +593,15 @@ async fn complete_already_completed_task_returns_409() {
 #[tokio::test]
 async fn deploy_with_labels_roundtrips_on_get_instance() {
     let app = common::spawn_test_app().await;
-    let (_org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
+    let (org_id, groups) = common::create_test_org_with_groups(&app, 2).await;
     let process_group_id = groups[0];
     let client = app.client.clone();
 
     let deploy_resp = client
-        .post(format!("{}/api/v1/deployments", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/deployments",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "process_group_id": process_group_id,
             "key": unique_key("labels-def"),
@@ -554,7 +616,10 @@ async fn deploy_with_labels_roundtrips_on_get_instance() {
     let def_id = Uuid::parse_str(def_body["id"].as_str().unwrap()).unwrap();
 
     let inst_resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({
             "definition_id": def_id,
             "labels": { "customer": "acme", "priority": "high" }
@@ -571,8 +636,8 @@ async fn deploy_with_labels_roundtrips_on_get_instance() {
 
     let get_resp = client
         .get(format!(
-            "{}/api/v1/process-instances/{}",
-            app.address, instance_id
+            "{}/api/v1/orgs/{}/process-instances/{}",
+            app.address, org_id, instance_id
         ))
         .send()
         .await
@@ -600,7 +665,10 @@ async fn start_instance_default_labels_is_empty_object() {
     .await;
 
     let resp = client
-        .post(format!("{}/api/v1/process-instances", app.address))
+        .post(format!(
+            "{}/api/v1/orgs/{}/process-instances",
+            app.address, org_id
+        ))
         .json(&serde_json::json!({ "org_id": org_id, "definition_id": def_id }))
         .send()
         .await

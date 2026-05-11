@@ -9,6 +9,20 @@ pub struct Org {
     pub name: String,
     pub slug: String,
     pub created_at: DateTime<Utc>,
+    pub setup_completed: bool,
+    /// `true` for the hidden `_platform` org that hosts platform admins.
+    /// Excluded from `/api/v1/orgs` listings; cannot be deleted via the API.
+    pub is_system: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct OrgAuthConfig {
+    pub org_id: Uuid,
+    pub provider: String,
+    pub oidc_issuer: Option<String>,
+    pub oidc_client_id: Option<String>,
+    pub oidc_redirect_uri: Option<String>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

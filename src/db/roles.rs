@@ -31,8 +31,9 @@ pub async fn load_user_permissions(pool: &PgPool, user_id: Uuid) -> Result<HashS
 
 /// Grant the global `Admin` role to `user_id` (self-grant: `granted_by = user_id`).
 /// Idempotent via `ON CONFLICT DO NOTHING`.
+/// Returns an error if the global Admin role does not exist (missing migration seed data).
 pub async fn assign_admin(pool: &PgPool, user_id: Uuid) -> Result<()> {
-    sqlx::query!(
+    let result = sqlx::query!(
         r#"
         INSERT INTO user_roles (user_id, role_id, granted_by)
         SELECT $1, r.id, $1
@@ -44,6 +45,24 @@ pub async fn assign_admin(pool: &PgPool, user_id: Uuid) -> Result<()> {
     )
     .execute(pool)
     .await?;
+
+    if result.rows_affected() == 0 {
+        // 0 rows means either the Admin role doesn't exist (missing seed data)
+        // or the user already has it. Verify the role exists to tell them apart.
+        let admin_exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM roles WHERE name = 'Admin' AND org_id IS NULL)"
+        )
+        .fetch_one(pool)
+        .await?
+        .unwrap_or(false);
+
+        if !admin_exists {
+            return Err(crate::error::EngineError::NotFound(
+                "global Admin role not found — run `make db-reset && make migrate` to reseed built-in roles".to_string(),
+            ));
+        }
+        // Otherwise user already has the Admin role — idempotent OK.
+    }
     Ok(())
 }
 
@@ -116,7 +135,177 @@ pub async fn revoke_role(
 pub struct RoleWithPermissions {
     pub id: Uuid,
     pub name: String,
+    /// `None` = global built-in; `Some(id)` = custom role scoped to that org.
+    /// The UI uses this to distinguish built-ins (immutable) from custom roles.
+    pub org_id: Option<Uuid>,
     pub permissions: Vec<String>,
+}
+
+/// List all roles visible to an org: global built-ins + the org's custom roles.
+pub async fn list_for_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<RoleWithPermissions>> {
+    let roles = sqlx::query!(
+        "SELECT id, name, org_id FROM roles WHERE org_id IS NULL OR org_id = $1 ORDER BY name",
+        org_id
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut result = Vec::with_capacity(roles.len());
+    for r in roles {
+        let perms = sqlx::query_scalar!(
+            "SELECT permission FROM role_permissions WHERE role_id = $1 ORDER BY permission",
+            r.id
+        )
+        .fetch_all(pool)
+        .await?;
+        result.push(RoleWithPermissions {
+            id: r.id,
+            name: r.name,
+            org_id: r.org_id,
+            permissions: perms,
+        });
+    }
+    Ok(result)
+}
+
+/// Create a custom org-scoped role with the given permission set.
+pub async fn create_custom_role(
+    pool: &PgPool,
+    org_id: Uuid,
+    name: &str,
+    permissions: &[String],
+) -> Result<RoleWithPermissions> {
+    let role = sqlx::query!(
+        "INSERT INTO roles (org_id, name) VALUES ($1, $2) RETURNING id, name",
+        org_id,
+        name
+    )
+    .fetch_one(pool)
+    .await?;
+
+    for perm in permissions {
+        sqlx::query!(
+            "INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)",
+            role.id,
+            perm
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(RoleWithPermissions {
+        id: role.id,
+        name: role.name,
+        org_id: Some(org_id),
+        permissions: permissions.to_vec(),
+    })
+}
+
+/// Update a custom org-scoped role: rename and replace its permission set atomically.
+/// Returns `EngineError::NotFound` if the role does not exist or is a built-in (org_id IS NULL).
+pub async fn update_custom_role(
+    pool: &PgPool,
+    role_id: Uuid,
+    org_id: Uuid,
+    name: &str,
+    permissions: &[String],
+) -> Result<RoleWithPermissions> {
+    let mut tx = pool.begin().await?;
+
+    let row = sqlx::query!(
+        "UPDATE roles SET name = $2 WHERE id = $1 AND org_id = $3 RETURNING id, name",
+        role_id,
+        name,
+        org_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| {
+        crate::error::EngineError::NotFound(format!(
+            "role {role_id} (must be a custom org role)"
+        ))
+    })?;
+
+    sqlx::query!("DELETE FROM role_permissions WHERE role_id = $1", role_id)
+        .execute(&mut *tx)
+        .await?;
+
+    for perm in permissions {
+        sqlx::query!(
+            "INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)",
+            role_id,
+            perm
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    Ok(RoleWithPermissions {
+        id: row.id,
+        name: row.name,
+        org_id: Some(org_id),
+        permissions: permissions.to_vec(),
+    })
+}
+
+/// Delete a custom org-scoped role. Returns false if not found or is a built-in (org_id IS NULL).
+pub async fn delete_custom_role(pool: &PgPool, role_id: Uuid, org_id: Uuid) -> Result<bool> {
+    let res = sqlx::query!(
+        "DELETE FROM roles WHERE id = $1 AND org_id = $2",
+        role_id,
+        org_id
+    )
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Replace all roles for `user_id` (within `org_id`) with the given role IDs.
+/// All supplied role_ids must be either global or belong to the same org.
+pub async fn set_user_roles(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+    role_ids: &[Uuid],
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    // Delete all current roles for this user
+    sqlx::query!("DELETE FROM user_roles WHERE user_id = $1", user_id)
+        .execute(&mut *tx)
+        .await?;
+
+    for &role_id in role_ids {
+        // Verify each role is accessible (global or org-scoped to this org)
+        let ok = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM roles WHERE id = $1 AND (org_id IS NULL OR org_id = $2))",
+            role_id,
+            org_id
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+
+        if !ok {
+            tx.rollback().await?;
+            return Err(crate::error::EngineError::NotFound(format!(
+                "role {role_id} not found or not accessible"
+            )));
+        }
+
+        sqlx::query!(
+            "INSERT INTO user_roles (user_id, role_id, granted_by) VALUES ($1, $2, $1) ON CONFLICT DO NOTHING",
+            user_id,
+            role_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
 }
 
 /// List all global built-in roles with their permission sets.
@@ -139,6 +328,7 @@ pub async fn list_global_roles(pool: &PgPool) -> Result<Vec<RoleWithPermissions>
         result.push(RoleWithPermissions {
             id: r.id,
             name: r.name,
+            org_id: None,
             permissions: perms,
         });
     }

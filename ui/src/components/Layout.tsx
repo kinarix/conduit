@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchOrgs } from '../api/orgs'
 import Sidebar from './Sidebar/Sidebar'
 import Welcome from '../pages/Welcome'
+import PlatformShell from '../pages/platform/PlatformShell'
+import { useAuth } from '../context/AuthContext'
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 520
@@ -18,11 +20,17 @@ function readSavedWidth() {
 }
 
 export default function Layout() {
-  const { data: orgs = [], isLoading, isFetching, isError, refetch } = useQuery({
+  const { user } = useAuth()
+  const isPlatformAdmin = user?.permissions?.includes('org.create') ?? false
+
+  const { isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['orgs'],
     queryFn: fetchOrgs,
     retry: 1,
+    enabled: !isPlatformAdmin,
   })
+
+  if (isPlatformAdmin) return <PlatformShell />
 
   const [sidebarWidth, setSidebarWidth] = useState(readSavedWidth)
   const [dragging, setDragging] = useState(false)
@@ -82,7 +90,7 @@ export default function Layout() {
       />
 
       <main style={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
-        {orgs.length === 0 ? <Welcome /> : <Outlet />}
+        {user?.setup_completed === false ? <Welcome /> : <Outlet />}
       </main>
     </div>
   )

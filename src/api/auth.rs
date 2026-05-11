@@ -23,6 +23,7 @@ use crate::state::AppState;
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/orgs", get(list_login_orgs))
         .route("/api/v1/me", get(me))
         .route("/api/v1/api-keys", post(create_api_key).get(list_api_keys))
         .route("/api/v1/api-keys/{id}", delete(revoke_api_key))
@@ -30,11 +31,16 @@ pub fn routes() -> Router<Arc<AppState>> {
 
 // ─── Login ───────────────────────────────────────────────────────────────────
 
+/// `org_slug` is optional: when absent or empty the request is interpreted as
+/// a platform-admin login and routed to the system org `conduit`. The slug
+/// `conduit` is reserved (validated in `POST /api/v1/orgs`), so there is no
+/// ambiguity with a tenant org.
 #[derive(Debug, Deserialize)]
 struct LoginRequest {
     email: String,
     password: String,
-    org_slug: String,
+    #[serde(default)]
+    org_slug: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -44,16 +50,25 @@ struct LoginResponse {
     expires_in: i64,
 }
 
-#[tracing::instrument(skip_all, fields(email = %req.email, org = %req.org_slug))]
+const PLATFORM_ORG_SLUG: &str = "conduit";
+
+#[tracing::instrument(skip_all, fields(email = %req.email))]
 async fn login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>> {
+    let slug = req
+        .org_slug
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(PLATFORM_ORG_SLUG);
+
     // The four failure modes — unknown org, unknown user, wrong password,
     // external-auth user trying internal login — all return the same generic
     // U011. Never branch the response on which one fired.
     let creds =
-        db::users::find_credentials_by_org_slug_and_email(&state.pool, &req.org_slug, &req.email)
+        db::users::find_credentials_by_org_slug_and_email(&state.pool, slug, &req.email)
             .await?
             .ok_or(EngineError::LoginFailed)?;
 
@@ -82,6 +97,43 @@ async fn login(
     }))
 }
 
+// ─── Login org dropdown (public) ─────────────────────────────────────────────
+
+/// Public — no auth. Backs the org dropdown on the login page. Returns every
+/// org's display name and slug (system orgs included, so `Conduit` shows up as
+/// the platform-admin sign-in target).
+///
+/// This is an intentional info-disclosure tradeoff: anyone who can reach the
+/// login page can see the list of tenants. Acceptable for single-tenant and
+/// small-multi-tenant self-hosted deployments. Public-SaaS operators should
+/// front this with a separate sign-in flow.
+#[derive(Debug, Serialize)]
+struct LoginOrg {
+    name: String,
+    slug: String,
+    is_system: bool,
+}
+
+async fn list_login_orgs(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<LoginOrg>>> {
+    // System orgs first (Conduit at the top), then real orgs alphabetically.
+    let rows = sqlx::query!(
+        "SELECT name, slug, is_system FROM orgs ORDER BY is_system DESC, name ASC"
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| LoginOrg {
+                name: r.name,
+                slug: r.slug,
+                is_system: r.is_system,
+            })
+            .collect(),
+    ))
+}
+
 // ─── Whoami ──────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -90,19 +142,41 @@ struct MeResponse {
     org_id: Uuid,
     email: String,
     auth_kind: &'static str,
+    permissions: Vec<String>,
+    roles: Vec<String>,
+    setup_completed: bool,
 }
 
-async fn me(principal: Principal) -> Json<MeResponse> {
+async fn me(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+) -> Result<Json<MeResponse>> {
     let auth_kind = match principal.kind {
         PrincipalKind::Jwt => "jwt",
         PrincipalKind::ApiKey => "api_key",
     };
-    Json(MeResponse {
+
+    let user_roles = db::roles::list_user_roles(&state.pool, principal.user_id).await?;
+    let org = db::orgs::get_by_id(&state.pool, principal.org_id)
+        .await?
+        .ok_or_else(|| EngineError::NotFound(format!("org {}", principal.org_id)))?;
+
+    let mut permissions: Vec<String> = principal
+        .permissions
+        .iter()
+        .map(|p| p.to_string())
+        .collect();
+    permissions.sort();
+
+    Ok(Json(MeResponse {
         user_id: principal.user_id,
         org_id: principal.org_id,
         email: principal.email,
         auth_kind,
-    })
+        permissions,
+        roles: user_roles.into_iter().map(|r| r.role_name).collect(),
+        setup_completed: org.setup_completed,
+    }))
 }
 
 // ─── API keys ────────────────────────────────────────────────────────────────

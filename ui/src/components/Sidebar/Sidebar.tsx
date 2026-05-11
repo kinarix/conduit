@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchOrgs, createOrg, deleteOrg } from '../../api/orgs'
-import { useOrg } from '../../App'
+import { fetchOrgs, deleteOrg } from '../../api/orgs'
 import { deleteProcessGroup, type ProcessGroup } from '../../api/processGroups'
 import { deleteDeployment, type LogicalProcess } from '../../api/deployments'
 import { deleteDecision, type DecisionSummary } from '../../api/decisions'
 import { type Org } from '../../App'
-import { PlusIcon } from './SidebarIcons'
 import WorkspaceHeader from './WorkspaceHeader'
 import OrgRow from './OrgRow'
 import FooterNav from './FooterNav'
@@ -18,7 +16,6 @@ export default function Sidebar({ width }: { width?: number }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const location = useLocation()
-  const { setOrg } = useOrg()
   const orgsExp = useExpansion('sidebar.orgs')
 
   const { data: orgs = [] } = useQuery({ queryKey: ['orgs'], queryFn: fetchOrgs })
@@ -35,24 +32,6 @@ export default function Sidebar({ width }: { width?: number }) {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgs.length])
-
-  const [addOrgOpen, setAddOrgOpen] = useState(false)
-  const [addOrgName, setAddOrgName] = useState('')
-  const [addOrgSlug, setAddOrgSlug] = useState('')
-
-  const slugify = (v: string) =>
-    v.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-
-  const createOrgMut = useMutation({
-    mutationFn: createOrg,
-    onSuccess: created => {
-      qc.invalidateQueries({ queryKey: ['orgs'] })
-      setOrg(created)
-      setAddOrgOpen(false)
-      setAddOrgName('')
-      setAddOrgSlug('')
-    },
-  })
 
   const [confirmOrg, setConfirmOrg] = useState<Org | null>(null)
   const [confirmGroup, setConfirmGroup] = useState<ProcessGroup | null>(null)
@@ -108,17 +87,6 @@ export default function Sidebar({ width }: { width?: number }) {
     <aside className={styles.sidebar} style={width !== undefined ? { width } : undefined}>
       <WorkspaceHeader />
 
-      <div className={styles.addOrgArea}>
-        <button
-          type="button"
-          className={styles.addOrgBtn}
-          onClick={() => setAddOrgOpen(true)}
-        >
-          <PlusIcon size={12} />
-          Add organization
-        </button>
-      </div>
-
       <div className={styles.tree}>
         {orgs.map(org => (
           <OrgRow
@@ -136,39 +104,6 @@ export default function Sidebar({ width }: { width?: number }) {
 
       <FooterNav />
 
-      {addOrgOpen && (
-        <div className="modal-overlay" onClick={() => setAddOrgOpen(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h3>Create organisation</h3>
-            <div className="field">
-              <label>Name</label>
-              <input
-                autoFocus
-                value={addOrgName}
-                onChange={e => {
-                  setAddOrgName(e.target.value)
-                  setAddOrgSlug(slugify(e.target.value))
-                }}
-              />
-            </div>
-            <div className="field">
-              <label>Slug</label>
-              <input value={addOrgSlug} onChange={e => setAddOrgSlug(slugify(e.target.value))} />
-            </div>
-            {createOrgMut.error && <div className="error-banner">{String(createOrgMut.error)}</div>}
-            <div className="modal-actions">
-              <button className="btn-ghost" onClick={() => setAddOrgOpen(false)}>Cancel</button>
-              <button
-                className="btn-primary"
-                disabled={!addOrgName || !addOrgSlug || createOrgMut.isPending}
-                onClick={() => createOrgMut.mutate({ name: addOrgName, slug: addOrgSlug })}
-              >
-                {createOrgMut.isPending ? 'Creating…' : 'Create'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {confirmOrg && (
         <ConfirmModal
           title="Delete organisation"

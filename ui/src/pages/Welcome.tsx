@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { createOrg, type Org } from '../api/orgs'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { fetchAdminOrg, patchAdminOrg, fetchAuthConfig, patchAuthConfig } from '../api/admin'
 import { createProcessGroup, type ProcessGroup } from '../api/processGroups'
 import { createDraft } from '../api/deployments'
 import { defaultBpmnXml } from '../components/bpmn/defaultBpmn'
 import { useOrg } from '../App'
+import { useAuth } from '../context/AuthContext'
+import { TOKEN_KEY } from '../api/client'
 
 // ─── Concept card SVGs ────────────────────────────────────────────────────────
 
@@ -13,19 +15,6 @@ const STROKE = 'var(--color-text-muted)'
 const ACCENT = 'var(--color-primary)'
 
 const CONCEPTS = [
-  {
-    title: 'Organization',
-    blurb: 'A workspace that owns its process groups, processes, and people. Everything is scoped under an org.',
-    svg: (
-      <svg viewBox="0 0 120 80" width="120" height="80" fill="none">
-        <rect x="46" y="6" width="28" height="18" rx="3" stroke={ACCENT} strokeWidth="1.5" />
-        <rect x="14" y="50" width="28" height="18" rx="3" stroke={STROKE} strokeWidth="1.5" />
-        <rect x="46" y="50" width="28" height="18" rx="3" stroke={STROKE} strokeWidth="1.5" />
-        <rect x="78" y="50" width="28" height="18" rx="3" stroke={STROKE} strokeWidth="1.5" />
-        <path d="M60 24 L60 38 M28 38 L92 38 M28 38 L28 50 M60 38 L60 50 M92 38 L92 50" stroke={STROKE} strokeWidth="1.2" />
-      </svg>
-    ),
-  },
   {
     title: 'Process Group',
     blurb: 'Org units inside an organization. Group related processes by team, domain, or business unit.',
@@ -88,10 +77,23 @@ function slugify(v: string) {
   return v.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 }
 
-const MILESTONES = [
-  { num: 1 as const, label: 'Organization' },
-  { num: 2 as const, label: 'Process Group' },
-  { num: 3 as const, label: 'Process' },
+function expandInStorage(key: string, id: string) {
+  try {
+    const raw = localStorage.getItem(key)
+    const arr: string[] = Array.isArray(JSON.parse(raw ?? 'null')) ? JSON.parse(raw!) : []
+    if (!arr.includes(id)) arr.push(id)
+    localStorage.setItem(key, JSON.stringify(arr))
+    window.dispatchEvent(new CustomEvent('sidebar:expansion-sync', { detail: key }))
+  } catch { /* ignore quota / disabled storage */ }
+}
+
+type StepNum = 1 | 2 | 3 | 4
+
+const MILESTONES: { num: StepNum; label: string }[] = [
+  { num: 1, label: 'Org' },
+  { num: 2, label: 'Auth' },
+  { num: 3, label: 'Process Group' },
+  { num: 4, label: 'Process' },
 ]
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -100,35 +102,55 @@ export default function Welcome() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { setOrg } = useOrg()
+  const { refreshUser } = useAuth()
 
-  const [step, setStep] = useState<1 | 2 | 3>(1)
-  const [createdOrg, setCreatedOrg] = useState<Org | null>(null)
+  const [step, setStep] = useState<StepNum>(1)
   const [createdGroup, setCreatedGroup] = useState<ProcessGroup | null>(null)
 
-  const [orgName, setOrgName] = useState('')
-  const [orgSlug, setOrgSlug] = useState('')
+  // Step 1 is read-only — the platform admin already set the org name when
+  // provisioning. The Org Admin can rename later via /admin/settings.
+
+  // Step 2
+  const [provider, setProvider] = useState<'internal' | 'oidc'>('internal')
+  const [oidcIssuer, setOidcIssuer] = useState('')
+  const [oidcClientId, setOidcClientId] = useState('')
+  const [oidcClientSecret, setOidcClientSecret] = useState('')
+  const [oidcRedirectUri, setOidcRedirectUri] = useState('')
+
+  // Step 3
   const [groupName, setGroupName] = useState('')
+
+  // Step 4
   const [processName, setProcessName] = useState('')
   const [processKey, setProcessKey] = useState('')
-  const [error, setError] = useState('')
 
-  // Don't invalidate ['orgs'] until the wizard completes — otherwise Layout.tsx
-  // unmounts <Welcome/> mid-wizard when it sees orgs.length > 0.
-  const createOrgMut = useMutation({
-    mutationFn: () => createOrg({ name: orgName, slug: orgSlug }),
-    onSuccess: org => { setCreatedOrg(org); setError(''); setStep(2) },
-    onError: (e: Error) => setError(e.message),
-  })
+  const [error, setError] = useState('')
+  const [completing, setCompleting] = useState(false)
+
+  const orgQ = useQuery({ queryKey: ['admin-org'], queryFn: fetchAdminOrg })
+  const authConfigQ = useQuery({ queryKey: ['admin-auth-config'], queryFn: fetchAuthConfig })
+
+  useEffect(() => {
+    if (!authConfigQ.data) return
+    setProvider(authConfigQ.data.provider)
+    setOidcIssuer(authConfigQ.data.oidc_issuer ?? '')
+    setOidcClientId(authConfigQ.data.oidc_client_id ?? '')
+    setOidcRedirectUri(
+      authConfigQ.data.oidc_redirect_uri ?? `${window.location.origin}/auth/callback`
+    )
+  }, [authConfigQ.data]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patchAuthMut = useMutation({ mutationFn: patchAuthConfig })
 
   const createGroupMut = useMutation({
-    mutationFn: () => createProcessGroup(createdOrg!.id, groupName),
-    onSuccess: g => { setCreatedGroup(g); setError(''); setStep(3) },
+    mutationFn: () => createProcessGroup(orgQ.data!.id, groupName),
+    onSuccess: g => { setCreatedGroup(g); setError(''); setStep(4) },
     onError: (e: Error) => setError(e.message),
   })
 
   const createProcessMut = useMutation({
     mutationFn: () => createDraft({
-      org_id: createdOrg!.id,
+      org_id: orgQ.data!.id,
       process_group_id: createdGroup!.id,
       key: processKey,
       name: processName,
@@ -136,42 +158,70 @@ export default function Welcome() {
     }),
   })
 
-  const handleOpenInEditor = async () => {
-    setError('')
-    let def: Awaited<ReturnType<typeof createDraft>>
+  const completeSetup = async (defId?: string) => {
+    setCompleting(true)
     try {
-      def = await createProcessMut.mutateAsync()
-    } catch (e) {
-      setError((e as Error).message)
-      return
+      await patchAdminOrg({ setup_completed: true })
+    } catch { /* best-effort */ }
+    if (localStorage.getItem(TOKEN_KEY)) {
+      await refreshUser()
     }
 
-    // Pre-expand the sidebar tree in localStorage so the org and process group
-    // are visible when the editor opens.
-    const expandInStorage = (key: string, id: string) => {
-      try {
-        const raw = localStorage.getItem(key)
-        const arr: string[] = Array.isArray(JSON.parse(raw ?? 'null')) ? JSON.parse(raw!) : []
-        if (!arr.includes(id)) arr.push(id)
-        localStorage.setItem(key, JSON.stringify(arr))
-        window.dispatchEvent(new CustomEvent('sidebar:expansion-sync', { detail: key }))
-      } catch { /* ignore quota / disabled storage */ }
+    if (defId && orgQ.data && createdGroup) {
+      expandInStorage('sidebar.orgs', orgQ.data.id)
+      expandInStorage(`sidebar.groups.${orgQ.data.id}`, createdGroup.id)
+      setOrg(orgQ.data)
+      qc.invalidateQueries({ queryKey: ['orgs'] })
+      qc.invalidateQueries({ queryKey: ['process-groups', orgQ.data.id] })
+      navigate(`/definitions/${defId}/edit`)
     }
-    expandInStorage('sidebar.orgs', createdOrg!.id)
-    expandInStorage(`sidebar.groups.${createdOrg!.id}`, createdGroup!.id)
-
-    setOrg(createdOrg!)
-    // Immediately seed the orgs cache so Layout renders <Outlet /> before navigate fires.
-    qc.setQueryData<Org[]>(['orgs'], (old = []) =>
-      old.some(o => o.id === createdOrg!.id) ? old : [...old, createdOrg!]
-    )
-    qc.invalidateQueries({ queryKey: ['orgs'] })
-    qc.invalidateQueries({ queryKey: ['process-groups', createdOrg!.id] })
-    qc.invalidateQueries({ queryKey: ['deployments', createdOrg!.id] })
-    navigate(`/definitions/${def.id}/edit`)
+    // If no defId, refreshUser() updated setup_completed → Layout shows <Outlet />
   }
 
-  const isPending = createOrgMut.isPending || createGroupMut.isPending || createProcessMut.isPending
+  const handleStep2 = async () => {
+    setError('')
+    try {
+      await patchAuthMut.mutateAsync(
+        provider === 'oidc'
+          ? {
+              provider: 'oidc',
+              oidc_issuer: oidcIssuer || null,
+              oidc_client_id: oidcClientId || null,
+              oidc_client_secret: oidcClientSecret || undefined,
+              oidc_redirect_uri: oidcRedirectUri || null,
+            }
+          : { provider: 'internal', oidc_issuer: null, oidc_client_id: null, oidc_redirect_uri: null }
+      )
+      setStep(3)
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  const handleOpenInEditor = async () => {
+    setError('')
+    try {
+      const def = await createProcessMut.mutateAsync()
+      await completeSetup(def.id)
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  const handleSkipProcess = async () => {
+    setError('')
+    try {
+      await completeSetup()
+    } catch (e) { setError((e as Error).message) }
+  }
+
+  const isDataLoading = orgQ.isLoading || authConfigQ.isLoading
+  const isPending = patchAuthMut.isPending ||
+    createGroupMut.isPending || createProcessMut.isPending || completing
+
+  if (isDataLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+        <div className="spinner" />
+      </div>
+    )
+  }
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '40px 24px' }}>
@@ -180,7 +230,7 @@ export default function Welcome() {
       <div style={{ marginBottom: 36 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Welcome to Conduit</h1>
         <p style={{ fontSize: 14, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>
-          Create your organization, a process group, and your first process to get started.
+          Configure your workspace and create your first process to get started.
         </p>
       </div>
 
@@ -188,7 +238,6 @@ export default function Welcome() {
       <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 32 }}>
         {MILESTONES.map((m, i) => (
           <div key={m.num} style={{ display: 'flex', alignItems: 'flex-start', flex: i < MILESTONES.length - 1 ? 1 : 'none' }}>
-            {/* Milestone node */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <div style={{
                 width: 28,
@@ -209,11 +258,9 @@ export default function Welcome() {
                   : step > m.num
                     ? 'var(--color-primary)'
                     : 'var(--color-text-muted)',
-                border: step > m.num
+                border: step >= m.num
                   ? '2px solid var(--color-primary)'
-                  : step === m.num
-                    ? '2px solid var(--color-primary)'
-                    : '2px solid var(--color-border)',
+                  : '2px solid var(--color-border)',
                 transition: 'all 0.2s',
               }}>
                 {step > m.num ? '✓' : m.num}
@@ -228,7 +275,6 @@ export default function Welcome() {
               </span>
             </div>
 
-            {/* Connector line */}
             {i < MILESTONES.length - 1 && (
               <div style={{
                 flex: 1,
@@ -247,40 +293,133 @@ export default function Welcome() {
       {/* ── Active step form ── */}
       <div style={{ maxWidth: 420, marginBottom: 48 }}>
 
+        {/* Step 1 — Welcome / org confirmation (read-only) */}
         {step === 1 && (
           <>
-            <div className="field">
-              <label>Organization name</label>
-              <input
-                autoFocus
-                value={orgName}
-                placeholder="e.g. Acme Corp"
-                onChange={e => { setOrgName(e.target.value); setOrgSlug(slugify(e.target.value)) }}
-                onKeyDown={e => e.key === 'Enter' && orgName && orgSlug && createOrgMut.mutate()}
-              />
-            </div>
-            <div className="field">
-              <label>Slug</label>
-              <input
-                value={orgSlug}
-                placeholder="e.g. acme-corp"
-                onChange={e => setOrgSlug(slugify(e.target.value))}
-                onKeyDown={e => e.key === 'Enter' && orgName && orgSlug && createOrgMut.mutate()}
-              />
+            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+              Welcome to {orgQ.data?.name}
+            </h2>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: 14 }}>
+              Your platform administrator created this organisation for you.
+              You can rename it later in <strong>Admin → Settings</strong>.
+            </p>
+            <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 20 }}>
+              Slug: <code style={{ fontFamily: 'monospace' }}>{orgQ.data?.slug}</code>
             </div>
             {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
             <button
               className="btn-primary"
-              disabled={!orgName || !orgSlug || isPending}
-              onClick={() => createOrgMut.mutate()}
+              disabled={isPending}
+              onClick={() => setStep(2)}
+              autoFocus
             >
-              {isPending ? 'Creating…' : 'Continue →'}
+              Get started →
             </button>
           </>
         )}
 
+        {/* Step 2 — Auth Provider */}
         {step === 2 && (
           <>
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 12 }}>
+                Choose how users authenticate. You can change this later in Admin → Auth.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {(['internal', 'oidc'] as const).map(p => (
+                  <label
+                    key={p}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 10,
+                      padding: '10px 12px',
+                      border: `1px solid ${provider === p ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      background: provider === p ? 'var(--color-primary-soft, color-mix(in srgb, var(--color-primary) 8%, transparent))' : 'var(--color-surface)',
+                      transition: 'border-color 0.15s, background 0.15s',
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="provider"
+                      value={p}
+                      checked={provider === p}
+                      onChange={() => setProvider(p)}
+                      style={{ marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>
+                        {p === 'internal' ? 'Internal (password)' : 'External OIDC'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>
+                        {p === 'internal'
+                          ? 'Users log in with email and password stored in Conduit.'
+                          : 'Delegate authentication to an external identity provider (e.g. Okta, Auth0, Keycloak).'}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {provider === 'oidc' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                <div className="field">
+                  <label>Issuer URL</label>
+                  <input
+                    value={oidcIssuer}
+                    placeholder="https://your-idp.example.com"
+                    onChange={e => setOidcIssuer(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Client ID</label>
+                  <input
+                    value={oidcClientId}
+                    placeholder="your-client-id"
+                    onChange={e => setOidcClientId(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Client secret</label>
+                  <input
+                    type="password"
+                    value={oidcClientSecret}
+                    placeholder={authConfigQ.data?.oidc_client_secret_set ? 'Already set — enter to update' : ''}
+                    onChange={e => setOidcClientSecret(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label>Redirect URI</label>
+                  <input
+                    value={oidcRedirectUri}
+                    onChange={e => setOidcRedirectUri(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-ghost" disabled={isPending} onClick={() => { setStep(1); setError('') }}>← Back</button>
+              <button className="btn-ghost" disabled={isPending} onClick={() => { setError(''); setStep(3) }}>
+                Skip for now
+              </button>
+              <button className="btn-primary" disabled={isPending} onClick={handleStep2}>
+                {isPending ? 'Saving…' : 'Save & continue →'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Step 3 — Process Group */}
+        {step === 3 && (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
+              Process groups organise related processes by team or domain.
+            </p>
             <div className="field">
               <label>Process group name</label>
               <input
@@ -288,15 +427,15 @@ export default function Welcome() {
                 value={groupName}
                 placeholder="e.g. Order Management"
                 onChange={e => setGroupName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && groupName && createGroupMut.mutate()}
+                onKeyDown={e => e.key === 'Enter' && groupName.trim() && createGroupMut.mutate()}
               />
             </div>
             {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost" onClick={() => { setStep(1); setError('') }}>← Back</button>
+              <button className="btn-ghost" disabled={isPending} onClick={() => { setStep(2); setError('') }}>← Back</button>
               <button
                 className="btn-primary"
-                disabled={!groupName || isPending}
+                disabled={!groupName.trim() || isPending}
                 onClick={() => createGroupMut.mutate()}
               >
                 {isPending ? 'Creating…' : 'Continue →'}
@@ -305,8 +444,12 @@ export default function Welcome() {
           </>
         )}
 
-        {step === 3 && (
+        {/* Step 4 — First Process */}
+        {step === 4 && (
           <>
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
+              Create your first process definition and open it in the modeller. You can skip this and create one later.
+            </p>
             <div className="field">
               <label>Process name</label>
               <input
@@ -314,7 +457,7 @@ export default function Welcome() {
                 value={processName}
                 placeholder="e.g. Order Approval"
                 onChange={e => { setProcessName(e.target.value); setProcessKey(slugify(e.target.value)) }}
-                onKeyDown={e => e.key === 'Enter' && processName && processKey && handleOpenInEditor()}
+                onKeyDown={e => e.key === 'Enter' && processName.trim() && processKey.trim() && handleOpenInEditor()}
               />
             </div>
             <div className="field">
@@ -323,18 +466,20 @@ export default function Welcome() {
                 value={processKey}
                 placeholder="e.g. order-approval"
                 onChange={e => setProcessKey(slugify(e.target.value))}
-                onKeyDown={e => e.key === 'Enter' && processName && processKey && handleOpenInEditor()}
+                onKeyDown={e => e.key === 'Enter' && processName.trim() && processKey.trim() && handleOpenInEditor()}
               />
             </div>
             {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost" onClick={() => { setStep(2); setError('') }}>← Back</button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn-ghost" disabled={isPending} onClick={handleSkipProcess}>
+                {completing ? 'Finishing…' : 'Skip for now'}
+              </button>
               <button
                 className="btn-primary"
-                disabled={!processName || !processKey || isPending}
+                disabled={!processName.trim() || !processKey.trim() || isPending}
                 onClick={handleOpenInEditor}
               >
-                {isPending ? 'Opening editor…' : 'Open in editor →'}
+                {isPending && !completing ? 'Opening editor…' : 'Open in editor →'}
               </button>
             </div>
           </>

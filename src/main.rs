@@ -167,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .merge(api::health::routes())
         .merge(api::auth::routes())
+        .merge(api::admin::routes())
         .merge(api::orgs::routes())
         .merge(api::users::routes())
         .merge(api::deployments::routes())

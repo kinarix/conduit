@@ -48,33 +48,6 @@
   color: var(--text-primary);
 }
 
-.addOrgArea {
-  padding: var(--space-2) var(--space-3);
-  flex-shrink: 0;
-  border-bottom: 1px solid var(--border-primary);
-}
-
-.addOrgBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: 7px var(--space-2);
-  border: none;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  color: #fff;
-  font-size: var(--text-base);
-  font-weight: var(--weight-semibold);
-  cursor: pointer;
-  transition: opacity var(--transition-base);
-}
-
-.addOrgBtn:hover {
-  opacity: 0.88;
-}
-
 .tree {
   flex: 1;
   overflow-y: auto;

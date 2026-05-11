@@ -69,6 +69,32 @@ pub async fn find_by_id(pool: &PgPool, user_id: Uuid) -> Result<Option<User>> {
     Ok(row)
 }
 
+pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<User>> {
+    let rows = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, org_id, auth_provider, external_id, email, created_at
+        FROM users
+        WHERE org_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(org_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn remove_from_org(pool: &PgPool, user_id: Uuid, org_id: Uuid) -> Result<bool> {
+    let res = sqlx::query!(
+        "DELETE FROM users WHERE id = $1 AND org_id = $2",
+        user_id,
+        org_id
+    )
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
 pub async fn count(pool: &PgPool) -> Result<i64> {
     let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
         .fetch_one(pool)

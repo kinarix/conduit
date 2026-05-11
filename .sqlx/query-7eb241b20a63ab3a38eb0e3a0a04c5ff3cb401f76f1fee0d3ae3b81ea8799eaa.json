@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT provider, oidc_issuer, oidc_client_id, oidc_client_secret_enc, oidc_redirect_uri FROM org_auth_config WHERE org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "provider",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "oidc_issuer",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "oidc_client_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "oidc_client_secret_enc",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "oidc_redirect_uri",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7eb241b20a63ab3a38eb0e3a0a04c5ff3cb401f76f1fee0d3ae3b81ea8799eaa"
+}

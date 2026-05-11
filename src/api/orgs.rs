@@ -35,22 +35,32 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/orgs/{id}", delete(delete_org))
 }
 
-// Phase 22: orgs endpoints require authentication and are scoped to the
-// caller's home org. `list_orgs` returns only the caller's org so a user
-// can't enumerate other tenants. `create_org` is reserved for Phase 23
-// (RBAC) — until then, the bootstrap-admin env vars are the only path
-// for org creation. `delete_org` is gated to the caller's own org.
+// Org endpoints serve two audiences:
+//
+//   * Platform admins (perm `org.create`) — see all real orgs across the
+//     deployment and may create new ones. The hidden `_platform` org that
+//     hosts them is never returned.
+//
+//   * Org-scoped users — see only their own org and may delete it (with
+//     `org.manage`). They cannot enumerate other tenants.
 #[tracing::instrument(skip_all)]
 async fn list_orgs(
     State(state): State<Arc<AppState>>,
     principal: Principal,
     Query(params): Query<ListOrgsQuery>,
 ) -> Result<axum::response::Response> {
-    let _ = (params.limit, params.offset); // single-row response, no pagination
+    let _ = (params.limit, params.offset);
     let _ = Page::from_query(params.limit, params.offset);
+
+    if principal.has(Permission::OrgCreate) {
+        let rows = orgs::list_real(&state.pool).await?;
+        let total = rows.len() as i64;
+        return Ok(with_total(rows, total));
+    }
+
     match orgs::get_by_id(&state.pool, principal.org_id).await? {
-        Some(org) => Ok(with_total(vec![org], 1)),
-        None => Ok(with_total::<Vec<Org>>(vec![], 0)),
+        Some(org) if !org.is_system => Ok(with_total(vec![org], 1)),
+        _ => Ok(with_total::<Vec<Org>>(vec![], 0)),
     }
 }
 
@@ -60,14 +70,23 @@ async fn create_org(
     principal: Principal,
     Json(req): Json<CreateOrgRequest>,
 ) -> Result<(StatusCode, Json<Org>)> {
-    principal.require(Permission::OrgManage)?;
+    principal.require(Permission::OrgCreate)?;
     if req.name.trim().is_empty() {
         return Err(EngineError::Validation("name must not be empty".to_string()));
     }
-    if req.slug.trim().is_empty() {
+    let slug = req.slug.trim();
+    if slug.is_empty() {
         return Err(EngineError::Validation("slug must not be empty".to_string()));
     }
-    let org = orgs::insert(&state.pool, req.name.trim(), req.slug.trim()).await?;
+    // `conduit` is the system org used to host the platform admin. Defending
+    // here too (in addition to the UNIQUE constraint) gives a clean U-coded
+    // validation error instead of a DB-level conflict surfacing as 500.
+    if slug.eq_ignore_ascii_case("conduit") {
+        return Err(EngineError::Validation(
+            "the slug 'conduit' is reserved".to_string(),
+        ));
+    }
+    let org = orgs::insert(&state.pool, req.name.trim(), slug).await?;
     Ok((StatusCode::CREATED, Json(org)))
 }
 

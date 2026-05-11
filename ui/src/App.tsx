@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { createContext, useContext, useState } from 'react'
 import Layout from './components/Layout'
+import Login from './pages/Login'
 import Welcome from './pages/Welcome'
 import OrgDashboard from './pages/OrgDashboard'
 import ProcessGroupDashboard from './pages/ProcessGroupDashboard'
@@ -14,6 +15,12 @@ import Secrets from './pages/Secrets'
 import Decisions from './pages/Decisions'
 import DecisionTableEditor from './pages/DecisionTableEditor'
 import { fetchDeployment } from './api/deployments'
+import { useAuth } from './context/AuthContext'
+import AdminShell from './pages/admin/AdminShell'
+import AdminUsers from './pages/admin/AdminUsers'
+import AdminRoles from './pages/admin/AdminRoles'
+import AdminAuth from './pages/admin/AdminAuth'
+import AdminSettings from './pages/admin/AdminSettings'
 
 export interface Org {
   id: string
@@ -47,16 +54,44 @@ function DefinitionRedirect() {
   )
 }
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, isLoading } = useAuth()
+  if (isLoading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+        <div className="spinner" />
+      </div>
+    )
+  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function RequirePerm({ anyOf, children }: { anyOf: string[]; children: React.ReactNode }) {
+  const { user } = useAuth()
+  const perms = new Set(user?.permissions ?? [])
+  const ok = anyOf.some(p => perms.has(p))
+  if (!ok) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   const [org, setOrg] = useState<Org | null>(null)
 
   return (
     <OrgContext.Provider value={{ org, setOrg }}>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/"
+          element={
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          }
+        >
           <Route index element={<OrgDashboard />} />
           <Route path="definitions" element={<Navigate to="/" replace />} />
-          {/* Legacy /definitions/:id resolves to the new Process Dashboard. */}
           <Route path="definitions/:id" element={<DefinitionRedirect />} />
           <Route path="definitions/:id/edit" element={<Modeller />} />
           <Route path="process-groups/:groupId" element={<ProcessGroupDashboard />} />
@@ -68,13 +103,43 @@ export default function App() {
           <Route path="instances" element={<InstancesList />} />
           <Route path="instances/:instanceId" element={<InstanceDetail />} />
           <Route path="tasks" element={<TaskList />} />
-          <Route path="secrets" element={<Secrets />} />
+          <Route
+            path="secrets"
+            element={<RequirePerm anyOf={['secret.manage']}><Secrets /></RequirePerm>}
+          />
           <Route path="decisions" element={<Decisions />} />
           <Route path="decisions/new" element={<DecisionTableEditor />} />
           <Route path="decisions/:key/edit" element={<DecisionTableEditor />} />
           <Route path="process-groups/:groupId/decisions" element={<Decisions />} />
           <Route path="process-groups/:groupId/decisions/new" element={<DecisionTableEditor />} />
           <Route path="process-groups/:groupId/decisions/:key/edit" element={<DecisionTableEditor />} />
+          <Route path="welcome" element={<Welcome />} />
+          <Route
+            path="admin"
+            element={
+              <RequirePerm anyOf={['org.manage', 'user.manage', 'role.manage']}>
+                <AdminShell />
+              </RequirePerm>
+            }
+          >
+            <Route index element={<Navigate to="users" replace />} />
+            <Route
+              path="users"
+              element={<RequirePerm anyOf={['user.manage', 'role.manage']}><AdminUsers /></RequirePerm>}
+            />
+            <Route
+              path="roles"
+              element={<RequirePerm anyOf={['role.manage']}><AdminRoles /></RequirePerm>}
+            />
+            <Route
+              path="auth"
+              element={<RequirePerm anyOf={['org.manage']}><AdminAuth /></RequirePerm>}
+            />
+            <Route
+              path="settings"
+              element={<RequirePerm anyOf={['org.manage']}><AdminSettings /></RequirePerm>}
+            />
+          </Route>
         </Route>
       </Routes>
     </OrgContext.Provider>

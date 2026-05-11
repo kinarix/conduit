@@ -35,4 +35,10 @@ impl Principal {
             )))
         }
     }
+
+    /// Non-failing check. Use when branching on a permission rather than
+    /// gating an endpoint.
+    pub fn has(&self, perm: Permission) -> bool {
+        self.permissions.contains(&perm)
+    }
 }

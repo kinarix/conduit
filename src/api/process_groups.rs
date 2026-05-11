@@ -3,7 +3,7 @@ use super::pagination::{with_total, Page};
 use axum::{
     extract::State,
     http::StatusCode,
-    routing::{delete, get, post, put},
+    routing::{get, put},
     Router,
 };
 use serde::Deserialize;
@@ -39,84 +39,90 @@ pub struct AssignProcessGroupRequest {
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/api/v1/process-groups", get(list_process_groups))
-        .route("/api/v1/process-groups", post(create_process_group))
-        .route("/api/v1/process-groups/{id}", put(rename_process_group))
-        .route("/api/v1/process-groups/{id}", delete(delete_process_group))
         .route(
-            "/api/v1/deployments/{id}/process-group",
+            "/api/v1/orgs/{org_id}/process-groups",
+            get(list_process_groups).post(create_process_group),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/process-groups/{id}",
+            put(rename_process_group).delete(delete_process_group),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/deployments/{id}/process-group",
             put(assign_process_group),
         )
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %principal.org_id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id))]
 async fn list_process_groups(
     State(state): State<Arc<AppState>>,
     principal: Principal,
+    Path(org_id): Path<Uuid>,
     Query(q): Query<ListProcessGroupsQuery>,
 ) -> Result<axum::response::Response> {
+    principal.require(Permission::ProcessGroupRead)?;
     let page = Page::from_query(q.limit, q.offset);
     let (rows, total) =
-        process_groups::list_paginated(&state.pool, principal.org_id, page.limit, page.offset)
-            .await?;
+        process_groups::list_paginated(&state.pool, org_id, page.limit, page.offset).await?;
     Ok(with_total(rows, total))
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %principal.org_id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id))]
 async fn create_process_group(
     State(state): State<Arc<AppState>>,
     principal: Principal,
+    Path(org_id): Path<Uuid>,
     Json(req): Json<CreateProcessGroupRequest>,
 ) -> Result<(StatusCode, Json<ProcessGroup>)> {
-    principal.require(Permission::ProcessDeploy)?;
+    principal.require(Permission::ProcessGroupCreate)?;
     if req.name.trim().is_empty() {
         return Err(EngineError::Validation(
             "name must not be empty".to_string(),
         ));
     }
-    let group = process_groups::insert(&state.pool, principal.org_id, req.name.trim()).await?;
+    let group = process_groups::insert(&state.pool, org_id, req.name.trim()).await?;
     Ok((StatusCode::CREATED, Json(group)))
 }
 
-#[tracing::instrument(skip_all, fields(id = %id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id, id = %id))]
 async fn rename_process_group(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(id): Path<Uuid>,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<RenameProcessGroupRequest>,
 ) -> Result<Json<ProcessGroup>> {
-    principal.require(Permission::ProcessDeploy)?;
+    principal.require(Permission::ProcessGroupUpdate)?;
     if req.name.trim().is_empty() {
         return Err(EngineError::Validation(
             "name must not be empty".to_string(),
         ));
     }
-    ensure_group_in_org(&state, id, principal.org_id).await?;
+    ensure_group_in_org(&state, id, org_id).await?;
     let group = process_groups::rename(&state.pool, id, req.name.trim()).await?;
     Ok(Json(group))
 }
 
-#[tracing::instrument(skip_all, fields(id = %id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id, id = %id))]
 async fn delete_process_group(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(id): Path<Uuid>,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::ProcessDeploy)?;
-    ensure_group_in_org(&state, id, principal.org_id).await?;
+    principal.require(Permission::ProcessGroupDelete)?;
+    ensure_group_in_org(&state, id, org_id).await?;
     process_groups::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[tracing::instrument(skip_all, fields(definition_id = %id, process_group_id = %req.process_group_id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id, definition_id = %id, process_group_id = %req.process_group_id))]
 async fn assign_process_group(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(id): Path<Uuid>,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<AssignProcessGroupRequest>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::ProcessDeploy)?;
-    ensure_group_in_org(&state, req.process_group_id, principal.org_id).await?;
+    principal.require(Permission::ProcessUpdate)?;
+    ensure_group_in_org(&state, req.process_group_id, org_id).await?;
     process_groups::assign_definition(&state.pool, id, req.process_group_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

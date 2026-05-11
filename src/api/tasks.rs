@@ -30,31 +30,36 @@ pub struct ListTasksQuery {
 
 pub fn routes() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/api/v1/tasks", get(list_tasks))
-        .route("/api/v1/tasks/{id}", get(get_task))
-        .route("/api/v1/tasks/{id}/complete", post(complete_task))
+        .route("/api/v1/orgs/{org_id}/tasks", get(list_tasks))
+        .route("/api/v1/orgs/{org_id}/tasks/{id}", get(get_task))
+        .route(
+            "/api/v1/orgs/{org_id}/tasks/{id}/complete",
+            post(complete_task),
+        )
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %principal.org_id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id))]
 async fn list_tasks(
     State(state): State<Arc<AppState>>,
     principal: Principal,
+    Path(org_id): Path<Uuid>,
     Query(params): Query<ListTasksQuery>,
 ) -> Result<axum::response::Response> {
+    principal.require(Permission::TaskRead)?;
     let page = Page::from_query(params.limit, params.offset);
     let (items, total) =
-        tasks::list_pending_paginated(&state.pool, principal.org_id, page.limit, page.offset)
-            .await?;
+        tasks::list_pending_paginated(&state.pool, org_id, page.limit, page.offset).await?;
     Ok(with_total(TaskListResponse { items }, total))
 }
 
-#[tracing::instrument(skip_all, fields(id = %id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id, id = %id))]
 async fn get_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(id): Path<Uuid>,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Task>> {
-    let task = fetch_task_in_org(&state, id, principal.org_id).await?;
+    principal.require(Permission::TaskRead)?;
+    let task = fetch_task_in_org(&state, id, org_id).await?;
     Ok(Json(task))
 }
 
@@ -63,15 +68,15 @@ struct CompleteTaskRequest {
     variables: Option<Vec<VariableInput>>,
 }
 
-#[tracing::instrument(skip_all, fields(id = %id))]
+#[tracing::instrument(skip_all, fields(org_id = %org_id, id = %id))]
 async fn complete_task(
     State(state): State<Arc<AppState>>,
     principal: Principal,
-    Path(id): Path<Uuid>,
+    Path((org_id, id)): Path<(Uuid, Uuid)>,
     body: Option<Json<CompleteTaskRequest>>,
 ) -> Result<StatusCode> {
     principal.require(Permission::TaskComplete)?;
-    fetch_task_in_org(&state, id, principal.org_id).await?;
+    fetch_task_in_org(&state, id, org_id).await?;
     let vars = body.and_then(|b| b.0.variables).unwrap_or_default();
     state.engine.complete_user_task(id, &vars).await?;
     Ok(StatusCode::NO_CONTENT)

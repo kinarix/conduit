@@ -10,9 +10,6 @@ pub struct Org {
     pub slug: String,
     pub created_at: DateTime<Utc>,
     pub setup_completed: bool,
-    /// `true` for the hidden `_platform` org that hosts platform admins.
-    /// Excluded from `/api/v1/orgs` listings; cannot be deleted via the API.
-    pub is_system: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -25,10 +22,12 @@ pub struct OrgAuthConfig {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Global identity. A user is a member of zero or more orgs via the
+/// `org_members` table (see migration 029). Email is globally unique
+/// (case-insensitive) as of migration 028.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: Uuid,
-    pub org_id: Uuid,
     pub auth_provider: String,
     pub external_id: Option<String>,
     pub email: String,
@@ -40,7 +39,6 @@ pub struct User {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct UserCredentials {
     pub id: Uuid,
-    pub org_id: Uuid,
     pub auth_provider: String,
     pub email: String,
     pub password_hash: Option<String>,
@@ -267,4 +265,13 @@ pub struct ProcessLayout {
     pub process_key: String,
     pub layout_data: JsonValue,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Org membership row.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct OrgMember {
+    pub user_id: Uuid,
+    pub org_id: Uuid,
+    pub invited_by: Option<Uuid>,
+    pub joined_at: DateTime<Utc>,
 }

@@ -7,9 +7,12 @@ use axum::{
     },
     http::{header, request::Parts},
     response::{IntoResponse, Response},
+    RequestPartsExt,
 };
 use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::auth::{self, Principal, PrincipalKind};
 use crate::db;
@@ -128,9 +131,15 @@ fn validation_from_query(rej: QueryRejection) -> EngineError {
 //
 // Pulled by handlers as `principal: Principal`. Reads `Authorization: Bearer
 // <token>`, dispatches to API-key or JWT verification, and resolves the
-// caller's user + org. Any failure surfaces as `U401` — the body never tells
-// the client *which* check failed (missing header vs bad signature vs revoked
-// key vs deleted user). The token itself is never logged.
+// caller's user. When the request path contains `{org_id}` (under the
+// `/api/v1/orgs/{org_id}/...` nested router) the extractor also:
+//   1. Parses the `org_id` from the path
+//   2. Confirms membership (or bypasses for global admins)
+//   3. Loads org-scoped permissions and merges with the user's global ones
+// On global routes (no `{org_id}` in path) only global permissions load.
+//
+// Any auth failure surfaces as `U401` — the body never tells the client
+// *which* check failed. The token itself is never logged.
 
 impl FromRequestParts<Arc<AppState>> for Principal {
     type Rejection = EngineError;
@@ -141,16 +150,14 @@ impl FromRequestParts<Arc<AppState>> for Principal {
     ) -> Result<Self, Self::Rejection> {
         let token = bearer_token(parts).ok_or(EngineError::Unauthenticated)?;
 
-        // API-key path: cheap prefix lookup, then argon2 verify of the full
-        // plaintext against the stored hash.
-        if let Some(prefix) = auth::api_key::extract_prefix(token) {
+        // Resolve the caller's user + kind from either an API key or a JWT.
+        let (user_id, email, kind) = if let Some(prefix) = auth::api_key::extract_prefix(token) {
             let row = db::api_keys::lookup_by_prefix(&state.pool, &prefix)
                 .await?
                 .ok_or(EngineError::Unauthenticated)?;
             if !auth::api_key::verify(token, &row.key_hash) {
                 return Err(EngineError::Unauthenticated);
             }
-            // Best-effort: never block the request on this update.
             let pool = state.pool.clone();
             let key_id = row.id;
             tokio::spawn(async move {
@@ -158,38 +165,75 @@ impl FromRequestParts<Arc<AppState>> for Principal {
                     tracing::debug!(error = %e, "failed to update api_key.last_used_at");
                 }
             });
-            let permissions = db::roles::load_user_permissions(&state.pool, row.user_id).await?;
-            return Ok(Principal {
-                user_id: row.user_id,
-                org_id: row.org_id,
-                email: row.email,
-                kind: PrincipalKind::ApiKey,
-                permissions,
-            });
+            (row.user_id, row.email, PrincipalKind::ApiKey)
+        } else {
+            let claims =
+                auth::jwt::decode_token(token, &state.auth.jwt_keys, &state.auth.jwt_issuer)
+                    .ok_or(EngineError::Unauthenticated)?;
+            let user = db::users::find_by_id(&state.pool, claims.sub)
+                .await?
+                .ok_or(EngineError::Unauthenticated)?;
+            (user.id, user.email, PrincipalKind::Jwt)
+        };
+
+        // Detect optional `{org_id}` in the matched path.
+        let current_org_id = extract_org_id_from_path(parts).await?;
+
+        let is_global_admin = db::role_assignments::is_global_admin(&state.pool, user_id).await?;
+
+        // Membership check (skipped for global admins).
+        if let Some(org_id) = current_org_id {
+            if !is_global_admin {
+                let member =
+                    db::org_members::exists(&state.pool, user_id, org_id).await?;
+                if !member {
+                    return Err(EngineError::Forbidden(format!(
+                        "not a member of org {org_id}"
+                    )));
+                }
+            }
         }
 
-        // JWT path. Decode validates signature, issuer, and expiry; we then
-        // confirm the subject still exists so deleted users can't keep using
-        // tokens until expiry.
-        let claims = auth::jwt::decode_token(token, &state.auth.jwt_keys, &state.auth.jwt_issuer)
-            .ok_or(EngineError::Unauthenticated)?;
-        let user = db::users::find_by_id(&state.pool, claims.sub)
-            .await?
-            .ok_or(EngineError::Unauthenticated)?;
-        // Defence in depth: a token whose `org` claim no longer matches the
-        // user's row is treated as invalid (user moved orgs, etc.).
-        if user.org_id != claims.org {
-            return Err(EngineError::Unauthenticated);
-        }
-        let permissions = db::roles::load_user_permissions(&state.pool, user.id).await?;
+        let permissions =
+            db::role_assignments::load_all_permissions(&state.pool, user_id, current_org_id)
+                .await?;
+
         Ok(Principal {
-            user_id: user.id,
-            org_id: user.org_id,
-            email: user.email,
-            kind: PrincipalKind::Jwt,
+            user_id,
+            email,
+            kind,
+            current_org_id,
+            org_id: current_org_id.unwrap_or(Uuid::nil()),
+            is_global_admin,
             permissions,
         })
     }
+}
+
+/// Pull `{org_id}` from the matched path, if the route declares one.
+/// Returns `None` if the path doesn't have an `org_id` placeholder.
+/// Returns `Err(Validation)` if the placeholder exists but its value
+/// isn't a valid UUID.
+async fn extract_org_id_from_path(parts: &mut Parts) -> Result<Option<Uuid>, EngineError> {
+    // axum::extract::RawPathParams gives us a cloneable view that we can
+    // read without consuming. (Plain `Path<HashMap<_, _>>` is also
+    // multi-use because it caches inside extensions.)
+    let params: axum::extract::RawPathParams = parts
+        .extract()
+        .await
+        .map_err(|_| EngineError::Validation("invalid path parameters".to_string()))?;
+
+    let mut map: HashMap<&str, &str> = HashMap::new();
+    for (k, v) in params.iter() {
+        map.insert(k, v);
+    }
+
+    let Some(raw) = map.get("org_id") else {
+        return Ok(None);
+    };
+    let parsed = Uuid::parse_str(raw)
+        .map_err(|_| EngineError::Validation(format!("invalid org_id `{raw}`")))?;
+    Ok(Some(parsed))
 }
 
 fn bearer_token(parts: &Parts) -> Option<&str> {

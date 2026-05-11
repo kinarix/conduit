@@ -108,13 +108,16 @@ pub async fn create_principal(pool: &PgPool, slug_prefix: &str) -> TestPrincipal
         .await
         .expect("create org");
     let email = format!("user-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(pool, org.id, "internal", None, &email, None)
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
         .await
         .expect("create user");
-    // Grant Admin so all existing tests continue to pass without permission errors.
-    conduit::db::roles::assign_admin(pool, user.id)
+    conduit::db::org_members::insert(pool, user.id, org.id, None)
         .await
-        .expect("assign admin role");
+        .expect("add org member");
+    // Grant PlatformAdmin globally so existing tests pass without scope churn.
+    conduit::db::role_assignments::grant_global_by_name(pool, user.id, "PlatformAdmin", None)
+        .await
+        .expect("grant global PlatformAdmin");
     let token = auth::mint_jwt(user.id, org.id);
     TestPrincipal {
         user_id: user.id,

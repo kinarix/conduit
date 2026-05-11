@@ -35,33 +35,25 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/api/v1/orgs/{id}", delete(delete_org))
 }
 
-// Org endpoints serve two audiences:
-//
-//   * Platform admins (perm `org.create`) — see all real orgs across the
-//     deployment and may create new ones. The hidden `_platform` org that
-//     hosts them is never returned.
-//
-//   * Org-scoped users — see only their own org and may delete it (with
-//     `org.manage`). They cannot enumerate other tenants.
+// `/api/v1/orgs` (the flat list/create endpoints) is not org-scoped — the
+// extractor leaves `current_org_id` empty. Listing is filtered to the orgs
+// the caller is a member of; global admins see every org. Creating requires
+// the global `org.create` permission.
 #[tracing::instrument(skip_all)]
 async fn list_orgs(
     State(state): State<Arc<AppState>>,
     principal: Principal,
     Query(params): Query<ListOrgsQuery>,
 ) -> Result<axum::response::Response> {
-    let _ = (params.limit, params.offset);
     let _ = Page::from_query(params.limit, params.offset);
 
-    if principal.has(Permission::OrgCreate) {
-        let rows = orgs::list_real(&state.pool).await?;
-        let total = rows.len() as i64;
-        return Ok(with_total(rows, total));
-    }
-
-    match orgs::get_by_id(&state.pool, principal.org_id).await? {
-        Some(org) if !org.is_system => Ok(with_total(vec![org], 1)),
-        _ => Ok(with_total::<Vec<Org>>(vec![], 0)),
-    }
+    let rows = if principal.is_global_admin {
+        orgs::list_all(&state.pool).await?
+    } else {
+        orgs::list_for_user(&state.pool, principal.user_id).await?
+    };
+    let total = rows.len() as i64;
+    Ok(with_total(rows, total))
 }
 
 #[tracing::instrument(skip_all, fields(slug = %req.slug))]
@@ -78,31 +70,61 @@ async fn create_org(
     if slug.is_empty() {
         return Err(EngineError::Validation("slug must not be empty".to_string()));
     }
-    // `conduit` is the system org used to host the platform admin. Defending
-    // here too (in addition to the UNIQUE constraint) gives a clean U-coded
-    // validation error instead of a DB-level conflict surfacing as 500.
-    if slug.eq_ignore_ascii_case("conduit") {
-        return Err(EngineError::Validation(
-            "the slug 'conduit' is reserved".to_string(),
-        ));
-    }
     let org = orgs::insert(&state.pool, req.name.trim(), slug).await?;
+
+    // The creator becomes a member + OrgOwner of the new org so they can
+    // immediately operate inside it without needing a separate grant.
+    crate::db::org_members::insert(
+        &state.pool,
+        principal.user_id,
+        org.id,
+        Some(principal.user_id),
+    )
+    .await?;
+    if let Some(owner_role_id) =
+        crate::db::roles::find_builtin_by_name(&state.pool, "OrgOwner").await?
+    {
+        crate::db::role_assignments::grant_org(
+            &state.pool,
+            principal.user_id,
+            owner_role_id,
+            org.id,
+            Some(principal.user_id),
+            Some(org.id),
+        )
+        .await?;
+    }
+
     Ok((StatusCode::CREATED, Json(org)))
 }
 
-// Soft-deleting your own org is an irreversible self-destruct; gating to
-// `id == principal.org_id` prevents one tenant from nuking another by
-// guessing or harvesting org UUIDs. Mismatch returns 404 so the endpoint
-// doesn't confirm whether the org exists in another tenancy.
 #[tracing::instrument(skip_all, fields(id = %id))]
 async fn delete_org(
     State(state): State<Arc<AppState>>,
     principal: Principal,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::OrgManage)?;
-    if id != principal.org_id {
-        return Err(EngineError::NotFound(format!("org {id}")));
+    // Deletion lives on the flat route (no org_id in path) — gating on the
+    // org-scoped `org.delete` permission would force callers to enter the
+    // org first, which is ugly. Instead we require either:
+    //   - global org.delete (platform admin), OR
+    //   - org.delete inside the target org (caller is OrgOwner of `id`).
+    let allowed = if principal.has(Permission::OrgDelete) {
+        true
+    } else {
+        // Membership-scoped delete: load the caller's perms in this specific org.
+        let in_org = crate::db::role_assignments::load_org_permissions(
+            &state.pool,
+            principal.user_id,
+            id,
+        )
+        .await?;
+        in_org.contains(&Permission::OrgDelete)
+    };
+    if !allowed {
+        return Err(EngineError::Forbidden(
+            "permission required: org.delete".to_string(),
+        ));
     }
     orgs::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)

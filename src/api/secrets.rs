@@ -37,7 +37,7 @@ async fn list_secrets(
     principal: Principal,
     Path(org_id): Path<Uuid>,
 ) -> Result<Json<Vec<SecretMetadata>>> {
-    assert_caller_org(&principal, org_id)?;
+    principal.require(Permission::SecretReadMetadata)?;
     let rows = secrets::list(&state.pool, org_id).await?;
     Ok(Json(rows))
 }
@@ -50,8 +50,7 @@ async fn create_secret(
     Path(org_id): Path<Uuid>,
     Json(req): Json<CreateSecretRequest>,
 ) -> Result<(StatusCode, Json<SecretMetadata>)> {
-    principal.require(Permission::SecretManage)?;
-    assert_caller_org(&principal, org_id)?;
+    principal.require(Permission::SecretCreate)?;
     let name = req.name.trim();
     if name.is_empty() {
         return Err(EngineError::Validation("name must not be empty".into()));
@@ -69,7 +68,7 @@ async fn get_secret(
     principal: Principal,
     Path((org_id, name)): Path<(Uuid, String)>,
 ) -> Result<Json<SecretMetadata>> {
-    assert_caller_org(&principal, org_id)?;
+    principal.require(Permission::SecretReadMetadata)?;
     let row = secrets::get_metadata(&state.pool, org_id, &name)
         .await?
         .ok_or_else(|| EngineError::NotFound(format!("secret '{name}' not found")))?;
@@ -82,15 +81,7 @@ async fn delete_secret(
     principal: Principal,
     Path((org_id, name)): Path<(Uuid, String)>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::SecretManage)?;
-    assert_caller_org(&principal, org_id)?;
+    principal.require(Permission::SecretDelete)?;
     secrets::delete(&state.pool, org_id, &name).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-fn assert_caller_org(principal: &Principal, path_org: Uuid) -> Result<()> {
-    if principal.org_id != path_org {
-        return Err(EngineError::NotFound(format!("org {path_org}")));
-    }
-    Ok(())
 }

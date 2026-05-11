@@ -78,9 +78,8 @@ async fn login_fails_for_external_user_attempting_password_login() {
         .await
         .unwrap();
     let email = format!("ext-{}@test.local", Uuid::new_v4());
-    conduit::db::users::insert(
+    let user = conduit::db::users::insert(
         &app.pool,
-        org.id,
         "external",
         Some("oidc-subject"),
         &email,
@@ -88,6 +87,9 @@ async fn login_fails_for_external_user_attempting_password_login() {
     )
     .await
     .unwrap();
+    conduit::db::org_members::insert(&app.pool, user.id, org.id, None)
+        .await
+        .unwrap();
 
     let resp = reqwest::Client::new()
         .post(format!("{}/api/v1/auth/login", app.address))
@@ -510,7 +512,10 @@ async fn seed_internal_user(app: &common::TestApp, password: &str) -> (String, S
         .unwrap();
     let email = format!("user-{}@test.local", Uuid::new_v4());
     let hash = password::hash(password).unwrap();
-    conduit::db::users::insert(&app.pool, org.id, "internal", None, &email, Some(&hash))
+    let user = conduit::db::users::insert(&app.pool, "internal", None, &email, Some(&hash))
+        .await
+        .unwrap();
+    conduit::db::org_members::insert(&app.pool, user.id, org.id, None)
         .await
         .unwrap();
     (slug, email)

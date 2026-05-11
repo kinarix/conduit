@@ -180,6 +180,8 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::process_groups::routes())
         .merge(api::process_layouts::routes())
         .merge(api::roles::routes())
+        .merge(api::role_assignments::routes())
+        .merge(api::members::routes())
         .merge(api::secrets::routes())
         .fallback(|| async {
             (

@@ -1,17 +1,27 @@
-use super::extractors::Json;
-use axum::{extract::State, http::StatusCode, routing::post, Router};
-use serde::Deserialize;
-use std::sync::Arc;
+//! Org-scoped user management. Creating a user always lands them in the
+//! org named in the path; they get an `org_members` row plus optional
+//! initial role grants.
+//!
+//! Global (cross-org) user CRUD lives under `/api/v1/admin/users` and
+//! requires the global `user.create` / `user.delete` permissions.
 
-use crate::auth;
-use crate::auth::{Permission, Principal};
+use super::extractors::{Json, Path};
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{delete, get},
+    Router,
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use uuid::Uuid;
+
+use crate::auth::{self, Permission, Principal};
 use crate::db::models::User;
-use crate::db::users;
+use crate::db::{org_members, users};
 use crate::error::{EngineError, Result};
 use crate::state::AppState;
 
-/// New users always land in the calling principal's org. `password` is
-/// required when `auth_provider == "internal"`; rejected otherwise.
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
     pub auth_provider: String,
@@ -20,17 +30,49 @@ pub struct CreateUserRequest {
     pub password: Option<String>,
 }
 
-pub fn routes() -> Router<Arc<AppState>> {
-    Router::new().route("/api/v1/users", post(create_user))
+#[derive(Debug, Serialize)]
+pub struct OrgUserResponse {
+    #[serde(flatten)]
+    pub user: User,
+    pub joined_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[tracing::instrument(skip_all, fields(org_id = %principal.org_id, auth_provider = %req.auth_provider))]
+pub fn routes() -> Router<Arc<AppState>> {
+    Router::new()
+        .route(
+            "/api/v1/orgs/{org_id}/users",
+            get(list_org_users).post(create_user),
+        )
+        .route(
+            "/api/v1/orgs/{org_id}/users/{user_id}",
+            delete(remove_from_org),
+        )
+}
+
+#[tracing::instrument(skip_all, fields(org_id = %org_id))]
+async fn list_org_users(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path(org_id): Path<Uuid>,
+) -> Result<Json<Vec<User>>> {
+    principal.require(Permission::OrgMemberRead)?;
+    let rows = users::list_by_org(&state.pool, org_id).await?;
+    Ok(Json(rows))
+}
+
+/// Create a new global user and add them as a member of `org_id`. The
+/// caller needs both `user.create` (to create the global identity) and
+/// `org_member.create` (to grant membership in this org).
+#[tracing::instrument(skip_all, fields(org_id = %org_id, auth_provider = %req.auth_provider))]
 async fn create_user(
     State(state): State<Arc<AppState>>,
     principal: Principal,
+    Path(org_id): Path<Uuid>,
     Json(req): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, Json<User>)> {
-    principal.require(Permission::UserManage)?;
+    principal.require(Permission::UserCreate)?;
+    principal.require(Permission::OrgMemberCreate)?;
+
     if !matches!(req.auth_provider.as_str(), "internal" | "external") {
         return Err(EngineError::Validation(
             "auth_provider must be 'internal' or 'external'".to_string(),
@@ -41,6 +83,7 @@ async fn create_user(
             "email must not be empty".to_string(),
         ));
     }
+
     let password_hash = match req.auth_provider.as_str() {
         "internal" => {
             let pw = req.password.as_deref().ok_or_else(|| {
@@ -66,12 +109,36 @@ async fn create_user(
     };
     let user = users::insert(
         &state.pool,
-        principal.org_id,
         &req.auth_provider,
         req.external_id.as_deref(),
-        &req.email,
+        req.email.trim(),
         password_hash.as_deref(),
     )
     .await?;
+
+    org_members::insert(&state.pool, user.id, org_id, Some(principal.user_id)).await?;
+
     Ok((StatusCode::CREATED, Json(user)))
+}
+
+/// Remove a user from this org (does NOT delete their global identity).
+#[tracing::instrument(skip_all, fields(org_id = %org_id, user_id = %user_id))]
+async fn remove_from_org(
+    State(state): State<Arc<AppState>>,
+    principal: Principal,
+    Path((org_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode> {
+    principal.require(Permission::OrgMemberDelete)?;
+    if user_id == principal.user_id {
+        return Err(EngineError::Validation(
+            "cannot remove yourself from the org".into(),
+        ));
+    }
+    let removed = org_members::delete(&state.pool, user_id, org_id).await?;
+    if !removed {
+        return Err(EngineError::NotFound(format!(
+            "membership for user {user_id} in org {org_id}"
+        )));
+    }
+    Ok(StatusCode::NO_CONTENT)
 }

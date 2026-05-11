@@ -3,18 +3,16 @@
 //! Runs after migrations and before the HTTP listener is bound. Idempotent:
 //! once any user exists in the DB, this is a no-op.
 //!
-//! The bootstrap user is a *platform* admin. They live in the hidden
-//! `_platform` org (seeded by migration 025), hold only the `org.create`
-//! permission, and cannot themselves manage processes or instances. Their
-//! job is to provision real orgs and seed each org's first Org Admin via
-//! the instance-setup wizard.
+//! The bootstrap user is a *global* (platform) admin: a global identity
+//! with a `global_role_assignments` row for the built-in `PlatformAdmin`
+//! role. They are not a member of any org until they choose to create or
+//! join one. They can manage every org and every user via the platform
+//! admin APIs.
 
 use sqlx::PgPool;
 
 use crate::config::{Config, TenantIsolation};
 use crate::db;
-
-const PLATFORM_ORG_SLUG: &str = "conduit";
 
 pub async fn run_if_needed(pool: &PgPool, config: &Config) -> anyhow::Result<()> {
     let existing = db::users::count(pool).await?;
@@ -42,37 +40,33 @@ pub async fn run_if_needed(pool: &PgPool, config: &Config) -> anyhow::Result<()>
 
     if config.bootstrap_admin_org_slug.is_some() {
         tracing::warn!(
-            "CONDUIT_BOOTSTRAP_ADMIN_ORG_SLUG is set but ignored: the bootstrap \
-             admin is a platform admin living in the hidden `_platform` org. \
-             Real orgs are created through the instance-setup wizard."
+            "CONDUIT_BOOTSTRAP_ADMIN_ORG_SLUG is set but ignored — the bootstrap \
+             admin is a global platform admin and is not a member of any org. \
+             They can create orgs through /api/v1/orgs."
         );
     }
 
-    // The `conduit` system org is seeded by migration 025_platform_admin.sql
-    // (then renamed by 026_rename_system_org.sql). If it is missing, the
-    // deployment is in an inconsistent state — fail loudly rather than
-    // silently re-creating it.
-    let platform_org = db::orgs::get_by_slug(pool, PLATFORM_ORG_SLUG)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "`conduit` system org not found — migrations 025/026 did not run. \
-                 Try `make db-reset && make migrate`."
-            )
-        })?;
-
     let hash = crate::auth::password::hash(password)?;
-    let user =
-        db::users::insert(pool, platform_org.id, "internal", None, email, Some(&hash)).await?;
-    db::roles::assign_admin(pool, user.id).await?;
+    let user = db::users::insert(pool, "internal", None, email, Some(&hash)).await?;
+
+    let granted = db::role_assignments::grant_global_by_name(
+        pool,
+        user.id,
+        "PlatformAdmin",
+        Some(user.id),
+    )
+    .await?;
+    if !granted {
+        anyhow::bail!(
+            "Built-in `PlatformAdmin` role not found — migration 031 did not seed the \
+             permission catalog. Try `make db-reset && make migrate`."
+        );
+    }
 
     tracing::warn!(
-        org_id = %platform_org.id,
         user_id = %user.id,
         email = %email,
-        org_slug = PLATFORM_ORG_SLUG,
-        "Bootstrap platform admin created. Log in with org slug `{}`.",
-        PLATFORM_ORG_SLUG
+        "Bootstrap platform admin created. Log in with email + password (no org slug)."
     );
     Ok(())
 }

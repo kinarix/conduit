@@ -5,14 +5,14 @@ use uuid::Uuid;
 use crate::db::models::{ApiKeyMetadata, User, UserCredentials};
 use crate::error::Result;
 
-/// A row that includes the hash + the owning user's `org_id` so the
-/// extractor can resolve a Principal in one DB round-trip after the
-/// prefix lookup.
+/// A row that includes the hash + the owning user's email so the extractor
+/// can resolve a Principal in one DB round-trip after the prefix lookup.
+/// Org scoping is no longer per-key — the extractor reads `{org_id}` from
+/// the request path.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ApiKeyLookup {
     pub id: Uuid,
     pub user_id: Uuid,
-    pub org_id: Uuid,
     pub email: String,
     pub key_hash: String,
 }
@@ -41,12 +41,12 @@ pub async fn insert(
 }
 
 /// Resolve a presented API key by its prefix. Joins through `users` so
-/// the extractor gets the org_id and email in one shot. Filters out
-/// revoked rows. Returns `None` if no active key matches the prefix.
+/// the extractor gets the email in one shot. Filters out revoked rows.
+/// Returns `None` if no active key matches the prefix.
 pub async fn lookup_by_prefix(pool: &PgPool, prefix: &str) -> Result<Option<ApiKeyLookup>> {
     let row = sqlx::query_as::<_, ApiKeyLookup>(
         r#"
-        SELECT k.id, k.user_id, u.org_id, u.email, k.key_hash
+        SELECT k.id, k.user_id, u.email, k.key_hash
         FROM api_keys k
         JOIN users u ON u.id = k.user_id
         WHERE k.prefix = $1 AND k.revoked_at IS NULL

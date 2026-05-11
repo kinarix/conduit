@@ -1,5 +1,7 @@
 pub mod api_keys;
 pub mod org_auth_config;
+pub mod org_members;
+pub mod role_assignments;
 pub mod roles;
 pub mod decision_definitions;
 pub mod event_subscriptions;

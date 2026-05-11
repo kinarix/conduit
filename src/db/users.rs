@@ -4,9 +4,11 @@ use uuid::Uuid;
 use crate::db::models::{User, UserCredentials};
 use crate::error::Result;
 
+/// Insert a new global user identity. The user is not yet a member of any
+/// org — caller must follow up with `db::org_members::insert` to grant
+/// membership, and `db::role_assignments::grant_*` to grant permissions.
 pub async fn insert(
     pool: &PgPool,
-    org_id: Uuid,
     auth_provider: &str,
     external_id: Option<&str>,
     email: &str,
@@ -14,12 +16,11 @@ pub async fn insert(
 ) -> Result<User> {
     let row = sqlx::query_as::<_, User>(
         r#"
-        INSERT INTO users (org_id, auth_provider, external_id, email, password_hash)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, org_id, auth_provider, external_id, email, created_at
+        INSERT INTO users (auth_provider, external_id, email, password_hash)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, auth_provider, external_id, email, created_at
         "#,
     )
-    .bind(org_id)
     .bind(auth_provider)
     .bind(external_id)
     .bind(email)
@@ -29,23 +30,20 @@ pub async fn insert(
     Ok(row)
 }
 
-/// Look up the credentials row for `(org slug, email)`. Returns `None` if
-/// either is unknown — the caller must NOT distinguish between "no such
-/// org", "no such user", and "wrong password" in its response.
-pub async fn find_credentials_by_org_slug_and_email(
+/// Look up the credentials row by email (case-insensitive). Returns `None`
+/// if the email is unknown — callers MUST NOT distinguish between "no such
+/// user" and "wrong password" in their response.
+pub async fn find_credentials_by_email(
     pool: &PgPool,
-    org_slug: &str,
     email: &str,
 ) -> Result<Option<UserCredentials>> {
     let row = sqlx::query_as::<_, UserCredentials>(
         r#"
-        SELECT u.id, u.org_id, u.auth_provider, u.email, u.password_hash
-        FROM users u
-        JOIN orgs o ON o.id = u.org_id
-        WHERE o.slug = $1 AND u.email = $2
+        SELECT id, auth_provider, email, password_hash
+        FROM users
+        WHERE LOWER(email) = LOWER($1)
         "#,
     )
-    .bind(org_slug)
     .bind(email)
     .fetch_optional(pool)
     .await?;
@@ -58,7 +56,7 @@ pub async fn find_credentials_by_org_slug_and_email(
 pub async fn find_by_id(pool: &PgPool, user_id: Uuid) -> Result<Option<User>> {
     let row = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, org_id, auth_provider, external_id, email, created_at
+        SELECT id, auth_provider, external_id, email, created_at
         FROM users
         WHERE id = $1
         "#,
@@ -69,13 +67,30 @@ pub async fn find_by_id(pool: &PgPool, user_id: Uuid) -> Result<Option<User>> {
     Ok(row)
 }
 
+/// List all users globally. Callers needing per-org membership should join
+/// against `org_members`.
+pub async fn list_all(pool: &PgPool) -> Result<Vec<User>> {
+    let rows = sqlx::query_as::<_, User>(
+        r#"
+        SELECT id, auth_provider, external_id, email, created_at
+        FROM users
+        ORDER BY created_at ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// List users who are members of `org_id`.
 pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<User>> {
     let rows = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, org_id, auth_provider, external_id, email, created_at
-        FROM users
-        WHERE org_id = $1
-        ORDER BY created_at ASC
+        SELECT u.id, u.auth_provider, u.external_id, u.email, u.created_at
+        FROM users u
+        JOIN org_members m ON m.user_id = u.id
+        WHERE m.org_id = $1
+        ORDER BY u.created_at ASC
         "#,
     )
     .bind(org_id)
@@ -84,14 +99,12 @@ pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<User>> {
     Ok(rows)
 }
 
-pub async fn remove_from_org(pool: &PgPool, user_id: Uuid, org_id: Uuid) -> Result<bool> {
-    let res = sqlx::query!(
-        "DELETE FROM users WHERE id = $1 AND org_id = $2",
-        user_id,
-        org_id
-    )
-    .execute(pool)
-    .await?;
+/// Delete the user globally. Cascades to org_members and role assignments.
+pub async fn delete(pool: &PgPool, user_id: Uuid) -> Result<bool> {
+    let res = sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(user_id)
+        .execute(pool)
+        .await?;
     Ok(res.rows_affected() > 0)
 }
 

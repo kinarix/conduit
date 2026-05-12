@@ -20,17 +20,14 @@ struct Carol {
 
 async fn setup_carol(pool: &sqlx::PgPool) -> Carol {
     let email = format!("carol-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None, None, None)
         .await
         .unwrap();
     let granted =
         conduit::db::role_assignments::grant_global_by_name(pool, user.id, "PlatformAdmin", None)
             .await
             .unwrap();
-    assert!(
-        granted,
-        "PlatformAdmin builtin must exist after migration 031"
-    );
+    assert!(granted, "PlatformAdmin builtin must exist");
     let token = auth::mint_jwt(user.id, Uuid::nil());
     Carol {
         user_id: user.id,

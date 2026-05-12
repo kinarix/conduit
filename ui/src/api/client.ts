@@ -35,11 +35,14 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   })
 
   // 401 has two meanings: an expired/invalid token on an authed call (session
-  // gone — bounce to /login), or a public-endpoint auth failure such as a
-  // bad email/password on /auth/login (let the caller render the error).
-  // Only the first case warrants the redirect; gate it on whether we actually
-  // sent a token.
-  if (res.status === 401 && token) {
+  // gone — bounce to /login), or a credential-check failure on a *credentials*
+  // endpoint such as /auth/login (bad email/password) or /auth/change-password
+  // (wrong current password). Only the first case warrants the redirect; gate
+  // it on whether we sent a token, and also exempt the credentials endpoints
+  // since they return 401/U011 on a typo even when the session is fine.
+  const isCredentialEndpoint =
+    path.endsWith('/auth/login') || path.endsWith('/auth/change-password')
+  if (res.status === 401 && token && !isCredentialEndpoint) {
     console.error('[401] Unauthenticated response from:', path)
     localStorage.removeItem(TOKEN_KEY)
     window.location.href = '/login'

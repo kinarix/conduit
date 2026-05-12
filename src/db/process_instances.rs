@@ -86,6 +86,58 @@ pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessInsta
     Ok(rows)
 }
 
+/// Pg-filtered version of `list_paginated`. Joins to `process_definitions`
+/// to restrict by pg. Empty `pg_ids` returns `(Vec::new(), 0)` without
+/// hitting the DB.
+pub async fn list_paginated_in_pgs(
+    pool: &PgPool,
+    org_id: Uuid,
+    pg_ids: &[Uuid],
+    definition_id: Option<Uuid>,
+    process_key: Option<&str>,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<ProcessInstance>, i64)> {
+    if pg_ids.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+    let pg_vec: Vec<Uuid> = pg_ids.to_vec();
+    let rows = sqlx::query_as::<_, ProcessInstance>(
+        "SELECT pi.* FROM process_instances pi \
+         JOIN process_definitions pd ON pd.id = pi.definition_id \
+         WHERE pi.org_id = $1 \
+           AND pd.process_group_id = ANY($2::uuid[]) \
+           AND ($3::uuid IS NULL OR pi.definition_id = $3) \
+           AND ($4::text IS NULL OR pd.process_key = $4) \
+         ORDER BY pi.started_at DESC LIMIT $5 OFFSET $6",
+    )
+    .bind(org_id)
+    .bind(&pg_vec)
+    .bind(definition_id)
+    .bind(process_key)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    let (total,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM process_instances pi \
+         JOIN process_definitions pd ON pd.id = pi.definition_id \
+         WHERE pi.org_id = $1 \
+           AND pd.process_group_id = ANY($2::uuid[]) \
+           AND ($3::uuid IS NULL OR pi.definition_id = $3) \
+           AND ($4::text IS NULL OR pd.process_key = $4)",
+    )
+    .bind(org_id)
+    .bind(&pg_vec)
+    .bind(definition_id)
+    .bind(process_key)
+    .fetch_one(pool)
+    .await?;
+
+    Ok((rows, total))
+}
+
 pub async fn list_by_definition(
     pool: &PgPool,
     definition_id: Uuid,

@@ -203,8 +203,12 @@ function ModellerEdit({ defId }: { defId: string }) {
 
   const handleLayoutChange = useCallback((layout: LayoutData) => {
     if (!existing?.org_id || !existing?.process_key) return
-    saveLayout(existing.org_id, existing.process_key, layout).catch(() => {})
-  }, [existing?.org_id, existing?.process_key])
+    const orgId = existing.org_id
+    const processKey = existing.process_key
+    saveLayout(orgId, processKey, layout)
+      .then(() => qc.setQueryData(['process_layout', orgId, processKey], layout))
+      .catch(() => {})
+  }, [existing?.org_id, existing?.process_key, qc])
 
   const isExistingDraft = existing?.status === 'draft' || !!draftId
   const isBusy = saveMut.isPending || deployMut.isPending

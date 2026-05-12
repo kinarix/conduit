@@ -23,14 +23,15 @@ pub struct OrgAuthConfig {
 }
 
 /// Global identity. A user is a member of zero or more orgs via the
-/// `org_members` table (see migration 029). Email is globally unique
-/// (case-insensitive) as of migration 028.
+/// `org_members` table. Email is globally unique (case-insensitive).
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct User {
     pub id: Uuid,
     pub auth_provider: String,
     pub external_id: Option<String>,
     pub email: String,
+    pub name: Option<String>,
+    pub phone: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 

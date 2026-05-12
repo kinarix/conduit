@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod admin_users;
 pub mod auth;
 pub mod decisions;
 pub mod deployments;
@@ -10,6 +11,7 @@ pub mod members;
 pub mod messages;
 pub mod orgs;
 pub mod pagination;
+pub mod pg_role_assignments;
 pub mod process_groups;
 pub mod process_layouts;
 pub mod role_assignments;

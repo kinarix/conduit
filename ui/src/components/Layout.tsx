@@ -5,6 +5,7 @@ import { fetchOrgs } from '../api/orgs'
 import Sidebar from './Sidebar/Sidebar'
 import Welcome from '../pages/Welcome'
 import PlatformShell from '../pages/platform/PlatformShell'
+import AccountMenu from './AccountMenu'
 import { useAuth } from '../context/AuthContext'
 
 const SIDEBAR_MIN = 160
@@ -70,6 +71,7 @@ export default function Layout() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', cursor: dragging ? 'col-resize' : undefined }}>
+      <AccountMenu />
       <Sidebar width={sidebarWidth} />
 
       <div

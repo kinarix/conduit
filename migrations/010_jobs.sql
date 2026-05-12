@@ -1,3 +1,9 @@
+-- Async work owned by the job executor: timers, external_task dispatch,
+-- http_task connector calls, send_message. `config` holds a serialized
+-- snapshot of the HTTP connector config (or other type-specific config)
+-- captured when the job was enqueued — so redeploying the definition
+-- doesn't mutate in-flight calls. Secret *names* live in `config`; secret
+-- *values* are resolved from the secrets table at fire time.
 CREATE TABLE jobs (
     id                    UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     instance_id           UUID        NOT NULL REFERENCES process_instances (id) ON DELETE CASCADE,
@@ -13,6 +19,7 @@ CREATE TABLE jobs (
     retry_count           INTEGER     NOT NULL DEFAULT 0,
     error_message         TEXT,
     state                 TEXT        NOT NULL CHECK (state IN ('pending', 'locked', 'completed', 'failed', 'cancelled')),
+    config                JSONB,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

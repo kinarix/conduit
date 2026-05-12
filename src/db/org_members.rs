@@ -35,9 +35,9 @@ pub async fn insert(
     Ok(())
 }
 
-/// Remove `user_id` from `org_id`. CASCADE wipes their `org_role_assignments`
-/// rows in that org via the FK in migration 030. Returns `true` if a row was
-/// deleted.
+/// Remove `user_id` from `org_id`. CASCADE wipes their org- and pg-scoped
+/// role assignments in that org via the composite FK back to `org_members`.
+/// Returns `true` if a row was deleted.
 pub async fn delete(pool: &PgPool, user_id: Uuid, org_id: Uuid) -> Result<bool> {
     let res = sqlx::query("DELETE FROM org_members WHERE user_id = $1 AND org_id = $2")
         .bind(user_id)

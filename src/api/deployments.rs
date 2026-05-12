@@ -109,8 +109,13 @@ async fn list_deployments(
     Path(org_id): Path<Uuid>,
     Query(_params): Query<ListDeploymentsQuery>,
 ) -> Result<Json<Vec<ProcessDefinition>>> {
-    principal.require(Permission::ProcessRead)?;
-    let defs = process_definitions::list_by_org(&state.pool, org_id).await?;
+    let defs = match principal.pg_ids_with(Permission::ProcessRead) {
+        None => process_definitions::list_by_org(&state.pool, org_id).await?,
+        Some(pgs) => {
+            let pgs: Vec<Uuid> = pgs.into_iter().collect();
+            process_definitions::list_by_org_in_pgs(&state.pool, org_id, &pgs).await?
+        }
+    };
     Ok(Json(defs))
 }
 
@@ -120,8 +125,8 @@ async fn get_deployment(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProcessDefinition>> {
-    principal.require(Permission::ProcessRead)?;
     let def = fetch_definition_in_org(&state, id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessRead, def.process_group_id)?;
     Ok(Json(def))
 }
 
@@ -132,7 +137,7 @@ async fn deploy(
     Path(org_id): Path<Uuid>,
     Json(req): Json<DeployRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
-    principal.require(Permission::ProcessDeploy)?;
+    principal.require_in_pg(Permission::ProcessDeploy, req.process_group_id)?;
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
@@ -249,7 +254,7 @@ async fn save_draft(
     Path(org_id): Path<Uuid>,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
-    principal.require(Permission::ProcessCreate)?;
+    principal.require_in_pg(Permission::ProcessCreate, req.process_group_id)?;
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
@@ -290,7 +295,7 @@ async fn create_draft(
     Path(org_id): Path<Uuid>,
     Json(req): Json<SaveDraftRequest>,
 ) -> Result<(StatusCode, Json<DeployResponse>)> {
-    principal.require(Permission::ProcessCreate)?;
+    principal.require_in_pg(Permission::ProcessCreate, req.process_group_id)?;
     if req.key.trim().is_empty() {
         return Err(EngineError::Validation("key must not be empty".to_string()));
     }
@@ -338,7 +343,7 @@ async fn rename_by_key(
     Path(org_id): Path<Uuid>,
     Json(req): Json<RenameByKeyRequest>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::ProcessUpdate)?;
+    principal.require_in_pg(Permission::ProcessUpdate, req.process_group_id)?;
     ensure_process_group_in_org(&state.pool, req.process_group_id, org_id).await?;
     process_definitions::rename_all_versions(
         &state.pool,
@@ -357,8 +362,8 @@ async fn delete_deployment(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::ProcessDelete)?;
-    fetch_definition_in_org(&state, id, org_id).await?;
+    let def = fetch_definition_in_org(&state, id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessDelete, def.process_group_id)?;
 
     state.engine.cancel_timer_start_jobs(id).await?;
     process_definitions::delete(&state.pool, id).await?;
@@ -380,8 +385,8 @@ async fn promote_draft(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<DeployResponse>> {
-    principal.require(Permission::ProcessDeploy)?;
     let draft = fetch_definition_in_org(&state, id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessDeploy, draft.process_group_id)?;
     if draft.status != "draft" {
         return Err(EngineError::Validation(format!(
             "Definition {id} is not a draft"
@@ -486,8 +491,8 @@ async fn set_disabled(
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<SetDisabledRequest>,
 ) -> Result<Json<ProcessDefinition>> {
-    principal.require(Permission::ProcessDisable)?;
-    fetch_definition_in_org(&state, id, org_id).await?;
+    let existing = fetch_definition_in_org(&state, id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessDisable, existing.process_group_id)?;
     let def = process_definitions::set_disabled(&state.pool, id, req.disabled).await?;
     if req.disabled {
         state.engine.cancel_timer_start_jobs(def.id).await?;

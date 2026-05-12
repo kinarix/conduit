@@ -50,6 +50,8 @@ export interface OrgUser {
   auth_provider: string
   external_id: string | null
   password_hash: string | null
+  name: string | null
+  phone: string | null
   created_at: string
 }
 
@@ -58,6 +60,10 @@ export interface CreateOrgUserBody {
   auth_provider: 'internal' | 'external'
   password?: string
   external_id?: string
+  /** Optional display name. */
+  name?: string
+  /** Optional contact phone (free text). */
+  phone?: string
 }
 
 export const listOrgUsers = (orgId: string) =>
@@ -71,6 +77,27 @@ export const createOrgUser = (orgId: string, body: CreateOrgUserBody) =>
 
 export const removeOrgUser = (orgId: string, userId: string) =>
   apiFetch<void>(`/api/v1/orgs/${orgId}/users/${userId}`, { method: 'DELETE' })
+
+/**
+ * Admin reset of an org member's password. Caller needs `user.reset_password`
+ * scoped to this org (or globally). Rejected for non-members, external-auth
+ * users, and platform-admin targets when the caller is not a platform admin.
+ */
+export const resetOrgUserPassword = (orgId: string, userId: string, newPassword: string) =>
+  apiFetch<void>(`/api/v1/orgs/${orgId}/users/${userId}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ new_password: newPassword }),
+  })
+
+/**
+ * Global password reset — usable only by platform admins. Targets any user
+ * regardless of org membership.
+ */
+export const resetGlobalUserPassword = (userId: string, newPassword: string) =>
+  apiFetch<void>(`/api/v1/admin/users/${userId}/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ new_password: newPassword }),
+  })
 
 // ─── Members ─────────────────────────────────────────────────────────────────
 
@@ -166,3 +193,32 @@ export const grantGlobalRole = (userId: string, roleId: string) =>
 
 export const revokeGlobalRole = (assignmentId: string) =>
   apiFetch<void>(`/api/v1/admin/global-role-assignments/${assignmentId}`, { method: 'DELETE' })
+
+// ─── Process-group-scoped role assignments ──────────────────────────────────
+
+export interface PgRoleAssignment {
+  id: string
+  user_id: string
+  role_id: string
+  process_group_id: string
+  org_id: string
+  granted_by: string | null
+  granted_at: string
+}
+
+export const listPgRoleAssignments = (orgId: string, pgId: string) =>
+  apiFetch<PgRoleAssignment[]>(
+    `/api/v1/orgs/${orgId}/process-groups/${pgId}/role-assignments`,
+  )
+
+export const grantPgRole = (orgId: string, pgId: string, userId: string, roleId: string) =>
+  apiFetch<PgRoleAssignment>(
+    `/api/v1/orgs/${orgId}/process-groups/${pgId}/role-assignments`,
+    { method: 'POST', body: JSON.stringify({ user_id: userId, role_id: roleId }) },
+  )
+
+export const revokePgRole = (orgId: string, pgId: string, assignmentId: string) =>
+  apiFetch<void>(
+    `/api/v1/orgs/${orgId}/process-groups/${pgId}/role-assignments/${assignmentId}`,
+    { method: 'DELETE' },
+  )

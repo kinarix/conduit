@@ -74,8 +74,10 @@ pub async fn spawn_test_app() -> TestApp {
         .merge(conduit::api::process_layouts::routes())
         .merge(conduit::api::roles::routes())
         .merge(conduit::api::role_assignments::routes())
+        .merge(conduit::api::pg_role_assignments::routes())
         .merge(conduit::api::members::routes())
         .merge(conduit::api::admin::routes())
+        .merge(conduit::api::admin_users::routes())
         .merge(conduit::api::secrets::routes())
         .with_state(state);
 
@@ -111,7 +113,7 @@ pub async fn create_principal(pool: &PgPool, slug_prefix: &str) -> TestPrincipal
         .await
         .expect("create org");
     let email = format!("user-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None, None, None)
         .await
         .expect("create user");
     conduit::db::org_members::insert(pool, user.id, org.id, None)
@@ -154,7 +156,7 @@ pub async fn create_scoped_principal(
         .await
         .expect("create org");
     let email = format!("scoped-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None, None, None)
         .await
         .expect("create user");
     conduit::db::org_members::insert(pool, user.id, org.id, None)

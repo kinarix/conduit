@@ -35,7 +35,7 @@ async fn setup_alice(pool: &sqlx::PgPool) -> Alice {
         .unwrap();
 
     let email = format!("alice-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None, None, None)
         .await
         .unwrap();
 

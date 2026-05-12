@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::auth::{Permission, Principal};
 use crate::db::models::Task;
-use crate::db::{process_instances, tasks};
+use crate::db::{process_groups, process_instances, tasks};
 use crate::engine::VariableInput;
 use crate::error::{EngineError, Result};
 use crate::state::AppState;
@@ -45,10 +45,15 @@ async fn list_tasks(
     Path(org_id): Path<Uuid>,
     Query(params): Query<ListTasksQuery>,
 ) -> Result<axum::response::Response> {
-    principal.require(Permission::TaskRead)?;
     let page = Page::from_query(params.limit, params.offset);
-    let (items, total) =
-        tasks::list_pending_paginated(&state.pool, org_id, page.limit, page.offset).await?;
+    let (items, total) = match principal.pg_ids_with(Permission::TaskRead) {
+        None => tasks::list_pending_paginated(&state.pool, org_id, page.limit, page.offset).await?,
+        Some(pgs) => {
+            let pgs: Vec<Uuid> = pgs.into_iter().collect();
+            tasks::list_pending_paginated_in_pgs(&state.pool, org_id, &pgs, page.limit, page.offset)
+                .await?
+        }
+    };
     Ok(with_total(TaskListResponse { items }, total))
 }
 
@@ -58,8 +63,9 @@ async fn get_task(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Task>> {
-    principal.require(Permission::TaskRead)?;
     let task = fetch_task_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_task(&state.pool, id).await?;
+    principal.require_in_pg(Permission::TaskRead, pg)?;
     Ok(Json(task))
 }
 
@@ -75,8 +81,9 @@ async fn complete_task(
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     body: Option<Json<CompleteTaskRequest>>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::TaskComplete)?;
     fetch_task_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_task(&state.pool, id).await?;
+    principal.require_in_pg(Permission::TaskComplete, pg)?;
     let vars = body.and_then(|b| b.0.variables).unwrap_or_default();
     state.engine.complete_user_task(id, &vars).await?;
     Ok(StatusCode::NO_CONTENT)

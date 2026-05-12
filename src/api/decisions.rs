@@ -56,7 +56,12 @@ async fn deploy_decisions(
     Query(q): Query<DeployDecisionsQuery>,
     body: String,
 ) -> Result<(StatusCode, Json<serde_json::Value>)> {
-    principal.require(Permission::DecisionDeploy)?;
+    // Decisions can be deployed without a pg (legacy "unfiled" state) — fall
+    // back to org-level check in that case. With a pg, gate at pg scope.
+    match q.process_group_id {
+        Some(pg) => principal.require_in_pg(Permission::DecisionDeploy, pg)?,
+        None => principal.require(Permission::DecisionDeploy)?,
+    }
 
     if let Some(group_id) = q.process_group_id {
         ensure_process_group_in_org(&state.pool, group_id, org_id).await?;
@@ -95,17 +100,37 @@ async fn list_decisions(
     Path(org_id): Path<Uuid>,
     Query(q): Query<ListDecisionsQuery>,
 ) -> Result<axum::response::Response> {
-    principal.require(Permission::DecisionRead)?;
     let page = Page::from_query(q.limit, q.offset);
-    let (defs, total) = decision_definitions::list_paginated(
-        &state.pool,
-        org_id,
-        q.process_group_id,
-        q.all_versions,
-        page.limit,
-        page.offset,
-    )
-    .await?;
+    let (defs, total) = match principal.pg_ids_with(Permission::DecisionRead) {
+        None => {
+            decision_definitions::list_paginated(
+                &state.pool,
+                org_id,
+                q.process_group_id,
+                q.all_versions,
+                page.limit,
+                page.offset,
+            )
+            .await?
+        }
+        Some(pgs) => {
+            // Caller has decision.read only at pg scope. Intersect with the
+            // optional pg filter from the query string.
+            let mut pgs: Vec<Uuid> = pgs.into_iter().collect();
+            if let Some(filter) = q.process_group_id {
+                pgs.retain(|p| *p == filter);
+            }
+            decision_definitions::list_paginated_in_pgs(
+                &state.pool,
+                org_id,
+                &pgs,
+                q.all_versions,
+                page.limit,
+                page.offset,
+            )
+            .await?
+        }
+    };
 
     let list: Vec<serde_json::Value> = defs
         .iter()
@@ -130,8 +155,11 @@ async fn get_decision(
     principal: Principal,
     Path((org_id, key)): Path<(Uuid, String)>,
 ) -> Result<Json<serde_json::Value>> {
-    principal.require(Permission::DecisionRead)?;
     let def = decision_definitions::get_latest(&state.pool, org_id, &key).await?;
+    match def.process_group_id {
+        Some(pg) => principal.require_in_pg(Permission::DecisionRead, pg)?,
+        None => principal.require(Permission::DecisionRead)?,
+    }
 
     let tables = crate::dmn::parse(&def.dmn_xml)?;
     let table = tables
@@ -189,7 +217,13 @@ async fn delete_decision(
     principal: Principal,
     Path((org_id, key)): Path<(Uuid, String)>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::DecisionDelete)?;
+    // Resolve to learn the pg (decision_definitions may have NULL pg);
+    // then gate on pg scope or org scope depending on that.
+    let def = decision_definitions::get_latest(&state.pool, org_id, &key).await?;
+    match def.process_group_id {
+        Some(pg) => principal.require_in_pg(Permission::DecisionDelete, pg)?,
+        None => principal.require(Permission::DecisionDelete)?,
+    }
     decision_definitions::delete(&state.pool, org_id, &key).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -207,8 +241,11 @@ async fn rename_by_key(
     Path(org_id): Path<Uuid>,
     Json(req): Json<RenameDecisionRequest>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::DecisionUpdate)?;
     let def = decision_definitions::get_latest(&state.pool, org_id, &req.decision_key).await?;
+    match def.process_group_id {
+        Some(pg) => principal.require_in_pg(Permission::DecisionUpdate, pg)?,
+        None => principal.require(Permission::DecisionUpdate)?,
+    }
     decision_definitions::rename_all_versions(
         &state.pool,
         org_id,

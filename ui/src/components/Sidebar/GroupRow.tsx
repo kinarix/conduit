@@ -10,6 +10,7 @@ import { ChevronIcon, GroupIcon, PencilIcon, PlusIcon, TrashIcon, UploadIcon, Ta
 import ProcessRow, { PROCESS_DRAG_MIME } from './ProcessRow'
 import DecisionRow from './DecisionRow'
 import InlineNameInput from './InlineNameInput'
+import { useToast } from '../Toast'
 import styles from './Sidebar.module.css'
 
 interface Props {
@@ -43,6 +44,7 @@ export default function GroupRow({
   const location = useLocation()
   const qc = useQueryClient()
   const { setOrg } = useOrg()
+  const { showError } = useToast()
   const [editing, setEditing] = useState(autoEdit)
   const [dropping, setDropping] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
@@ -55,11 +57,13 @@ export default function GroupRow({
       setEditing(false)
       onEditDone?.()
     },
+    onError: err => showError("Can't rename process group", err),
   })
 
   const assignMut = useMutation({
     mutationFn: (defId: string) => assignProcessGroup(orgId, defId, group.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['deployments', orgId] }),
+    onError: err => showError("Can't move process", err),
   })
 
   const importMut = useMutation({
@@ -69,6 +73,7 @@ export default function GroupRow({
       qc.invalidateQueries({ queryKey: ['deployments', orgId] })
       navigate(`/definitions/${def.id}/edit`)
     },
+    onError: err => showError("Can't import BPMN", err),
   })
 
   const createDecisionMut = useMutation({
@@ -84,6 +89,7 @@ export default function GroupRow({
       onExpand?.()
       navigate(`/process-groups/${group.id}/decisions/${key}/edit`)
     },
+    onError: err => showError("Can't create decision table", err),
   })
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {

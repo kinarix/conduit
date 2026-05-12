@@ -6,8 +6,8 @@
 //!     (state transitions, designed-vs-promoted artifacts, read-metadata vs
 //!     read-plaintext).
 //!
-//! Single source of truth: this file. `migrations/031_permission_catalog.sql`
-//! must list exactly the same strings in its CHECK constraint. The
+//! Single source of truth: this file. `migrations/021_roles.sql` must list
+//! exactly the same strings in its CHECK constraint. The
 //! `permission_catalog_in_sync_with_migration` test asserts this.
 
 use std::fmt;
@@ -29,6 +29,7 @@ pub enum Permission {
     UserRead,
     UserUpdate,
     UserDelete,
+    UserResetPassword,
     // role definitions
     RoleCreate,
     RoleRead,
@@ -102,6 +103,7 @@ impl Permission {
             Self::UserRead => "user.read",
             Self::UserUpdate => "user.update",
             Self::UserDelete => "user.delete",
+            Self::UserResetPassword => "user.reset_password",
             Self::RoleCreate => "role.create",
             Self::RoleRead => "role.read",
             Self::RoleUpdate => "role.update",
@@ -156,6 +158,38 @@ impl Permission {
         matches!(self, Self::OrgCreate)
     }
 
+    /// `true` iff this permission can be granted at process-group scope
+    /// (i.e. a grant on a single pg meaningfully restricts what the user
+    /// can do inside that pg). `false` permissions are org-only — granting
+    /// them at pg scope is rejected by `db::role_assignments::grant_process_group`.
+    ///
+    /// The partition is enforced once at grant time, not on every request.
+    /// See `tests::pg_scopable_partition_is_exhaustive` for the audit.
+    pub fn is_pg_scopable(self) -> bool {
+        use Permission::*;
+        matches!(
+            self,
+            // process definitions
+            ProcessCreate | ProcessRead | ProcessUpdate | ProcessDelete | ProcessDeploy | ProcessDisable
+            // process groups — read/update/delete operate on a single pg; create
+            // is conceptually org-scoped (you can't "create a pg inside itself").
+            | ProcessGroupRead | ProcessGroupUpdate | ProcessGroupDelete
+            // process instances
+            | InstanceRead | InstanceStart | InstanceCancel | InstancePause | InstanceResume | InstanceDelete
+            // user tasks
+            | TaskRead | TaskComplete | TaskUpdate
+            // external (worker) tasks
+            | ExternalTaskExecute
+            // decisions (DMN)
+            | DecisionCreate | DecisionRead | DecisionUpdate | DecisionDelete | DecisionDeploy
+            // layouts
+            | ProcessLayoutRead | ProcessLayoutUpdate // Business events (message/signal) are org-only for now: the
+                                                      // engine routes by name across every subscription in the org,
+                                                      // so per-pg gating would need a per-pg subscription model. Keep
+                                                      // them out of the pg-scopable set until that lands.
+        )
+    }
+
     /// Full catalog. Order matters only for tests / printable docs — runtime
     /// callers should use the enum directly.
     pub const ALL: &'static [Permission] = &[
@@ -170,6 +204,7 @@ impl Permission {
         Self::UserRead,
         Self::UserUpdate,
         Self::UserDelete,
+        Self::UserResetPassword,
         Self::RoleCreate,
         Self::RoleRead,
         Self::RoleUpdate,
@@ -242,18 +277,18 @@ impl FromStr for Permission {
 mod tests {
     use super::*;
 
-    /// Enum ↔ migration parity. Parses the CHECK constraint out of
-    /// migrations/031_permission_catalog.sql and asserts the set of strings
-    /// matches `Permission::ALL`.
+    /// Enum ↔ migration parity. Parses the CHECK constraint out of the
+    /// permission catalog migration and asserts the set of strings matches
+    /// `Permission::ALL`. Update this if the catalog migration is renamed.
     #[test]
     fn permission_catalog_in_sync_with_migration() {
-        let migration = include_str!("../../migrations/031_permission_catalog.sql");
+        let migration = include_str!("../../migrations/021_roles.sql");
         // Grab the first CHECK block — the one that defines the catalog.
         let check_start = migration
             .find("CHECK (permission IN (")
-            .expect("CHECK block not found in 031_permission_catalog.sql");
+            .expect("CHECK block not found in 021_roles.sql");
         let after = &migration[check_start..];
-        let close = after.find("));").expect("close of CHECK block not found");
+        let close = after.find("))").expect("close of CHECK block not found");
         let block = &after[..close];
 
         let mut from_sql: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -275,7 +310,7 @@ mod tests {
         let only_in_sql: Vec<_> = from_sql.difference(&from_enum).collect();
         assert!(
             only_in_enum.is_empty() && only_in_sql.is_empty(),
-            "Permission enum drifted from migration 031.\n  only in enum: {only_in_enum:?}\n  only in SQL : {only_in_sql:?}"
+            "Permission enum drifted from 021_roles.sql.\n  only in enum: {only_in_enum:?}\n  only in SQL : {only_in_sql:?}"
         );
     }
 
@@ -284,6 +319,62 @@ mod tests {
         for &p in Permission::ALL {
             let s = p.as_str();
             assert_eq!(Permission::from_str(s).unwrap(), p);
+        }
+    }
+
+    /// `is_pg_scopable` is the partition the API layer enforces at grant
+    /// time. The list below pins the org-only side of the partition by name
+    /// so that adding a new permission forces a deliberate classification
+    /// (touch this test, decide which side it falls on).
+    #[test]
+    fn pg_scopable_partition_is_exhaustive() {
+        use Permission::*;
+        // Org-only (cannot be granted at pg scope).
+        let org_only = [
+            OrgCreate,
+            OrgRead,
+            OrgUpdate,
+            OrgDelete,
+            OrgMemberCreate,
+            OrgMemberRead,
+            OrgMemberDelete,
+            UserCreate,
+            UserRead,
+            UserUpdate,
+            UserDelete,
+            UserResetPassword,
+            RoleCreate,
+            RoleRead,
+            RoleUpdate,
+            RoleDelete,
+            RoleAssignmentCreate,
+            RoleAssignmentRead,
+            RoleAssignmentDelete,
+            AuthConfigRead,
+            AuthConfigUpdate,
+            ProcessGroupCreate,
+            SecretCreate,
+            SecretReadMetadata,
+            SecretReadPlaintext,
+            SecretUpdate,
+            SecretDelete,
+            ApiKeyManage,
+            MessageCorrelate,
+            SignalBroadcast,
+        ];
+        for p in org_only {
+            assert!(!p.is_pg_scopable(), "{p} should NOT be pg-scopable");
+        }
+        // Every other permission in ALL must be pg-scopable.
+        let org_only_set: std::collections::HashSet<_> = org_only.iter().copied().collect();
+        for &p in Permission::ALL {
+            let expected_pg = !org_only_set.contains(&p);
+            assert_eq!(
+                p.is_pg_scopable(),
+                expected_pg,
+                "permission {p} classified inconsistently (pg_scopable={}, expected={expected_pg})",
+                p.is_pg_scopable(),
+            );
         }
     }
 }

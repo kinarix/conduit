@@ -48,15 +48,23 @@ function nodeTypeFor(t: BpmnElementType): string {
   return 'bpmnGateway'
 }
 
-// The BPMN editor stores sourceHandle/targetHandle in XML. These can be stale or
-// wrong (e.g. "left-source" saved as a targetHandle), which triggers ReactFlow
-// error #008 and makes edges invisible. In viewer mode we always recompute handles
-// from node geometry so every edge renders regardless of what the XML says.
+// The BPMN editor stores sourceHandle/targetHandle in XML. These can occasionally
+// be malformed (e.g. "left-source" saved as a targetHandle), which triggers
+// ReactFlow error #008 and makes edges invisible. Keep valid handles so the viewer
+// matches the modeller's port routing; recompute from geometry only when missing
+// or malformed.
+const VALID_SOURCE = new Set(['left-source', 'right-source', 'top-source', 'bottom-source'])
+const VALID_TARGET = new Set(['left-target', 'right-target', 'top-target', 'bottom-target'])
+
 function fixEdgeHandles(edges: Edge[], nodes: Node[]): Edge[] {
   const posMap = new Map(nodes.map(n => [n.id, n.position]))
   return edges.map(e => {
     // Attachment edges (boundary events) have no geometry-based handles
     if ((e.data as { kind?: string } | undefined)?.kind === 'attachment') return e
+
+    const sourceOk = typeof e.sourceHandle === 'string' && VALID_SOURCE.has(e.sourceHandle)
+    const targetOk = typeof e.targetHandle === 'string' && VALID_TARGET.has(e.targetHandle)
+    if (sourceOk && targetOk) return e
 
     const srcPos = posMap.get(e.source)
     const tgtPos = posMap.get(e.target)
@@ -73,7 +81,11 @@ function fixEdgeHandles(edges: Edge[], nodes: Node[]): Edge[] {
       sourceHandle = dy >= 0 ? 'bottom-source' : 'top-source'
       targetHandle = dy >= 0 ? 'top-target' : 'bottom-target'
     }
-    return { ...e, sourceHandle, targetHandle }
+    return {
+      ...e,
+      sourceHandle: sourceOk ? e.sourceHandle : sourceHandle,
+      targetHandle: targetOk ? e.targetHandle : targetHandle,
+    }
   })
 }
 

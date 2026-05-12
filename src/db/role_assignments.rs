@@ -8,8 +8,9 @@
 //!   1. role_permissions for every `global_role_assignments` row, AND
 //!   2. role_permissions for every `org_role_assignments` row in that org.
 //!
-//! See migration 030 for the schema and migration 031 for the catalog +
-//! built-in role seeds.
+//! See `migrations/021_roles.sql` for the catalog and built-in role seeds,
+//! and `migrations/023_role_assignments.sql` for these tables. Pg-scoped
+//! grants live in `process_group_role_assignments` (migration 024).
 
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -80,6 +81,36 @@ pub async fn load_all_permissions(
         perms.extend(load_org_permissions(pool, user_id, oid).await?);
     }
     Ok(perms)
+}
+
+/// Load every pg-scoped grant the user holds inside `org_id`, indexed by
+/// pg_id. Empty map when the user has no pg-scoped grants there. Used by
+/// the Principal extractor to populate `pg_permissions`.
+pub async fn load_pg_permissions_for_user_in_org(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> Result<std::collections::HashMap<Uuid, HashSet<Permission>>> {
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        r#"
+        SELECT pgra.process_group_id, rp.permission
+          FROM process_group_role_assignments pgra
+          JOIN role_permissions rp ON rp.role_id = pgra.role_id
+         WHERE pgra.user_id = $1 AND pgra.org_id = $2
+        "#,
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_all(pool)
+    .await?;
+    let mut map: std::collections::HashMap<Uuid, HashSet<Permission>> =
+        std::collections::HashMap::new();
+    for (pg_id, perm) in rows {
+        if let Ok(p) = Permission::from_str(&perm) {
+            map.entry(pg_id).or_default().insert(p);
+        }
+    }
+    Ok(map)
 }
 
 /// `true` iff the user has any global role assignment. Used to mark
@@ -369,4 +400,205 @@ pub async fn global_role_names_for_user(pool: &PgPool, user_id: Uuid) -> Result<
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().map(|(n,)| n).collect())
+}
+
+// ─── PG grants ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct PgRoleAssignment {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub role_id: Uuid,
+    pub process_group_id: Uuid,
+    pub org_id: Uuid,
+    pub granted_by: Option<Uuid>,
+    pub granted_at: DateTime<Utc>,
+}
+
+/// One pg-level role grant a user holds in some org. Used for `/me` so the
+/// UI can render "Developer in HR Workflows".
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct PgRoleNameRow {
+    pub process_group_id: Uuid,
+    pub process_group_name: String,
+    pub role_name: String,
+}
+
+/// Grant a pg-scoped role.
+///
+/// Validations (any failure is `Validation`, except role missing → `NotFound`):
+///   1. role exists; if custom, role.org_id must match the pg's org.
+///   2. every permission on the role must be `is_pg_scopable` (else the
+///      grant could leak an org-only permission like `secret.read_plaintext`
+///      to a non-member through cascade).
+///   3. user must be a member of the pg's org (otherwise the composite FK
+///      to org_members would raise an FK error; this gives a friendlier
+///      message).
+///
+/// Idempotent (UNIQUE(user_id, role_id, process_group_id)).
+pub async fn grant_process_group(
+    pool: &PgPool,
+    user_id: Uuid,
+    role_id: Uuid,
+    process_group_id: Uuid,
+    granted_by: Option<Uuid>,
+) -> Result<Uuid> {
+    // 1. Resolve the pg's org_id and the role's org_id.
+    let pg: Option<(Uuid,)> = sqlx::query_as("SELECT org_id FROM process_groups WHERE id = $1")
+        .bind(process_group_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some((pg_org_id,)) = pg else {
+        return Err(EngineError::NotFound(format!(
+            "process group {process_group_id}"
+        )));
+    };
+
+    let role: Option<(Option<Uuid>,)> = sqlx::query_as("SELECT org_id FROM roles WHERE id = $1")
+        .bind(role_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some((role_org,)) = role else {
+        return Err(EngineError::NotFound(format!("role {role_id}")));
+    };
+    if let Some(ro) = role_org {
+        if ro != pg_org_id {
+            return Err(EngineError::Validation(format!(
+                "role {role_id} is scoped to a different org and cannot be granted in process_group {process_group_id}"
+            )));
+        }
+    }
+
+    // 2. Reject if any of the role's perms is org-only.
+    let perm_rows: Vec<(String,)> =
+        sqlx::query_as("SELECT permission FROM role_permissions WHERE role_id = $1")
+            .bind(role_id)
+            .fetch_all(pool)
+            .await?;
+    for (s,) in &perm_rows {
+        if let Ok(p) = Permission::from_str(s) {
+            if !p.is_pg_scopable() {
+                return Err(EngineError::Validation(format!(
+                    "permission `{p}` cannot be granted at process-group scope (org-only)"
+                )));
+            }
+        }
+    }
+
+    // 3. Membership precondition (the composite FK would catch this too).
+    let is_member: (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM org_members WHERE user_id = $1 AND org_id = $2)",
+    )
+    .bind(user_id)
+    .bind(pg_org_id)
+    .fetch_one(pool)
+    .await?;
+    if !is_member.0 {
+        return Err(EngineError::Validation(format!(
+            "user {user_id} is not a member of org {pg_org_id}"
+        )));
+    }
+
+    sqlx::query(
+        r#"
+        INSERT INTO process_group_role_assignments
+            (user_id, role_id, process_group_id, org_id, granted_by)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (user_id, role_id, process_group_id) DO NOTHING
+        "#,
+    )
+    .bind(user_id)
+    .bind(role_id)
+    .bind(process_group_id)
+    .bind(pg_org_id)
+    .bind(granted_by)
+    .execute(pool)
+    .await?;
+
+    let (id,): (Uuid,) = sqlx::query_as(
+        r#"
+        SELECT id FROM process_group_role_assignments
+         WHERE user_id = $1 AND role_id = $2 AND process_group_id = $3
+        "#,
+    )
+    .bind(user_id)
+    .bind(role_id)
+    .bind(process_group_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(id)
+}
+
+pub async fn revoke_pg_by_id(pool: &PgPool, id: Uuid, process_group_id: Uuid) -> Result<bool> {
+    let res = sqlx::query(
+        "DELETE FROM process_group_role_assignments WHERE id = $1 AND process_group_id = $2",
+    )
+    .bind(id)
+    .bind(process_group_id)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+pub async fn list_for_process_group(
+    pool: &PgPool,
+    process_group_id: Uuid,
+) -> Result<Vec<PgRoleAssignment>> {
+    let rows = sqlx::query_as::<_, PgRoleAssignment>(
+        r#"
+        SELECT id, user_id, role_id, process_group_id, org_id, granted_by, granted_at
+          FROM process_group_role_assignments
+         WHERE process_group_id = $1
+         ORDER BY granted_at ASC
+        "#,
+    )
+    .bind(process_group_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+pub async fn list_pg_for_user_in_org(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> Result<Vec<PgRoleAssignment>> {
+    let rows = sqlx::query_as::<_, PgRoleAssignment>(
+        r#"
+        SELECT id, user_id, role_id, process_group_id, org_id, granted_by, granted_at
+          FROM process_group_role_assignments
+         WHERE user_id = $1 AND org_id = $2
+         ORDER BY granted_at ASC
+        "#,
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
+/// `(pg_id, pg_name, role_name)` rows for `/me`. Ordered by pg_name, role_name.
+pub async fn pg_role_names_for_user_in_org(
+    pool: &PgPool,
+    user_id: Uuid,
+    org_id: Uuid,
+) -> Result<Vec<PgRoleNameRow>> {
+    let rows = sqlx::query_as::<_, PgRoleNameRow>(
+        r#"
+        SELECT pg.id   AS process_group_id,
+               pg.name AS process_group_name,
+               r.name  AS role_name
+          FROM process_group_role_assignments pgra
+          JOIN process_groups pg ON pg.id = pgra.process_group_id
+          JOIN roles          r  ON r.id  = pgra.role_id
+         WHERE pgra.user_id = $1 AND pgra.org_id = $2
+         ORDER BY pg.name, r.name
+        "#,
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
 }

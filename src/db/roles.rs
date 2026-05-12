@@ -1,7 +1,7 @@
 //! Role *definitions*. Grants live in `db::role_assignments`.
 //!
 //! Built-in role templates have `org_id IS NULL` and are seeded by
-//! migration 031. Custom org-scoped roles have `org_id = <org>`.
+//! `migrations/021_roles.sql`. Custom org-scoped roles have `org_id = <org>`.
 
 use serde::Serialize;
 use sqlx::PgPool;

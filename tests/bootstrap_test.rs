@@ -26,9 +26,10 @@ async fn bootstrap_admin_is_global_platform_admin_and_can_create_org() {
     let email = format!("boot-{}@test.local", Uuid::new_v4());
     let password = "bootstrap-secret-pw";
     let hash = conduit::auth::password::hash(password).expect("hash");
-    let user = conduit::db::users::insert(&app.pool, "internal", None, &email, Some(&hash))
-        .await
-        .expect("insert");
+    let user =
+        conduit::db::users::insert(&app.pool, "internal", None, &email, Some(&hash), None, None)
+            .await
+            .expect("insert");
     let granted = conduit::db::role_assignments::grant_global_by_name(
         &app.pool,
         user.id,
@@ -37,7 +38,7 @@ async fn bootstrap_admin_is_global_platform_admin_and_can_create_org() {
     )
     .await
     .expect("grant");
-    assert!(granted, "migration 031 must seed the PlatformAdmin role");
+    assert!(granted, "built-in PlatformAdmin role must be seeded");
 
     // No org membership yet.
     let orgs_for_user = conduit::db::orgs::list_for_user(&app.pool, user.id)

@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useAuth } from '../../context/AuthContext'
 import { fetchOrgs, type Org } from '../../api/orgs'
 import {
   createOrgUser,
   grantOrgRole,
   listOrgUsers,
   listBuiltinRoles,
+  resetOrgUserPassword,
   type OrgUser,
   type AdminRole,
 } from '../../api/admin'
 import InstanceSetup from './InstanceSetup'
+import ResetPasswordModal from '../../components/ResetPasswordModal'
+import AccountMenu from '../../components/AccountMenu'
 
 type AdminUser = OrgUser
 
@@ -22,16 +24,17 @@ type View =
   | { kind: 'org-users'; org: Org }
 
 export default function PlatformShell() {
-  const { user, logout } = useAuth()
   const [view, setView] = useState<View>({ kind: 'list' })
 
   const orgsQ = useQuery({ queryKey: ['orgs'], queryFn: fetchOrgs })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg-primary)' }}>
+      <AccountMenu />
       <header style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         padding: '12px 24px',
+        paddingRight: 64, // leave room for the floating AccountMenu (32px button + margin)
         borderBottom: '1px solid var(--color-border)',
         background: 'var(--bg-secondary)',
       }}>
@@ -47,12 +50,6 @@ export default function PlatformShell() {
           }}>
             Platform Admin
           </span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{user?.email}</span>
-          <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={logout}>
-            Sign out
-          </button>
         </div>
       </header>
 
@@ -177,6 +174,13 @@ function OrgUsers({ org, onBack }: { org: Org; onBack: () => void }) {
   })
   const rolesQ = useQuery({ queryKey: ['builtin-roles'], queryFn: listBuiltinRoles })
   const [showAdd, setShowAdd] = useState(false)
+  const [resettingUser, setResettingUser] = useState<OrgUser | null>(null)
+
+  const resetPwMut = useMutation({
+    mutationFn: ({ userId, newPassword }: { userId: string; newPassword: string }) =>
+      resetOrgUserPassword(org.id, userId, newPassword),
+    onSuccess: () => setResettingUser(null),
+  })
 
   const createMut = useMutation({
     mutationFn: async (body: {
@@ -252,6 +256,7 @@ function OrgUsers({ org, onBack }: { org: Org; onBack: () => void }) {
                 <tr style={{ background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)' }}>
                   <th style={thStyle}>Email</th>
                   <th style={thStyle}>Provider</th>
+                  <th style={{ ...thStyle, width: 140 }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -266,12 +271,33 @@ function OrgUsers({ org, onBack }: { org: Org; onBack: () => void }) {
                         {u.auth_provider}
                       </span>
                     </td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>
+                      {u.auth_provider === 'internal' && (
+                        <button
+                          className="btn-ghost"
+                          style={{ fontSize: 12, padding: '3px 8px' }}
+                          onClick={() => { resetPwMut.reset(); setResettingUser(u) }}
+                        >
+                          Reset password
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
+      )}
+
+      {resettingUser && (
+        <ResetPasswordModal
+          email={resettingUser.email}
+          pending={resetPwMut.isPending}
+          error={resetPwMut.error as Error | null}
+          onCancel={() => setResettingUser(null)}
+          onSubmit={pw => resetPwMut.mutate({ userId: resettingUser.id, newPassword: pw })}
+        />
       )}
 
       {showAdd && (

@@ -17,6 +17,7 @@ use crate::db::jobs;
 use crate::db::models::{ExecutionHistory, Job, ProcessEvent, ProcessInstance};
 use crate::db::process_definitions;
 use crate::db::process_events;
+use crate::db::process_groups;
 use crate::db::process_instances;
 use crate::engine::VariableInput;
 use crate::error::{EngineError, Result};
@@ -80,17 +81,33 @@ async fn list_instances(
     Path(org_id): Path<Uuid>,
     Query(params): Query<ListInstancesQuery>,
 ) -> Result<axum::response::Response> {
-    principal.require(Permission::InstanceRead)?;
     let page = Page::from_query(params.limit, params.offset);
-    let (instances, total) = process_instances::list_paginated(
-        &state.pool,
-        org_id,
-        params.definition_id,
-        params.process_key.as_deref(),
-        page.limit,
-        page.offset,
-    )
-    .await?;
+    let (instances, total) = match principal.pg_ids_with(Permission::InstanceRead) {
+        None => {
+            process_instances::list_paginated(
+                &state.pool,
+                org_id,
+                params.definition_id,
+                params.process_key.as_deref(),
+                page.limit,
+                page.offset,
+            )
+            .await?
+        }
+        Some(pgs) => {
+            let pgs: Vec<Uuid> = pgs.into_iter().collect();
+            process_instances::list_paginated_in_pgs(
+                &state.pool,
+                org_id,
+                &pgs,
+                params.definition_id,
+                params.process_key.as_deref(),
+                page.limit,
+                page.offset,
+            )
+            .await?
+        }
+    };
     Ok(with_total(instances, total))
 }
 
@@ -101,7 +118,6 @@ async fn start_instance(
     Path(org_id): Path<Uuid>,
     Json(req): Json<StartInstanceRequest>,
 ) -> Result<(StatusCode, Json<ProcessInstance>)> {
-    principal.require(Permission::InstanceStart)?;
     let def = process_definitions::get_by_id(&state.pool, req.definition_id).await?;
     if def.org_id != org_id {
         return Err(EngineError::NotFound(format!(
@@ -109,6 +125,7 @@ async fn start_instance(
             req.definition_id
         )));
     }
+    principal.require_in_pg(Permission::InstanceStart, def.process_group_id)?;
     let labels = req.labels.unwrap_or_else(|| serde_json::json!({}));
     let variables = req.variables.unwrap_or_default();
     let instance = state
@@ -124,8 +141,10 @@ async fn get_instance(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProcessInstance>> {
-    principal.require(Permission::InstanceRead)?;
-    let instance = fetch_instance_in_org(&state, id, org_id).await?;
+    fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceRead, pg)?;
+    let instance = process_instances::get_by_id(&state.pool, id).await?;
     Ok(Json(instance))
 }
 
@@ -135,8 +154,9 @@ async fn pause_instance(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProcessInstance>> {
-    principal.require(Permission::InstancePause)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstancePause, pg)?;
     let inst = process_instances::pause(&state.pool, id).await?;
     Ok(Json(inst))
 }
@@ -147,8 +167,9 @@ async fn resume_instance(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProcessInstance>> {
-    principal.require(Permission::InstanceResume)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceResume, pg)?;
     let inst = process_instances::resume(&state.pool, id).await?;
     Ok(Json(inst))
 }
@@ -159,8 +180,9 @@ async fn cancel_instance(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<ProcessInstance>> {
-    principal.require(Permission::InstanceCancel)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceCancel, pg)?;
     let inst = process_instances::cancel(&state.pool, id).await?;
     Ok(Json(inst))
 }
@@ -171,8 +193,9 @@ async fn delete_instance(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::InstanceDelete)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceDelete, pg)?;
     process_instances::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -183,8 +206,9 @@ async fn list_history(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<ExecutionHistory>>> {
-    principal.require(Permission::InstanceRead)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceRead, pg)?;
     let rows = execution_history::list_by_instance(&state.pool, id).await?;
     Ok(Json(rows))
 }
@@ -195,8 +219,9 @@ async fn list_events(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<ProcessEvent>>> {
-    principal.require(Permission::InstanceRead)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceRead, pg)?;
     let rows = process_events::list_by_instance(&state.pool, id).await?;
     Ok(Json(rows))
 }
@@ -207,8 +232,9 @@ async fn list_jobs(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<Vec<Job>>> {
-    principal.require(Permission::InstanceRead)?;
     fetch_instance_in_org(&state, id, org_id).await?;
+    let pg = process_groups::pg_for_instance(&state.pool, id).await?;
+    principal.require_in_pg(Permission::InstanceRead, pg)?;
     let rows = jobs::list_by_instance(&state.pool, id).await?;
     Ok(Json(rows))
 }

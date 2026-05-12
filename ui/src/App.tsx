@@ -21,6 +21,7 @@ import AdminUsers from './pages/admin/AdminUsers'
 import AdminRoles from './pages/admin/AdminRoles'
 import AdminAuth from './pages/admin/AdminAuth'
 import AdminSettings from './pages/admin/AdminSettings'
+import AdminAccount from './pages/admin/AdminAccount'
 
 export interface Org {
   id: string
@@ -118,6 +119,7 @@ export default function App() {
           <Route path="process-groups/:groupId/decisions/new" element={<DecisionTableEditor />} />
           <Route path="process-groups/:groupId/decisions/:key/edit" element={<DecisionTableEditor />} />
           <Route path="welcome" element={<Welcome />} />
+          <Route path="account" element={<AdminAccount />} />
           <Route
             path="admin"
             element={

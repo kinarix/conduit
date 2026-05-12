@@ -1,7 +1,7 @@
--- Phase 16: HTTP connector secrets.
--- Org-scoped, app-encrypted credentials referenced by name from BPMN.
--- Values are encrypted via ChaCha20-Poly1305 with a random per-row nonce;
--- the master key lives in the CONDUIT_SECRETS_KEY env var, not in the DB.
+-- Org-scoped, app-encrypted credentials referenced by name from BPMN
+-- (`{{secret:name}}`). Values are encrypted via ChaCha20-Poly1305 with a
+-- random per-row nonce; the master key lives in CONDUIT_SECRETS_KEY,
+-- never in the DB.
 CREATE TABLE secrets (
     id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id          UUID        NOT NULL REFERENCES orgs (id) ON DELETE CASCADE,

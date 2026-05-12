@@ -100,6 +100,57 @@ pub async fn list_pending_paginated(
     Ok((rows, total))
 }
 
+/// Pg-filtered version of `list_pending_paginated`. Joins to
+/// `process_definitions` (via `process_instances`) so the pg filter
+/// applies to the source definition. Empty `pg_ids` returns no rows.
+pub async fn list_pending_paginated_in_pgs(
+    pool: &PgPool,
+    org_id: Uuid,
+    pg_ids: &[Uuid],
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<Task>, i64)> {
+    if pg_ids.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+    let pg_vec: Vec<Uuid> = pg_ids.to_vec();
+    let rows = sqlx::query_as::<_, Task>(
+        r#"
+        SELECT t.*
+          FROM tasks t
+          JOIN process_instances   i  ON i.id  = t.instance_id
+          JOIN process_definitions pd ON pd.id = i.definition_id
+         WHERE t.state = 'pending'
+           AND i.org_id = $1
+           AND pd.process_group_id = ANY($2::uuid[])
+         ORDER BY t.created_at DESC
+         LIMIT $3 OFFSET $4
+        "#,
+    )
+    .bind(org_id)
+    .bind(&pg_vec)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+    let (total,): (i64,) = sqlx::query_as(
+        r#"
+        SELECT COUNT(*)
+          FROM tasks t
+          JOIN process_instances   i  ON i.id  = t.instance_id
+          JOIN process_definitions pd ON pd.id = i.definition_id
+         WHERE t.state = 'pending'
+           AND i.org_id = $1
+           AND pd.process_group_id = ANY($2::uuid[])
+        "#,
+    )
+    .bind(org_id)
+    .bind(&pg_vec)
+    .fetch_one(pool)
+    .await?;
+    Ok((rows, total))
+}
+
 pub async fn complete(pool: &PgPool, id: Uuid) -> Result<Task> {
     sqlx::query_as::<_, Task>(
         r#"

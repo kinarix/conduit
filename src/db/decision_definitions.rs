@@ -248,3 +248,60 @@ pub async fn list_paginated(
 
     Ok((rows, total))
 }
+
+/// Pg-filtered variant of `list_paginated`. Restricts to decisions whose
+/// `process_group_id` is in `pg_ids` (decisions with NULL pg are excluded —
+/// they're "unfiled" and can only be accessed via org-level perms).
+pub async fn list_paginated_in_pgs(
+    pool: &PgPool,
+    org_id: Uuid,
+    pg_ids: &[Uuid],
+    all_versions: bool,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<DecisionDefinition>, i64)> {
+    if pg_ids.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+    let pg_vec: Vec<Uuid> = pg_ids.to_vec();
+    let (sql, count_sql) = if all_versions {
+        (
+            "SELECT *
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND process_group_id = ANY($2::uuid[])
+             ORDER BY decision_key ASC, version DESC
+             LIMIT $3 OFFSET $4",
+            "SELECT COUNT(*)
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND process_group_id = ANY($2::uuid[])",
+        )
+    } else {
+        (
+            "SELECT DISTINCT ON (decision_key) *
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND process_group_id = ANY($2::uuid[])
+             ORDER BY decision_key, version DESC
+             LIMIT $3 OFFSET $4",
+            "SELECT COUNT(DISTINCT decision_key)
+             FROM decision_definitions
+             WHERE org_id = $1
+               AND process_group_id = ANY($2::uuid[])",
+        )
+    };
+    let rows = sqlx::query_as::<_, DecisionDefinition>(sql)
+        .bind(org_id)
+        .bind(&pg_vec)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool)
+        .await?;
+    let (total,): (i64,) = sqlx::query_as(count_sql)
+        .bind(org_id)
+        .bind(&pg_vec)
+        .fetch_one(pool)
+        .await?;
+    Ok((rows, total))
+}

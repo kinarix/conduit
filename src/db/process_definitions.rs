@@ -246,6 +246,31 @@ pub async fn list_by_org(pool: &PgPool, org_id: Uuid) -> Result<Vec<ProcessDefin
     Ok(rows)
 }
 
+/// Same as `list_by_org` but restricted to definitions whose
+/// `process_group_id` is in `pg_ids`. Used by row-filtered list endpoints
+/// where the caller holds the relevant read permission only at pg scope.
+/// Passing an empty slice returns an empty list.
+pub async fn list_by_org_in_pgs(
+    pool: &PgPool,
+    org_id: Uuid,
+    pg_ids: &[Uuid],
+) -> Result<Vec<ProcessDefinition>> {
+    if pg_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let pg_vec: Vec<Uuid> = pg_ids.to_vec();
+    let rows = sqlx::query_as::<_, ProcessDefinition>(
+        "SELECT * FROM process_definitions \
+         WHERE org_id = $1 AND process_group_id = ANY($2::uuid[]) \
+         ORDER BY deployed_at DESC",
+    )
+    .bind(org_id)
+    .bind(&pg_vec)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows)
+}
+
 /// Delete a process definition. Refuses with Conflict if any instances reference it
 /// (the FK is ON DELETE RESTRICT, but checking up-front yields a clearer 409 than a
 /// generic FK violation). Timer-start triggers cascade automatically.

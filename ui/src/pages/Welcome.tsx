@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchAdminOrg, patchAdminOrg, fetchAuthConfig, patchAuthConfig } from '../api/admin'
-import { createProcessGroup, type ProcessGroup } from '../api/processGroups'
-import { createDraft } from '../api/deployments'
-import { defaultBpmnXml } from '../components/bpmn/defaultBpmn'
-import { useOrg } from '../App'
+import {
+  fetchAdminOrg, patchAdminOrg, fetchAuthConfig, patchAuthConfig,
+  createOrgUser, listBuiltinRoles, grantOrgRole,
+} from '../api/admin'
 import { useAuth } from '../context/AuthContext'
 import { TOKEN_KEY } from '../api/client'
 
@@ -73,57 +71,58 @@ const CONCEPTS = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function slugify(v: string) {
-  return v.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-}
-
-function expandInStorage(key: string, id: string) {
-  try {
-    const raw = localStorage.getItem(key)
-    const arr: string[] = Array.isArray(JSON.parse(raw ?? 'null')) ? JSON.parse(raw!) : []
-    if (!arr.includes(id)) arr.push(id)
-    localStorage.setItem(key, JSON.stringify(arr))
-    window.dispatchEvent(new CustomEvent('sidebar:expansion-sync', { detail: key }))
-  } catch { /* ignore quota / disabled storage */ }
-}
-
-type StepNum = 1 | 2 | 3 | 4
+type StepNum = 1 | 2 | 3
 
 const MILESTONES: { num: StepNum; label: string }[] = [
   { num: 1, label: 'Org' },
   { num: 2, label: 'Auth' },
-  { num: 3, label: 'Process Group' },
-  { num: 4, label: 'Process' },
+  { num: 3, label: 'Team' },
 ]
+
+/**
+ * One-line summaries of the built-in roles, shown in the wizard's
+ * role-picker help panel. Keep these in sync with the catalog comments
+ * in migrations/031_permission_catalog.sql.
+ */
+const ROLE_DESCRIPTIONS: Record<string, string> = {
+  OrgOwner: 'Full control of the organisation — every permission, including delete.',
+  OrgAdmin: 'Manage users, roles, and auth config. No process or instance authoring.',
+  Developer: 'Create, edit, deploy, and run processes and decisions. Day-to-day builder role.',
+  Modeller: 'Design BPMN and DMN drafts. Cannot promote to live versions.',
+  Operator: 'Start and monitor instances; complete tasks. No design or deploy.',
+  Reader: 'Read-only access to everything in the org.',
+}
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Welcome() {
-  const navigate = useNavigate()
   const qc = useQueryClient()
-  const { setOrg } = useOrg()
   const { refreshUser, user } = useAuth()
   const currentOrgId = user?.orgs?.[0]?.id ?? null
 
   const [step, setStep] = useState<StepNum>(1)
-  const [createdGroup, setCreatedGroup] = useState<ProcessGroup | null>(null)
 
   // Step 1 is read-only — the platform admin already set the org name when
   // provisioning. The Org Admin can rename later via /admin/settings.
 
-  // Step 2
+  // Step 2 — auth config
   const [provider, setProvider] = useState<'internal' | 'oidc'>('internal')
   const [oidcIssuer, setOidcIssuer] = useState('')
   const [oidcClientId, setOidcClientId] = useState('')
   const [oidcClientSecret, setOidcClientSecret] = useState('')
   const [oidcRedirectUri, setOidcRedirectUri] = useState('')
 
-  // Step 3
-  const [groupName, setGroupName] = useState('')
-
-  // Step 4
-  const [processName, setProcessName] = useState('')
-  const [processKey, setProcessKey] = useState('')
+  // Step 3 — invite a teammate (optional). One inline form; users can
+  // add more later from Admin → Users.
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteName, setInviteName] = useState('')
+  const [invitePhone, setInvitePhone] = useState('')
+  const [inviteAuth, setInviteAuth] = useState<'internal' | 'external'>('internal')
+  const [invitePassword, setInvitePassword] = useState('')
+  const [inviteExternalId, setInviteExternalId] = useState('')
+  const [inviteRoleId, setInviteRoleId] = useState('')
+  const [invitedCount, setInvitedCount] = useState(0)
+  const [roleHelpOpen, setRoleHelpOpen] = useState(false)
 
   const [error, setError] = useState('')
   const [completing, setCompleting] = useState(false)
@@ -153,22 +152,49 @@ export default function Welcome() {
     mutationFn: (body: Parameters<typeof patchAuthConfig>[1]) => patchAuthConfig(currentOrgId!, body),
   })
 
-  const createGroupMut = useMutation({
-    mutationFn: () => createProcessGroup(orgQ.data!.id, groupName),
-    onSuccess: g => { setCreatedGroup(g); setError(''); setStep(4) },
+  // Builtin roles for the invite step's role picker. The org admin can
+  // see every builtin via /api/v1/roles regardless of their own grants.
+  const rolesQ = useQuery({
+    queryKey: ['builtin-roles'],
+    queryFn: listBuiltinRoles,
+  })
+
+  useEffect(() => {
+    if (inviteRoleId || !rolesQ.data) return
+    const developer = rolesQ.data.find(r => r.name === 'Developer' && r.org_id === null)
+    if (developer) setInviteRoleId(developer.id)
+  }, [rolesQ.data, inviteRoleId])
+
+  const inviteMut = useMutation({
+    mutationFn: async () => {
+      const trimmedName = inviteName.trim()
+      const trimmedPhone = invitePhone.trim()
+      const u = await createOrgUser(currentOrgId!, {
+        email: inviteEmail.trim(),
+        auth_provider: inviteAuth,
+        password: inviteAuth === 'internal' ? invitePassword : undefined,
+        external_id: inviteAuth === 'external' ? inviteExternalId.trim() : undefined,
+        name: trimmedName || undefined,
+        phone: trimmedPhone || undefined,
+      })
+      if (inviteRoleId) {
+        await grantOrgRole(currentOrgId!, u.id, inviteRoleId)
+      }
+      return u
+    },
+    onSuccess: () => {
+      setInviteEmail('')
+      setInviteName('')
+      setInvitePhone('')
+      setInvitePassword('')
+      setInviteExternalId('')
+      setInvitedCount(n => n + 1)
+      setError('')
+    },
     onError: (e: Error) => setError(e.message),
   })
 
-  const createProcessMut = useMutation({
-    mutationFn: () => createDraft(orgQ.data!.id, {
-      process_group_id: createdGroup!.id,
-      key: processKey,
-      name: processName,
-      bpmn_xml: defaultBpmnXml(processKey, processName),
-    }),
-  })
-
-  const completeSetup = async (defId?: string) => {
+  const completeSetup = async () => {
     setCompleting(true)
     try {
       if (currentOrgId) await patchAdminOrg(currentOrgId, { setup_completed: true })
@@ -176,16 +202,8 @@ export default function Welcome() {
     if (localStorage.getItem(TOKEN_KEY)) {
       await refreshUser()
     }
-
-    if (defId && orgQ.data && createdGroup) {
-      expandInStorage('sidebar.orgs', orgQ.data.id)
-      expandInStorage(`sidebar.groups.${orgQ.data.id}`, createdGroup.id)
-      setOrg(orgQ.data)
-      qc.invalidateQueries({ queryKey: ['orgs'] })
-      qc.invalidateQueries({ queryKey: ['process-groups', orgQ.data.id] })
-      navigate(`/definitions/${defId}/edit`)
-    }
-    // If no defId, refreshUser() updated setup_completed → Layout shows <Outlet />
+    qc.invalidateQueries({ queryKey: ['orgs'] })
+    // refreshUser() updated setup_completed → Layout shows <Outlet />
   }
 
   const handleStep2 = async () => {
@@ -206,15 +224,7 @@ export default function Welcome() {
     } catch (e) { setError((e as Error).message) }
   }
 
-  const handleOpenInEditor = async () => {
-    setError('')
-    try {
-      const def = await createProcessMut.mutateAsync()
-      await completeSetup(def.id)
-    } catch (e) { setError((e as Error).message) }
-  }
-
-  const handleSkipProcess = async () => {
+  const handleFinish = async () => {
     setError('')
     try {
       await completeSetup()
@@ -222,8 +232,7 @@ export default function Welcome() {
   }
 
   const isDataLoading = orgQ.isLoading || authConfigQ.isLoading
-  const isPending = patchAuthMut.isPending ||
-    createGroupMut.isPending || createProcessMut.isPending || completing
+  const isPending = patchAuthMut.isPending || inviteMut.isPending || completing
 
   if (isDataLoading) {
     return (
@@ -424,72 +433,200 @@ export default function Welcome() {
           </>
         )}
 
-        {/* Step 3 — Process Group */}
+        {/* Step 3 — Invite teammates (optional) */}
         {step === 3 && (
           <>
             <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-              Process groups organise related processes by team or domain.
+              Invite people who'll work in this organisation. Grant them
+              <strong> Developer </strong>or<strong> Modeller </strong>so they can create
+              process groups and processes. You can add more later from
+              <strong> Admin → Users</strong>.
             </p>
-            <div className="field">
-              <label>Process group name</label>
-              <input
-                autoFocus
-                value={groupName}
-                placeholder="e.g. Order Management"
-                onChange={e => setGroupName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && groupName.trim() && createGroupMut.mutate()}
-              />
-            </div>
-            {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost" disabled={isPending} onClick={() => { setStep(2); setError('') }}>← Back</button>
-              <button
-                className="btn-primary"
-                disabled={!groupName.trim() || isPending}
-                onClick={() => createGroupMut.mutate()}
-              >
-                {isPending ? 'Creating…' : 'Continue →'}
-              </button>
-            </div>
-          </>
-        )}
 
-        {/* Step 4 — First Process */}
-        {step === 4 && (
-          <>
-            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginBottom: 16 }}>
-              Create your first process definition and open it in the modeller. You can skip this and create one later.
-            </p>
-            <div className="field">
-              <label>Process name</label>
-              <input
-                autoFocus
-                value={processName}
-                placeholder="e.g. Order Approval"
-                onChange={e => { setProcessName(e.target.value); setProcessKey(slugify(e.target.value)) }}
-                onKeyDown={e => e.key === 'Enter' && processName.trim() && processKey.trim() && handleOpenInEditor()}
-              />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+              <div className="field">
+                <label>Email</label>
+                <input
+                  autoFocus
+                  type="email"
+                  value={inviteEmail}
+                  placeholder="teammate@example.com"
+                  onChange={e => setInviteEmail(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Name <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                  <input
+                    type="text"
+                    value={inviteName}
+                    placeholder="Jane Doe"
+                    onChange={e => setInviteName(e.target.value)}
+                  />
+                </div>
+                <div className="field" style={{ flex: 1 }}>
+                  <label>Phone <span style={{ fontWeight: 400, color: 'var(--color-text-muted)', textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                  <input
+                    type="tel"
+                    value={invitePhone}
+                    placeholder="+1 555 123 4567"
+                    onChange={e => setInvitePhone(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{
+                  display: 'block', fontSize: 11, fontWeight: 600,
+                  color: 'var(--color-text-muted)', textTransform: 'uppercase',
+                  letterSpacing: '0.04em', marginBottom: 6,
+                }}>Auth provider</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {(['internal', 'external'] as const).map(p => (
+                    <label
+                      key={p}
+                      style={{
+                        flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '6px 10px',
+                        border: `1px solid ${inviteAuth === p ? 'var(--color-primary)' : 'var(--color-border)'}`,
+                        borderRadius: 5, cursor: 'pointer', fontSize: 12,
+                        background: inviteAuth === p
+                          ? 'var(--color-primary-soft, color-mix(in srgb, var(--color-primary) 8%, transparent))'
+                          : 'transparent',
+                      }}
+                    >
+                      <input type="radio" name="invite-auth" checked={inviteAuth === p}
+                        onChange={() => setInviteAuth(p)} />
+                      {p === 'internal' ? 'Internal (password)' : 'External (OIDC)'}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {inviteAuth === 'internal' ? (
+                <div className="field">
+                  <label>Initial password</label>
+                  <input
+                    type="password"
+                    value={invitePassword}
+                    placeholder="At least 8 characters"
+                    onChange={e => setInvitePassword(e.target.value)}
+                  />
+                </div>
+              ) : (
+                <div className="field">
+                  <label>External ID</label>
+                  <input
+                    type="text"
+                    value={inviteExternalId}
+                    placeholder="Subject identifier from your IdP"
+                    onChange={e => setInviteExternalId(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="field">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>Role</span>
+                  <button
+                    type="button"
+                    aria-label={roleHelpOpen ? 'Hide role help' : 'Show role help'}
+                    aria-expanded={roleHelpOpen}
+                    onClick={() => setRoleHelpOpen(v => !v)}
+                    style={{
+                      width: 16, height: 16, borderRadius: '50%',
+                      border: '1px solid var(--color-border)',
+                      background: roleHelpOpen ? 'var(--color-primary)' : 'transparent',
+                      color: roleHelpOpen ? '#fff' : 'var(--color-text-muted)',
+                      fontSize: 10, fontWeight: 700, lineHeight: 1,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', padding: 0,
+                    }}
+                  >
+                    ?
+                  </button>
+                </label>
+                <select
+                  value={inviteRoleId}
+                  onChange={e => setInviteRoleId(e.target.value)}
+                >
+                  <option value="">(no role)</option>
+                  {(rolesQ.data ?? [])
+                    .filter(r => r.org_id === null && r.name !== 'PlatformAdmin')
+                    .map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                </select>
+                {roleHelpOpen && (
+                  <div
+                    role="region"
+                    aria-label="Built-in role descriptions"
+                    style={{
+                      marginTop: 8,
+                      padding: 10,
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 5,
+                      background: 'var(--color-surface-2)',
+                      fontSize: 12,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {(rolesQ.data ?? [])
+                      .filter(r => r.org_id === null && r.name !== 'PlatformAdmin')
+                      .map((r, i, arr) => (
+                        <div key={r.id} style={{
+                          marginBottom: i < arr.length - 1 ? 6 : 0,
+                          paddingBottom: i < arr.length - 1 ? 6 : 0,
+                          borderBottom: i < arr.length - 1 ? '1px solid var(--color-border)' : 'none',
+                        }}>
+                          <span style={{
+                            fontWeight: 600,
+                            color: r.id === inviteRoleId ? 'var(--color-primary)' : 'var(--color-text)',
+                          }}>{r.name}</span>
+                          {' — '}
+                          <span style={{ color: 'var(--color-text-muted)' }}>
+                            {ROLE_DESCRIPTIONS[r.name] ?? 'Custom role.'}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="field">
-              <label>Key</label>
-              <input
-                value={processKey}
-                placeholder="e.g. order-approval"
-                onChange={e => setProcessKey(slugify(e.target.value))}
-                onKeyDown={e => e.key === 'Enter' && processName.trim() && processKey.trim() && handleOpenInEditor()}
-              />
-            </div>
+
+            {invitedCount > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--status-success, #2a8f3e)', marginBottom: 12 }}>
+                Invited {invitedCount} teammate{invitedCount === 1 ? '' : 's'}. Add more or finish below.
+              </div>
+            )}
             {error && <div className="error-banner" style={{ marginBottom: 12 }}>{error}</div>}
+
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button className="btn-ghost" disabled={isPending} onClick={handleSkipProcess}>
-                {completing ? 'Finishing…' : 'Skip for now'}
+              <button className="btn-ghost" disabled={isPending} onClick={() => { setStep(2); setError('') }}>
+                ← Back
+              </button>
+              <button
+                className="btn-ghost"
+                disabled={isPending}
+                onClick={handleFinish}
+              >
+                {completing
+                  ? 'Finishing…'
+                  : invitedCount > 0 ? 'Finish' : 'Skip & finish'}
               </button>
               <button
                 className="btn-primary"
-                disabled={!processName.trim() || !processKey.trim() || isPending}
-                onClick={handleOpenInEditor}
+                disabled={
+                  isPending ||
+                  inviteEmail.trim().length === 0 ||
+                  (inviteAuth === 'internal'
+                    ? invitePassword.length < 8
+                    : inviteExternalId.trim().length === 0)
+                }
+                onClick={() => inviteMut.mutate()}
               >
-                {isPending && !completing ? 'Opening editor…' : 'Open in editor →'}
+                {inviteMut.isPending ? 'Inviting…' : 'Invite teammate'}
               </button>
             </div>
           </>

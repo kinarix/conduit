@@ -14,6 +14,7 @@ import GroupRow from './GroupRow'
 import DecisionRow from './DecisionRow'
 import { useExpansion } from './useExpansion'
 import { useOrg, type Org } from '../../App'
+import { useToast } from '../Toast'
 import styles from './Sidebar.module.css'
 
 interface Props {
@@ -38,6 +39,7 @@ export default function OrgRow({
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { setOrg } = useOrg()
+  const { showError } = useToast()
   const groupsExp = useExpansion(`sidebar.groups.${org.id}`)
 
   const { data: groups = [] } = useQuery({
@@ -74,6 +76,7 @@ export default function OrgRow({
       if (!expanded) onToggle()
       navigate(`/decisions/${key}/edit`)
     },
+    onError: err => showError("Can't create decision table", err),
   })
 
   const createGroupMut = useMutation({
@@ -83,6 +86,7 @@ export default function OrgRow({
       groupsExp.expand(created.id)
       setNewGroupId(created.id)
     },
+    onError: err => showError("Can't create process group", err),
   })
 
   return (

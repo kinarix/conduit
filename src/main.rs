@@ -168,6 +168,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::health::routes())
         .merge(api::auth::routes())
         .merge(api::admin::routes())
+        .merge(api::admin_users::routes())
         .merge(api::orgs::routes())
         .merge(api::users::routes())
         .merge(api::deployments::routes())
@@ -181,6 +182,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::process_layouts::routes())
         .merge(api::roles::routes())
         .merge(api::role_assignments::routes())
+        .merge(api::pg_role_assignments::routes())
         .merge(api::members::routes())
         .merge(api::secrets::routes())
         .fallback(|| async {

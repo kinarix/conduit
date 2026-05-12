@@ -197,6 +197,21 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             db::role_assignments::load_all_permissions(&state.pool, user_id, current_org_id)
                 .await?;
 
+        // Pg-scoped grants only matter on org-scoped routes for non-global
+        // admins — a global admin already has every perm cascading from the
+        // global grant, and global routes don't act on a single pg.
+        let pg_permissions = match current_org_id {
+            Some(org_id) if !is_global_admin => {
+                db::role_assignments::load_pg_permissions_for_user_in_org(
+                    &state.pool,
+                    user_id,
+                    org_id,
+                )
+                .await?
+            }
+            _ => HashMap::new(),
+        };
+
         Ok(Principal {
             user_id,
             email,
@@ -205,6 +220,7 @@ impl FromRequestParts<Arc<AppState>> for Principal {
             org_id: current_org_id.unwrap_or(Uuid::nil()),
             is_global_admin,
             permissions,
+            pg_permissions,
         })
     }
 }

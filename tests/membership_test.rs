@@ -5,7 +5,7 @@
 //!
 //! 1. `grant_org` rejects a non-member with a `Validation` error.
 //! 2. Removing a member cascades their `org_role_assignments` rows for that
-//!    org (composite FK from migration 032).
+//!    org (composite FK back to `org_members`).
 //! 3. The cascade is org-local: grants in *other* orgs are untouched.
 
 mod common;
@@ -25,6 +25,8 @@ async fn cannot_grant_org_role_to_non_member() {
         "internal",
         None,
         &format!("nonmember-{}@test.local", Uuid::new_v4()),
+        None,
+        None,
         None,
     )
     .await
@@ -86,7 +88,7 @@ async fn membership_cascade_is_scoped_to_one_org() {
     let pool = &app.pool;
 
     let email = format!("multi-{}@test.local", Uuid::new_v4());
-    let user = conduit::db::users::insert(pool, "internal", None, &email, None)
+    let user = conduit::db::users::insert(pool, "internal", None, &email, None, None, None)
         .await
         .unwrap();
 
@@ -148,6 +150,8 @@ async fn member_add_via_api_then_grant_succeeds() {
         "internal",
         None,
         &format!("target-{}@test.local", Uuid::new_v4()),
+        None,
+        None,
         None,
     )
     .await

@@ -78,10 +78,17 @@ async fn login_fails_for_external_user_attempting_password_login() {
         .await
         .unwrap();
     let email = format!("ext-{}@test.local", Uuid::new_v4());
-    let user =
-        conduit::db::users::insert(&app.pool, "external", Some("oidc-subject"), &email, None)
-            .await
-            .unwrap();
+    let user = conduit::db::users::insert(
+        &app.pool,
+        "external",
+        Some("oidc-subject"),
+        &email,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
     conduit::db::org_members::insert(&app.pool, user.id, org.id, None)
         .await
         .unwrap();
@@ -518,9 +525,10 @@ async fn seed_internal_user(app: &common::TestApp, password: &str) -> (String, S
         .unwrap();
     let email = format!("user-{}@test.local", Uuid::new_v4());
     let hash = password::hash(password).unwrap();
-    let user = conduit::db::users::insert(&app.pool, "internal", None, &email, Some(&hash))
-        .await
-        .unwrap();
+    let user =
+        conduit::db::users::insert(&app.pool, "internal", None, &email, Some(&hash), None, None)
+            .await
+            .unwrap();
     conduit::db::org_members::insert(&app.pool, user.id, org.id, None)
         .await
         .unwrap();

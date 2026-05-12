@@ -60,10 +60,23 @@ async fn list_process_groups(
     Path(org_id): Path<Uuid>,
     Query(q): Query<ListProcessGroupsQuery>,
 ) -> Result<axum::response::Response> {
-    principal.require(Permission::ProcessGroupRead)?;
     let page = Page::from_query(q.limit, q.offset);
-    let (rows, total) =
-        process_groups::list_paginated(&state.pool, org_id, page.limit, page.offset).await?;
+    let (rows, total) = match principal.pg_ids_with(Permission::ProcessGroupRead) {
+        None => {
+            process_groups::list_paginated(&state.pool, org_id, page.limit, page.offset).await?
+        }
+        Some(pgs) => {
+            let pgs: Vec<Uuid> = pgs.into_iter().collect();
+            process_groups::list_paginated_in_set(
+                &state.pool,
+                org_id,
+                &pgs,
+                page.limit,
+                page.offset,
+            )
+            .await?
+        }
+    };
     Ok(with_total(rows, total))
 }
 
@@ -91,13 +104,13 @@ async fn rename_process_group(
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<RenameProcessGroupRequest>,
 ) -> Result<Json<ProcessGroup>> {
-    principal.require(Permission::ProcessGroupUpdate)?;
     if req.name.trim().is_empty() {
         return Err(EngineError::Validation(
             "name must not be empty".to_string(),
         ));
     }
     ensure_group_in_org(&state, id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessGroupUpdate, id)?;
     let group = process_groups::rename(&state.pool, id, req.name.trim()).await?;
     Ok(Json(group))
 }
@@ -108,8 +121,8 @@ async fn delete_process_group(
     principal: Principal,
     Path((org_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::ProcessGroupDelete)?;
     ensure_group_in_org(&state, id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessGroupDelete, id)?;
     process_groups::delete(&state.pool, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -121,8 +134,12 @@ async fn assign_process_group(
     Path((org_id, id)): Path<(Uuid, Uuid)>,
     Json(req): Json<AssignProcessGroupRequest>,
 ) -> Result<StatusCode> {
-    principal.require(Permission::ProcessUpdate)?;
+    // Moving a definition between pgs requires write access to BOTH pgs:
+    // you must be able to remove from the old one and add to the new one.
+    let old_pg = crate::db::process_groups::pg_for_definition(&state.pool, id).await?;
     ensure_group_in_org(&state, req.process_group_id, org_id).await?;
+    principal.require_in_pg(Permission::ProcessUpdate, old_pg)?;
+    principal.require_in_pg(Permission::ProcessUpdate, req.process_group_id)?;
     process_groups::assign_definition(&state.pool, id, req.process_group_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

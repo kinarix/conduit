@@ -1,0 +1,116 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Variables & Scopes'
+---
+
+# Variables & Scopes
+
+A process **variable** is a named JSON value attached to a running instance. Variables are the working memory of a process: gateway conditions read them, script tasks write them, service tasks send and receive them through workers, and the instance log shows their history.
+
+This page explains where variables live, what scopes them, and what the "Scope" column on the instance log means.
+
+## The schema
+
+```sql
+CREATE TABLE variables (
+    id           UUID  PRIMARY KEY DEFAULT uuid_generate_v4(),
+    instance_id  UUID  NOT NULL REFERENCES process_instances (id) ON DELETE CASCADE,
+    execution_id UUID  NOT NULL REFERENCES executions (id) ON DELETE CASCADE,
+    name         TEXT  NOT NULL,
+    value_type   TEXT  NOT NULL CHECK (value_type IN ('string', 'integer', 'boolean', 'json')),
+    value        JSONB NOT NULL,
+    CONSTRAINT uq_variables_execution_name UNIQUE (execution_id, name)
+);
+```
+
+Two facts to remember:
+
+1. **Every variable row carries two scope keys**: `instance_id` (the process instance) and `execution_id` (the specific BPMN scope inside that instance).
+2. **The unique constraint is `(execution_id, name)`**, not `(instance_id, name)`. The same name can coexist at multiple scopes inside one instance — they're different rows.
+
+## What's an `execution_id`?
+
+The `executions` table tracks the runtime tree of a process instance. Every instance has at least one execution row — the **root execution** that represents the process as a whole. New execution rows appear when:
+
+- A **parallel gateway** forks into multiple branches. Each branch gets its own child execution.
+- An **embedded subprocess** is entered. The subprocess gets a child execution; its `parent_execution_id` points at the caller.
+- An **inclusive gateway** activates more than one outgoing flow. Each active flow is a child execution.
+
+Execution rows are deleted when their flow completes, and the variables they own are deleted with them via `ON DELETE CASCADE`.
+
+## The "Scope" column on the instance log
+
+When you open the instance log in the UI and switch to the Variables tab, the "Scope" column shows the first eight characters of the `execution_id` that owns each row.
+
+- **Root scope** — written at the process level. Visible to everything in the instance.
+- **A child execution's scope** — written inside a parallel branch, subprocess, or inclusive-gateway branch. Tied to that branch's lifetime.
+
+When two rows share the same `name` but differ on `Scope`, the variable was set in two different BPMN scopes. They are distinct rows in the database; the UI shows both.
+
+## What FEEL actually sees
+
+Before every expression evaluation (gateway condition, script task body, decision input), the engine builds a flat variable context by reading **every** variable row for the current instance into a single map keyed by `name`:
+
+```rust
+// src/engine/helpers.rs — load_instance_var_context
+let map: HashMap<String, JsonValue> =
+    vars.into_iter().map(|v| (v.name, v.value)).collect();
+```
+
+This means **FEEL does not currently see scopes** — it gets one flat dictionary of every variable on the instance, and if a name collides across two executions, whichever row PostgreSQL returns last wins inside the map. In well-modelled processes, name collisions are avoided by convention; use distinct names per parallel branch when in doubt.
+
+After loading user variables, the engine injects two **system identifiers** that user expressions can always reference:
+
+| Name | Type | Description |
+|------|------|-------------|
+| `instanceId` | string | UUID of the running process instance. |
+| `instanceCounter` | number | Per-`(org, process_key)` sequential counter assigned when the instance was created. The "human-friendly" `#42` you see in the UI. |
+
+User variables of the same name are overwritten by the system values, so these two identifiers are reserved.
+
+## Writing variables
+
+Variables are written by:
+
+- **Initial variables** supplied to `POST /api/v1/orgs/{org_id}/instances` when starting a process. Stored at the root execution.
+- **Script tasks** that return either a context literal (each key becomes a variable) or a scalar (stored under `resultVariable`). See [Script Task](/docs/elements/script-task/).
+- **Service tasks completed by workers** — the worker's `completeTask` payload contains a `variables` map. See [Worker Protocol](/docs/workers/protocol/).
+- **User tasks completed via the API** — the completion request can carry a `variables` payload.
+- **DMN decisions** invoked from a `businessRuleTask` — outputs land as variables.
+
+In all cases the engine routes the write to the current execution's scope.
+
+## Subprocesses and variable visibility
+
+Embedded subprocesses execute in their own execution scope but **see the parent instance's variables transparently** via the flat-context lookup above. Variables written inside the subprocess are visible to the parent after the subprocess completes, because they remain on the instance — there is no isolation layer today. See [Sub-Process](/docs/elements/sub-process/) for the element-level details.
+
+## Parallel branches and last-write-wins
+
+A parallel gateway's branches each run on their own execution. If two branches write to the same variable name and then join, the order in which they wrote is the order in which the database holds them — the **last write wins** from FEEL's perspective. To make this deterministic, give each branch a distinct namespace (e.g. `branchA_total`, `branchB_total`) and have the post-join step combine them explicitly.
+
+See [Parallel Gateway](/docs/elements/parallel-gateway/) for the join semantics.
+
+## Variable lifecycle
+
+| Phase | What happens to variables |
+|-------|---------------------------|
+| Instance starts | Initial vars are inserted at the root execution. |
+| Branch / subprocess opens | A child execution row is created; no variables exist on it yet. |
+| Script / service / user task completes | New rows (or upserts on `(execution_id, name)`) at the current execution. |
+| Branch / subprocess completes | The child execution row is deleted. Its variables CASCADE-delete. |
+| Instance ends | All remaining executions and variables CASCADE-delete with the instance. |
+
+The audit trail of every write — including the *previous* value — is preserved separately in `process_events` (`variable_set` / `variable_changed`). The instance log replays these to reconstruct what was true and when.
+
+## Quick reference
+
+| You want | How |
+|----------|-----|
+| The current value of variable `x` in FEEL | Write `x` |
+| `0` if `x` is missing, else `x` | `if x = null then 0 else x` |
+| The instance UUID | `instanceId` |
+| The human-friendly counter | `instanceCounter` |
+| Set two variables from one script | Return a context: `{ a: 1, b: 2 }` |
+| Set one variable from a script | Return a scalar, set `Result Variable = x` |
+
+See the [Expressions Cookbook](/docs/concepts/expressions/) for stateful patterns (counters, accumulators, conditional writes).

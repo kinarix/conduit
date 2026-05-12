@@ -1,0 +1,238 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Roles & Permissions'
+---
+
+# Roles & Permissions
+
+A **role** is a named bundle of permissions. A **role assignment** grants a user a role at one of three scopes ([global / org / process-group](/docs/admin/scope-levels/)). Permissions are the atomic units the engine checks; roles exist so a UI and an admin don't have to enumerate dozens of permissions per user.
+
+Conduit ships eight global built-in roles. Each org can also create custom roles drawn from the same permission catalog.
+
+## The eight built-in roles
+
+All are seeded in `migrations/021_roles.sql` and authoritative — change the migration (or add a new one) to add or modify a built-in.
+
+### PlatformAdmin
+Holds every permission in the catalog. Granted **only at global scope**, never inside an org. Bypasses org membership checks. The bootstrap admin is created with this role.
+
+### OrgOwner
+Everything an org needs to operate, minus the user-identity verbs (`user.create`, `user.update`, `user.delete`) which require a global admin since they affect the global identity table. 51 of 55 permissions.
+
+### OrgAdmin
+Pure administration: manage memberships, roles, auth configuration, and API keys. **No** process / instance / decision / secret powers — pair this with `Developer` or `Operator` if the same person needs both kinds of access.
+
+### Developer
+Full process and decision lifecycle: design, deploy, run, monitor, cancel. Can manage process groups and secret metadata (not plaintexts). 29 permissions.
+
+### Operator
+Run and monitor: start / cancel / pause / resume instances, complete tasks, correlate messages, broadcast signals. **Read-only** on designs (cannot author or deploy). 15 permissions.
+
+### Modeller
+Design BPMN and DMN drafts: create and edit processes, decisions, and process groups. **Cannot deploy or promote**, cannot run instances. 13 permissions.
+
+### Reader
+Every `*.read*` permission. Useful for analysts and auditors who need full visibility but no write access.
+
+### Worker
+Service account for external task execution: `external_task.execute`, plus `process.read` and `decision.read` to fetch metadata. Pair with an API key to authenticate workers.
+
+## Custom roles
+
+Each org can define its own roles drawn from the same permission catalog.
+
+```http
+POST /api/v1/orgs/{org_id}/roles
+Authorization: Bearer …
+Content-Type: application/json
+
+{
+  "name": "QA Analyst",
+  "permissions": [
+    "process.read",
+    "decision.read",
+    "instance.read",
+    "instance.start",
+    "task.read"
+  ]
+}
+```
+
+- Names are unique within an org.
+- Permissions are validated against the catalog at insert time (the `role_permissions.permission` CHECK constraint enforces this at the database level).
+- Custom roles can be assigned at any scope where their permissions are eligible — for example a role containing only PG-scopable permissions can be granted at PG scope; a role mixing org-only and PG-scopable permissions can only be granted at org scope.
+
+Required permission: **`role.create`**. Use `PATCH /api/v1/orgs/{org_id}/roles/{id}` to modify, `DELETE` to remove. Editing a role's permissions takes effect on the next request — there is no need to re-issue tokens.
+
+## The full permission catalog (55 permissions)
+
+Permissions are dotted strings of the shape `domain.verb`. The **CRUD verbs** (`create`, `read`, `update`, `delete`) are used wherever authorization aligns with database operations. **Domain verbs** (e.g. `process.deploy`, `secret.read_plaintext`, `external_task.execute`) appear where authorization meaningfully diverges from CRUD — state transitions, metadata-vs-plaintext, designed-vs-promoted.
+
+The "Scope" column shows where each permission may be granted:
+
+- **org** — grantable at global or org scope.
+- **org+PG** — also grantable at process-group scope, with grants cascading from org to every PG within it.
+- **global** — grantable only globally (currently just `org.create`).
+
+### Organisation
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `org.create` | global | Create a new org. Only granted globally because there is no parent org to scope it under. |
+| `org.read` | org | View org metadata. |
+| `org.update` | org | Rename / reconfigure the org. |
+| `org.delete` | org | Delete the org and all data inside it. |
+
+### Organisation membership
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `org_member.create` | org | Invite a user into the org (creates the global user if missing). |
+| `org_member.read` | org | List members of the org. |
+| `org_member.delete` | org | Remove a member; cascade-deletes their org and PG role assignments. |
+
+### User identity (global)
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `user.create` | org | Create a new global user identity. Held by `OrgAdmin` / `PlatformAdmin`. |
+| `user.read` | org | View profiles of users in the org. |
+| `user.update` | org | Update name / phone on user profiles. |
+| `user.delete` | org | Hard-delete a user globally. |
+| `user.reset_password` | org | Force-reset a user's password (internal-auth users only). |
+
+### Role definitions
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `role.create` | org | Create a custom role in this org. |
+| `role.read` | org | List built-in and custom roles. |
+| `role.update` | org | Modify a custom role's permissions. |
+| `role.delete` | org | Delete a custom role. |
+
+### Role assignments
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `role_assignment.create` | org | Grant a role to a user. Scope of the grant is part of the request body. |
+| `role_assignment.read` | org | List who has which role at which scope. |
+| `role_assignment.delete` | org | Revoke a role. |
+
+### Authentication configuration
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `auth_config.read` | org | View the org's OIDC settings. |
+| `auth_config.update` | org | Edit the org's OIDC settings. See [OIDC](/docs/admin/oidc/) for current status. |
+
+### Process definitions (BPMN)
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `process.create` | org+PG | Author a new process. |
+| `process.read` | org+PG | View process definitions and metadata. |
+| `process.update` | org+PG | Edit a draft. |
+| `process.delete` | org+PG | Delete a process. |
+| `process.deploy` | org+PG | Promote a draft to deployable. |
+| `process.disable` | org+PG | Stop new instances of a version without deleting it. |
+
+### Process groups
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `process_group.create` | org | Create a new process group. Org-only because PGs are the unit of PG-scoping; creating a PG cannot itself be PG-scoped. |
+| `process_group.read` | org+PG | View a process group's metadata. |
+| `process_group.update` | org+PG | Rename / reconfigure a process group. |
+| `process_group.delete` | org+PG | Delete a process group. |
+
+### Process instances
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `instance.read` | org+PG | View instance state, variables, and history. |
+| `instance.start` | org+PG | Start a new instance. |
+| `instance.cancel` | org+PG | Cancel a running instance. |
+| `instance.pause` | org+PG | Pause an instance. |
+| `instance.resume` | org+PG | Resume a paused instance. |
+| `instance.delete` | org+PG | Hard-delete instance history (irreversible). |
+
+### User tasks
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `task.read` | org+PG | View pending tasks. |
+| `task.complete` | org+PG | Submit a completed task. |
+| `task.update` | org+PG | Modify task data without completing. |
+
+### External (worker) tasks
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `external_task.execute` | org+PG | Fetch and complete service-task jobs. The `Worker` role exists for this. |
+
+### Decisions (DMN)
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `decision.create` | org+PG | Author a new decision table. |
+| `decision.read` | org+PG | View decision definitions. |
+| `decision.update` | org+PG | Edit a decision. |
+| `decision.delete` | org+PG | Delete a decision. |
+| `decision.deploy` | org+PG | Promote a decision to deployable. |
+
+### Secrets
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `secret.create` | org | Create a new secret value. |
+| `secret.read_metadata` | org | List secrets by name (no plaintext). |
+| `secret.read_plaintext` | org | Decrypt and view secret values. Audited separately from metadata. |
+| `secret.update` | org | Change a secret's value. |
+| `secret.delete` | org | Delete a secret. |
+
+Secrets are org-only: they're shared infrastructure for the org, not partitioned by process group.
+
+### API keys
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `api_key.manage` | org | Create / revoke API keys **for other users in the org**. Self-management is implicit and does not require this permission. |
+
+### Process layout
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `process_layout.read` | org+PG | Read saved BPMN diagram positions. |
+| `process_layout.update` | org+PG | Save BPMN diagram positions. |
+
+### Business events
+
+| Permission | Scope | Description |
+|------------|-------|-------------|
+| `message.correlate` | org | Correlate a message to a waiting instance / start a message-start subscription. Org-only: routing is org-wide and crosses process groups by design. |
+| `signal.broadcast` | org | Broadcast a signal to all matching subscriptions in the org. Same reasoning as messages. |
+
+## Why some permissions are org-only
+
+Three categories of permission cannot be granted at PG scope:
+
+1. **Identity / administration** — managing users, roles, role assignments, and auth config affects the whole org. Scoping these to a single PG would create incoherent slices ("this user can create roles but only roles usable in PG X").
+2. **Org-wide infrastructure** — secrets and API keys belong to the org, not a PG.
+3. **Cross-PG routing** — `message.correlate` and `signal.broadcast` route to subscriptions across every PG in the org. Granting these per-PG would make their semantics confusing (which subscriptions can be hit?). See `src/auth/permission.rs::is_pg_scopable`.
+
+## Permission check in handlers
+
+Every protected handler calls one of:
+
+```rust
+principal.require(Permission::ProcessRead)?;            // org-level only
+principal.require_in_pg(Permission::ProcessRead, pg)?;  // org-or-PG-cascading
+```
+
+The second form succeeds if the permission is held at org scope **or** at the specific PG. See `src/auth/principal.rs`.
+
+## Cross-references
+
+- How scope assignments combine: [Scope Levels](/docs/admin/scope-levels/)
+- How users get into orgs: [Users & Membership](/docs/admin/users-and-membership/)
+- The catalog in code: `src/auth/permission.rs`, mirrored by `migrations/021_roles.sql`

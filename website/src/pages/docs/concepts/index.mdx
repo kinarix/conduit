@@ -1,0 +1,22 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Process Concepts'
+---
+
+# Process Concepts
+
+The runtime concepts that show up everywhere in Conduit: process variables and the FEEL expression language. The per-element pages reference these — read them once and the rest of the docs sit on top.
+
+## Pages in this section
+
+### [Variables & Scopes](/docs/concepts/variables/)
+
+What a process variable is, where it lives in the database, what the "Scope" column on the instance log means, and how variables flow across executions, parallel branches, and embedded subprocesses. Also: the two system-injected identifiers (`instanceId`, `instanceCounter`) you can always reference from FEEL.
+
+### [Expressions (FEEL Cookbook)](/docs/concepts/expressions/)
+
+Practical FEEL patterns for the places where expressions actually run in a process: gateway conditions, script tasks, decision input/output. Counters, accumulators, null-safe access, list building, conditional writes. Pairs with the [FEEL Reference](/docs/decision-tables/feel-reference/) which is the full syntax index.
+
+## Why these are concepts, not elements
+
+A BPMN element (a task, a gateway, an event) is a thing on the canvas. Variables and expressions cut across all of them — every flow node either reads or writes variables, and every condition is a FEEL expression. Grouping them here keeps the per-element pages focused on element-specific semantics rather than re-explaining the runtime each time.

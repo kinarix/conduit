@@ -1,0 +1,54 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Administration'
+---
+
+# Administration
+
+How Conduit handles **who you are**, **which orgs you belong to**, and **what you can do** in each one.
+
+## The model in one paragraph
+
+A **user** is a global identity (one email, one password or one external ID). A **membership** binds a user to an **org** and lets them see that org's processes. A **role assignment** grants the user permissions — either globally, inside one org, or inside a single process group within an org. Every API request resolves to a **Principal** that carries the user's identity and the set of permissions that apply at the request's scope. The Principal is the authority that handlers check before doing work.
+
+## Pages in this section
+
+### [Authentication](/docs/admin/authentication/)
+JWT login flow, API keys (`ck_…`), the bootstrap admin, public endpoints, and the JWT signing key. The how-do-I-get-a-token reference.
+
+### [Users & Membership](/docs/admin/users-and-membership/)
+Global user identities, org membership, the invite endpoint, and what happens when a user is removed from an org.
+
+### [Roles & Permissions](/docs/admin/roles-and-permissions/)
+The eight built-in roles, how to create custom roles, and the full 55-permission catalog grouped by domain.
+
+### [Scope Levels](/docs/admin/scope-levels/)
+Global vs org vs process-group scopes, how grants cascade, and which permissions are deliberately org-only.
+
+### [OIDC](/docs/admin/oidc/)
+The current state of external IdP integration: schema present, flow not yet wired. What's stored and what's coming.
+
+## How a request is authorised
+
+```
+1. Authorization: Bearer <token>     ← header arrives
+2. Token → user_id                   ← JWT verified, or API key prefix+hash matched
+3. URL path /api/v1/orgs/{org_id}/…  ← if present, sets current_org_id on Principal
+4. Membership check                  ← skipped for global admins
+5. Permission lookup                 ← global + org-scoped + per-PG perms loaded
+6. Handler runs principal.require(…) ← every protected handler does this
+```
+
+If step 5 returns no permissions and the handler requires one, the response is `403 Forbidden`. If steps 1–3 fail, the response is `401 Unauthenticated`. If a resource lookup crosses orgs, the response is `404 NotFound` — Conduit deliberately does not distinguish "no such resource" from "no such resource in your org" to avoid leaking existence across tenants.
+
+## Where it's implemented
+
+| Concept | File |
+|---------|------|
+| Principal & permission helpers | `src/auth/principal.rs` |
+| Permission catalog | `src/auth/permission.rs` |
+| Login / API keys / `/me` | `src/api/auth.rs` |
+| Bootstrap | `src/auth/bootstrap.rs` |
+| Roles & assignments | `src/db/roles.rs`, `src/db/role_assignments.rs` |
+| Org membership | `src/db/org_members.rs` |
+| Schema | `migrations/021_roles.sql` → `migrations/024_process_group_role_assignments.sql` |

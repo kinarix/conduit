@@ -1,0 +1,229 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Expressions (FEEL Cookbook)'
+---
+
+# Expressions (FEEL Cookbook)
+
+FEEL is a **pure expression language** — every expression evaluates to a single value, and there is no assignment, no statements, no mutation. To "update" a variable, return its new value from a script task; the engine writes it back.
+
+This page is a cookbook of patterns. For the syntax index see the [FEEL Reference](/docs/decision-tables/feel-reference/). For how variables flow through scopes see [Variables & Scopes](/docs/concepts/variables/).
+
+## Where FEEL runs in a process
+
+| Location | What you write | What it returns |
+|----------|----------------|------------------|
+| [Exclusive gateway](/docs/elements/exclusive-gateway/) condition | A boolean expression | `true` or `false` — chooses the outgoing flow |
+| [Inclusive gateway](/docs/elements/inclusive-gateway/) condition | A boolean expression per branch | Each `true` branch is activated |
+| [Sequence flow](/docs/elements/sequence-flow/) condition | A boolean expression | Same as exclusive-gateway semantics |
+| [Script task](/docs/elements/script-task/) body | Any expression | Context → multiple variables; scalar → `Result Variable` |
+| [Business rule task](/docs/elements/business-rule-task/) input | Variable references mapped to DMN inputs | Whatever the DMN decides |
+
+## How variables are resolved
+
+A bare identifier — `customer`, `amount`, `status` — is looked up in the variable context the engine builds before every evaluation. If the name doesn't exist, FEEL returns **`null`** (not an error). This is why null-safe patterns matter: a missing variable and a variable set to `null` look the same.
+
+The reserved identifiers `instanceId` and `instanceCounter` are always set (see [Variables & Scopes](/docs/concepts/variables/#what-feel-actually-sees)).
+
+## Null-safe patterns
+
+### Default a value when missing
+
+```feel
+if x = null then 0 else x
+```
+
+This is the canonical idiom. There is **no `??` operator** in FEEL.
+
+### Default inside an arithmetic expression
+
+```feel
+(if amount = null then 0 else amount) * 1.05
+```
+
+Parenthesise the conditional — `if … then … else …` is lower-precedence than `*`.
+
+### Safe property access
+
+When a parent could be missing, gate it explicitly:
+
+```feel
+if customer = null then null else customer.tier
+```
+
+Path access on `null` propagates `null` in FEEL (`customer.tier` where `customer` is `null` returns `null`), but the explicit form makes the intent obvious and survives across evaluator versions.
+
+### Default an empty list
+
+```feel
+if items = null then [] else items
+```
+
+### `null` comparison
+
+Use `=`, not `is`. Both `x = null` and `null = x` work.
+
+## Counter pattern
+
+A counter increments by one each time a script task runs. FEEL has no mutation, so the script reads the current value and returns the new value — the engine writes it back.
+
+```feel
+{ counter: (if counter = null then 0 else counter) + 1 }
+```
+
+- First run: `counter` is missing → resolves to `null` → defaulted to `0` → returns `1`.
+- Second run: `counter` is `1` → returns `2`.
+- And so on.
+
+Place the script task inside a loop body (e.g. inside an exclusive-gateway loop) or just before each branch you want to count, and the counter advances.
+
+For a scalar output style, set `Result Variable = counter` and write:
+
+```feel
+(if counter = null then 0 else counter) + 1
+```
+
+## Accumulator pattern
+
+Sum a stream of values seen at different points in a process:
+
+```feel
+{ total: (if total = null then 0 else total) + amount }
+```
+
+The `amount` is whatever the surrounding context produced — a task output, a service-task return, a literal.
+
+## Conditional counter
+
+Increment only when a condition holds, otherwise pass through unchanged:
+
+```feel
+{ retries: if lastResult = "failure"
+           then (if retries = null then 0 else retries) + 1
+           else (if retries = null then 0 else retries) }
+```
+
+## Two outputs from one script
+
+A context literal sets multiple variables in a single hop:
+
+```feel
+{
+  counter:   (if counter = null then 0 else counter) + 1,
+  lastSeenAt: now()
+}
+```
+
+This is one script task, one transaction, two variables written.
+
+## List building
+
+### Append an item
+
+```feel
+{ items: append(if items = null then [] else items, newItem) }
+```
+
+`append` is non-mutating and returns a new list — exactly the shape FEEL needs.
+
+### Append only when not already present
+
+```feel
+{ items:
+    if list contains(if items = null then [] else items, newItem)
+    then (if items = null then [] else items)
+    else append(if items = null then [] else items, newItem)
+}
+```
+
+Verbose, but pure. For repeated use, a worker performing the merge with proper data types is usually clearer than a long FEEL expression.
+
+### Aggregate from a list
+
+```feel
+{ stats:
+    {
+      count: count(orders),
+      total: sum(orders),
+      mean:  mean(orders)
+    }
+}
+```
+
+The nested context literal lets you set a single variable to a structured value.
+
+## Deep property access
+
+If your variables are JSON objects, dot navigation works:
+
+```feel
+customer.address.country
+```
+
+If any segment is `null`, the result is `null`.
+
+## Gateway conditions
+
+```feel
+// Numeric thresholds
+amount > 1000
+
+// Combined conditions
+amount > 1000 and tier = "gold"
+
+// Negation
+not(status = "closed")
+
+// Set membership
+tier = "gold" or tier = "platinum"
+
+// Null-tolerant
+amount != null and amount > 0
+
+// List size
+count(items) > 0
+
+// Date comparison
+date(orderDate) < today()
+```
+
+## Conditional writes
+
+Sometimes you want a script to write a variable **only when** a condition holds. FEEL has no statement-level `if`, but you can return a context that only mentions the variable in one branch — but be aware: a context literal sets every key it mentions. To leave a variable untouched, omit the script task on that path entirely (use an exclusive gateway to skip it) rather than trying to express "skip this write" in FEEL.
+
+## Operator precedence (high to low)
+
+```
+.                          property access
+[ ]                        list index
+unary -                    negation
+**                         exponent
+* / %                      multiplicative
++ -                        additive
+< <= > >= = !=             comparison
+not(...)                   logical not (a function call)
+and                        logical and
+or                         logical or
+if then else               conditional
+```
+
+Use parentheses freely — they're free, and they make intent unambiguous.
+
+## What happens when something goes wrong
+
+| Situation | FEEL behavior | Engine behavior |
+|-----------|---------------|------------------|
+| Variable name doesn't exist | Resolves to `null` | Continues |
+| `null + 1` | Returns `null` | Continues |
+| Division by zero | Returns `null` (no exception) | Continues |
+| Syntax error in the expression | Parse error | Script task: marks instance `error`, records a `script evaluation failed` event. Gateway: same outcome on the condition path. |
+| Wrong return shape from a script | Context expected, scalar returned | Engine writes the scalar to `Result Variable` if configured, otherwise the value is dropped. |
+
+For gateway conditions, an unmatched outgoing flow falls back to the **default flow** if one is configured; otherwise the instance errors. See [Exclusive Gateway](/docs/elements/exclusive-gateway/) for the full rules.
+
+## Cross-references
+
+- Full FEEL syntax: [FEEL Reference](/docs/decision-tables/feel-reference/)
+- Where script outputs go: [Script Task](/docs/elements/script-task/)
+- Variable storage and scopes: [Variables & Scopes](/docs/concepts/variables/)
+- Decision tables (the other main FEEL host): [Decision Tables Overview](/docs/decision-tables/)

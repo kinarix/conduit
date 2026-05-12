@@ -166,3 +166,103 @@ upper case(substring(customerId, 1, 3))
 -- Date comparison
 date(orderDate) < today()
 ```
+
+---
+
+## Arithmetic operators
+
+| Operator | Meaning | Example |
+|----------|---------|---------|
+| `+` | Addition / list append for compatible types | `amount + tax` |
+| `-` | Subtraction (or unary negation) | `-amount` |
+| `*` | Multiplication | `amount * 0.05` |
+| `/` | Division (returns `null` on zero) | `total / count` |
+| `**` | Exponentiation | `base ** 2` |
+
+Mixed integer/decimal arithmetic widens to decimal. `null` propagates through every arithmetic operator: `null + 1` evaluates to `null` rather than raising.
+
+## Property access
+
+Dot notation walks a JSON object. Any segment that is `null` short-circuits the path to `null`.
+
+```feel
+customer.tier
+customer.address.country
+order.items[1].sku
+```
+
+For nested objects whose existence is uncertain, gate the parent explicitly:
+
+```feel
+if customer = null then null else customer.tier
+```
+
+## List indexing
+
+Lists use **1-based** indexing. `list[1]` is the first element; negative indices are not supported by the evaluator.
+
+```feel
+items[1]                    -- first item
+items[count(items)]         -- last item
+items[count(items) - 1]     -- second-to-last
+```
+
+Out-of-range indices return `null` rather than raising.
+
+## Null handling
+
+There is **no `??` operator**. Default a possibly-missing variable with an explicit conditional:
+
+```feel
+if x = null then 0 else x
+```
+
+Comparisons behave consistently:
+
+- `x = null` is `true` when `x` is missing or has been set to `null`.
+- `null = null` is `true`.
+- `null + 1`, `null * 2`, `null > 0` — all evaluate to `null` (propagation, not error).
+- An undefined identifier resolves to `null`. Set a default before doing arithmetic if you need a real number.
+
+For a longer set of patterns (counters, accumulators, list building) see the [Expressions Cookbook](/docs/concepts/expressions/).
+
+## Operator precedence
+
+From highest (binds tightest) to lowest:
+
+```
+.                          property access
+[ ]                        list index
+unary -                    negation
+**                         exponent
+* / %                      multiplicative
++ -                        additive
+< <= > >= = !=             comparison
+not(...)                   logical not (a function call, not an operator)
+and                        logical and
+or                         logical or
+if then else               conditional
+```
+
+Use parentheses freely. They cost nothing and remove ambiguity.
+
+## Error behaviour
+
+FEEL is forgiving by design: it returns `null` for situations that other languages would treat as errors.
+
+| Situation | Result |
+|-----------|--------|
+| Reference to a missing variable | `null` |
+| Arithmetic involving `null` | `null` |
+| Division by zero | `null` |
+| Out-of-range list index | `null` |
+| Comparison between incompatible types | `null` |
+| **Syntax error** in the expression | Parse error → engine marks the instance `error`, records a `script evaluation failed` event |
+
+For gateway conditions, a `null` result is treated as `false` — meaning the flow is not taken. If no flow matches and no default flow is configured, the engine raises an error. See [Exclusive Gateway](/docs/elements/exclusive-gateway/).
+
+## See also
+
+- [Expressions Cookbook](/docs/concepts/expressions/) — counters, accumulators, null-safe patterns
+- [Variables & Scopes](/docs/concepts/variables/) — how FEEL sees process variables
+- [Script Task](/docs/elements/script-task/) — script-task return shape and Result Variable

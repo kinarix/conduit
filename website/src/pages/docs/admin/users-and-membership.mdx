@@ -1,0 +1,146 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Users & Membership'
+---
+
+# Users & Membership
+
+In Conduit a **user** is one global identity. The same user can be a member of many orgs, hold different roles in each, and authenticate the same way regardless of which org they're operating in.
+
+## Users (global identity)
+
+The `users` table holds the global identity:
+
+| Field | Description |
+|-------|-------------|
+| `id` | UUID. The primary key referenced from every role assignment and audit record. |
+| `email` | Globally unique. Used for password login and for invites. |
+| `name`, `phone` | Profile fields. Editable via `PATCH /api/v1/me`. |
+| `auth_provider` | `internal` (password) or `external` (OIDC, future). |
+| `password_hash` | Argon2id-hashed. NULL for external-auth users. |
+| `external_id` | The IdP's subject identifier. NULL for internal-auth users. |
+
+A user exists once for the whole deployment. Memberships and role assignments **link** that user into orgs.
+
+## Memberships
+
+The `org_members` table records who belongs to which org:
+
+```sql
+CREATE TABLE org_members (
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id     UUID NOT NULL REFERENCES orgs(id)  ON DELETE CASCADE,
+    invited_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, org_id)
+);
+```
+
+A user must be a member to access an org's scoped endpoints (`/api/v1/orgs/{org_id}/…`). **Global platform admins** bypass this check — they can act on any org regardless of membership.
+
+## Inviting a user
+
+```http
+POST /api/v1/orgs/{org_id}/users
+Authorization: Bearer …
+Content-Type: application/json
+
+{
+  "auth_provider": "internal",
+  "email":         "bob@example.com",
+  "password":      "•••••••••",
+  "name":          "Bob",
+  "phone":         "+1-555-…"
+}
+```
+
+What this does:
+
+1. Creates the global user if no user with that email exists.
+2. Inserts a row into `org_members` linking the user to the target org.
+3. Records `invited_by = principal.user_id`.
+
+For external-auth users, omit `password` and supply `external_id` instead. The endpoint is idempotent at the user level — re-inviting an existing global user just adds the membership.
+
+Required permission: **`org_member.create`** in the target org.
+
+## Listing members
+
+```http
+GET /api/v1/orgs/{org_id}/users
+Authorization: Bearer …
+```
+
+Returns members of the org. Required permission: **`org_member.read`**.
+
+## Removing a member
+
+```http
+DELETE /api/v1/orgs/{org_id}/users/{user_id}
+Authorization: Bearer …
+```
+
+What happens:
+
+- The `org_members` row is deleted.
+- **All org-scoped role assignments** for that user in that org CASCADE-delete.
+- **All process-group-scoped role assignments** for that user in any process group of that org CASCADE-delete (a cascade trigger enforces this — a user can never hold a PG grant in an org they're not a member of).
+- The user's **global identity** is untouched; they remain a user, just not a member.
+
+Required permission: **`org_member.delete`**.
+
+## The user's own view
+
+```http
+GET /api/v1/me
+Authorization: Bearer …
+```
+
+Returns:
+
+- The user's profile (`id`, `email`, `name`, `phone`).
+- `auth_provider`.
+- `is_global_admin` — true if the user holds any global role assignment.
+- `global_permissions` and `global_roles`.
+- `orgs` — for each org the user is a member of, the role names and effective permissions at org and process-group scope.
+
+This is the canonical way for a UI or CLI to discover what the user is allowed to do without scraping API responses.
+
+## Profile updates
+
+```http
+PATCH /api/v1/me
+Authorization: Bearer …
+Content-Type: application/json
+
+{ "name": "Bob B.", "phone": "+1-555-…" }
+```
+
+The user can update their own profile. Updates to other users (across orgs) go through user-management endpoints and require **`user.update`**.
+
+## Deleting a user
+
+```http
+DELETE /api/v1/orgs/{org_id}/users/{user_id}?global=true
+```
+
+When `global=true`, the global identity is removed along with the membership. All memberships and grants CASCADE. Use sparingly — global deletion is irreversible. Required permission: **`user.delete`**.
+
+Without `global=true`, the call is equivalent to "remove from this org" (above).
+
+## Why users are global, not per-org
+
+A single identity simplifies four things:
+
+1. **One password to manage.** A user logs in once; the JWT works against whichever orgs they're allowed to operate in.
+2. **One audit trail.** Every action is attributed to a stable `user_id`, even when the user moves between orgs.
+3. **One invite flow.** Inviting an existing user into a new org is `org_member.create` — no duplicate-account anti-pattern.
+4. **One OIDC linkage** (future). A single `external_id` per provider per user.
+
+The trade-off is that email collisions across "different Bobs at different companies" are not allowed — emails are globally unique. For multi-tenant SaaS deployments this is usually the right call; for federations of independent organisations it can be limiting. The schema is shaped to allow a future per-org-email mode if that ever becomes a hard requirement.
+
+## Cross-references
+
+- How tokens authenticate the user: [Authentication](/docs/admin/authentication/)
+- What members can actually do: [Roles & Permissions](/docs/admin/roles-and-permissions/)
+- How permissions resolve across scopes: [Scope Levels](/docs/admin/scope-levels/)

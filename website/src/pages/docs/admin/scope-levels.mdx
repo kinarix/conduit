@@ -1,0 +1,129 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Scope Levels'
+---
+
+# Scope Levels
+
+Conduit grants permissions at three levels: **global**, **organisation**, and **process group**. They compose by cascade — grants at a broader level cover narrower ones, never the reverse.
+
+## The three scopes
+
+```
+┌────────────────────────────────────────────┐
+│  Global                                    │  ← bypasses membership; sees every org
+│   └──────────────────────────────────────┐ │
+│     Organisation                          │
+│       └────────────────────────────────┐  │
+│         Process Group                  │  │
+│           - one PG inside one org      │  │
+└──────────────────────────────────────────┘
+```
+
+### Global
+
+Stored in `global_role_assignments`. A user with a global role has the role's permissions **everywhere** — every org, every process group — and bypasses org membership checks entirely. The bootstrap admin is granted `PlatformAdmin` globally.
+
+Used for: platform operators, support, your own SRE accounts.
+
+### Organisation
+
+Stored in `org_role_assignments`. A user with an org role has the role's permissions inside that org only. The user must also appear in `org_members` for the same org (a CASCADE trigger enforces this).
+
+Used for: most everyday roles — `OrgOwner`, `Developer`, `Operator`, `Reader`, etc.
+
+### Process group
+
+Stored in `process_group_role_assignments`. A user with a PG role has the role's permissions inside that single process group. The user must be a member of the PG's parent org.
+
+Used for: contractors, agency partners, or any case where a team's access should be confined to one business area inside a multi-domain org.
+
+## Cascading rules
+
+A permission held at a broader scope **covers** every narrower scope under it. The check stops at the first scope that satisfies it.
+
+```
+Need: instance.read in process group PG-α (within org Acme)
+
+1. Is instance.read in the user's global permissions?     ── yes → allow
+                                                          ── no  → ↓
+2. Is instance.read in the user's org permissions
+   for Acme?                                              ── yes → allow
+                                                          ── no  → ↓
+3. Is instance.read in the user's PG permissions
+   for PG-α?                                              ── yes → allow
+                                                          ── no  → 403
+```
+
+The reverse never happens: a grant at PG-α does **not** grant the permission in PG-β, and an org-only grant in Acme does not extend into Beta.Inc.
+
+## How the Principal carries this
+
+When a request arrives:
+
+1. The token is verified → `user_id`.
+2. The path `/api/v1/orgs/{org_id}/…` is parsed → `current_org_id`.
+3. The Principal is loaded:
+   - `is_global_admin` — any global role assignment exists.
+   - `permissions` — union of global perms + org perms (for `current_org_id` if set).
+   - `pg_permissions: Map<pg_id, Set<Permission>>` — for each PG in `current_org_id`, what extra permissions are granted there.
+4. Handlers call `principal.require(perm)` (org-level only) or `principal.require_in_pg(perm, pg_id)` (cascades through `permissions` → `pg_permissions`).
+
+See `src/auth/principal.rs` for the exact resolution.
+
+## Path-based org context
+
+Every org-scoped endpoint lives under `/api/v1/orgs/{org_id}/…`. The Principal extractor reads `{org_id}` from the matched route and uses it to choose which org's permissions to load. **The path is the security boundary.**
+
+- Routes **with** `{org_id}` — secrets, instances, tasks, decisions, processes, members, roles, …
+- Routes **without** `{org_id}` — `/api/v1/auth/login`, `/api/v1/me`, `/api/v1/api-keys`, `/api/v1/orgs` (list / create).
+
+A client that sends `org_id` in a request body to a path-scoped endpoint is doing nothing useful — the path is what the Principal honours. Mismatch between body `org_id` and path `org_id` (where both happen to exist) is rejected.
+
+## Worked example: a per-PG developer
+
+Carol works on HR processes but should not see Sales. The HR team's processes live in the `hr-workflows` process group of the `Acme` org.
+
+```http
+# 1. Make Carol a member of Acme.
+POST /api/v1/orgs/{acme}/users
+{ "auth_provider": "internal", "email": "carol@…", "password": "…" }
+
+# 2. Grant Carol the Developer role, scoped to hr-workflows.
+POST /api/v1/orgs/{acme}/role-assignments
+{
+  "user_id":         "{carol}",
+  "role_name":       "Developer",
+  "scope":           "process_group",
+  "process_group_id": "{hr-workflows}"
+}
+```
+
+Now:
+
+- Carol can `GET /api/v1/orgs/{acme}/processes` filtered by the `hr-workflows` group.
+- Carol gets `403 Forbidden` on `POST /api/v1/orgs/{acme}/process-groups/{sales}/instances`.
+- Carol cannot `POST /api/v1/orgs/{acme}/secrets` — `secret.*` are org-only, and she has no org-level grant.
+
+If we later add `Operator` at **org scope** as well, the org-level `instance.start` cascades and Carol can start instances in `sales` too. PG-scoping is a constraint, not a sandbox — to keep Carol out of Sales, do not grant org-level permissions that would cascade.
+
+## What you cannot do
+
+- Grant a permission at PG scope that is **org-only** (e.g. `secret.create`). The API rejects this with `400`.
+- Grant a PG-scoped role to a user who isn't a member of the parent org. The membership cascade trigger rejects this.
+- Cross-cut: grant a role in `Acme` and have it apply in `Beta.Inc`. Each org is a separate boundary.
+
+## Where it's implemented
+
+| Concern | File / table |
+|---------|--------------|
+| Schema for the three assignment tables | `migrations/021_roles.sql` → `024_process_group_role_assignments.sql` |
+| Member cascade FK | `migrations/022_org_members.sql` + composite FK in `023_role_assignments.sql` and `024_process_group_role_assignments.sql` |
+| Loading permissions per request | `src/db/role_assignments.rs::load_for_principal` |
+| Cascade rule in handlers | `src/auth/principal.rs::require_in_pg` |
+
+## Cross-references
+
+- The permission catalog: [Roles & Permissions](/docs/admin/roles-and-permissions/)
+- The login flow: [Authentication](/docs/admin/authentication/)
+- How a user gets into an org in the first place: [Users & Membership](/docs/admin/users-and-membership/)

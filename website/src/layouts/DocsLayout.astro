@@ -11,6 +11,15 @@ const currentPath = Astro.url.pathname;
 const nav = [
   { label: 'Overview', href: '/docs/' },
   {
+    label: 'Concepts',
+    href: '/docs/concepts/',
+    children: [
+      { label: 'Overview', href: '/docs/concepts/' },
+      { label: 'Variables & Scopes', href: '/docs/concepts/variables/' },
+      { label: 'Expressions (FEEL)', href: '/docs/concepts/expressions/' },
+    ],
+  },
+  {
     label: 'BPMN Elements',
     href: '/docs/elements/',
     children: [
@@ -79,6 +88,18 @@ const nav = [
       { label: 'List Pagination', href: '/docs/operations/#list-pagination' },
       { label: 'Rename Across Versions', href: '/docs/operations/#rename-across-versions' },
       { label: 'Secrets', href: '/docs/operations/#secrets' },
+    ],
+  },
+  {
+    label: 'Administration',
+    href: '/docs/admin/',
+    children: [
+      { label: 'Overview', href: '/docs/admin/' },
+      { label: 'Authentication', href: '/docs/admin/authentication/' },
+      { label: 'Users & Membership', href: '/docs/admin/users-and-membership/' },
+      { label: 'Roles & Permissions', href: '/docs/admin/roles-and-permissions/' },
+      { label: 'Scope Levels', href: '/docs/admin/scope-levels/' },
+      { label: 'OIDC', href: '/docs/admin/oidc/' },
     ],
   },
 ];

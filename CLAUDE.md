@@ -24,7 +24,7 @@ Query it with `/graphify query "<question>"`. Rebuild after major changes with `
 5. **Incremental phases** — every phase is working and deployable
 6. **Test first** — integration tests with real DB via testcontainers
 7. **Structured error codes** — every error has a U/S code, a client message, an optional user-action hint, and an optional server-side debug hint. U-prefix = user/client errors (4xx, actionable). S-prefix = system errors (5xx, never leaks internals). Codes are defined in `src/error_codes.toml` and asserted complete at startup. Wire format: `{"code": "U001", "message": "...", "action": "..."}`. See `src/error.rs`.
-8. **Auth model (Phase 22)** — every endpoint except `/health`, `/metrics`, `/api/v1/auth/login`, and the external-task callbacks (deferred to Phase 24) requires `Authorization: Bearer <token>`. Token is either a Conduit-issued JWT (HS256, signed with `CONDUIT_JWT_SIGNING_KEY`) or a `ck_…` API key. The `Principal` extractor resolves the caller's `(user_id, org_id)`; handlers MUST use `principal.org_id` and never trust client-supplied org references. See `src/auth/`, `src/api/extractors.rs`, and `docs/adr/ADR-009-auth-architecture.md`. RBAC is Phase 23, worker tokens are Phase 24.
+8. **Auth model (Phases 22 + 23.1/23.2)** — every endpoint except `/health`, `/metrics`, `/api/v1/auth/login`, and the external-task callbacks (deferred) requires `Authorization: Bearer <token>`. Token is either a Conduit-issued JWT (HS256, signed with `CONDUIT_JWT_SIGNING_KEY`) or a `ck_…` API key. The `Principal` extractor resolves the caller's `user_id` and, when the route is org-scoped, `current_org_id` from the URL path. All tenant-scoped endpoints live under `/api/v1/orgs/{org_id}/…`; handlers MUST use `principal.current_org_id` and never trust client-supplied org references in request bodies. **RBAC ships with three scope levels** (global / org / process-group) with cascading grants and a 55-permission catalog asserted in sync with `migrations/021_roles.sql` at startup. Eight built-in roles are seeded; orgs may define custom roles drawn from the same catalog. The bootstrap admin is created as a global platform admin (not an org member); `CONDUIT_BOOTSTRAP_ADMIN_ORG_SLUG` is deprecated and ignored. See `src/auth/`, `src/api/extractors.rs`, `docs/adr/ADR-009-auth-architecture.md` (with 2026-05-12 amendment), and `docs/phases/PHASE-23-rbac.md`. User-facing docs live under [Administration](https://conduit.kinarix.com/docs/admin/) on the website.
 
 ## Repository Structure
 
@@ -88,9 +88,13 @@ conduit/
 │   ├── 015_timer_start_triggers.sql
 │   ├── 016_process_events.sql
 │   ├── 017_secrets.sql          ← encrypted secret storage
-│   ├── 018_jobs_http_config.sql ← HTTP connector job config
-│   ├── 019_process_layouts.sql  ← persisted modeller positions
-│   └── 020_api_keys.sql         ← Phase 22: long-lived API tokens (ck_…)
+│   ├── 018_process_layouts.sql  ← persisted modeller positions
+│   ├── 019_api_keys.sql         ← Phase 22: long-lived API tokens (ck_…)
+│   ├── 020_org_auth_config.sql  ← Phase 22/23: per-org OIDC config (flow not yet wired)
+│   ├── 021_roles.sql            ← Phase 23: roles + role_permissions + 8 built-in seeds
+│   ├── 022_org_members.sql      ← Phase 23: per-org membership
+│   ├── 023_role_assignments.sql ← Phase 23: global + org role assignments
+│   └── 024_process_group_role_assignments.sql ← Phase 23: PG-scoped grants
 │
 ├── src/
 │   ├── main.rs                  ← Entry point

@@ -1,0 +1,176 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Authentication'
+---
+
+# Authentication
+
+Every Conduit endpoint except a small public set requires an `Authorization: Bearer <token>` header. The token is either a short-lived **JWT** issued by `POST /api/v1/auth/login`, or a long-lived **API key** of the form `ck_…`.
+
+## Public endpoints
+
+These do not require a token:
+
+| Endpoint | Why it's public |
+|----------|-----------------|
+| `GET /health` | Liveness / readiness probe for orchestrators. |
+| `GET /metrics` | Prometheus scrape target. |
+| `POST /api/v1/auth/login` | You need an unauthenticated way to obtain a JWT. |
+| `POST/PATCH/DELETE /api/v1/external-tasks/*` | Worker callbacks. **Deferred to a future phase** — at present these endpoints are open. Multi-tenant deployments should firewall them. |
+
+Everything else returns `401 Unauthenticated` when the header is missing or invalid.
+
+## Login flow
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "•••••••••"
+}
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "access_token": "eyJhbGciOiJIUzI1NiI…",
+  "token_type":   "Bearer",
+  "expires_in":   3600
+}
+```
+
+- The password is verified against the user's argon2id-hashed `password_hash`.
+- Users with `auth_provider = 'external'` cannot log in this way — they must rotate credentials with their IdP. (External-IdP login flow is not yet wired; see [OIDC](/docs/admin/oidc/).)
+- The response carries the JWT in `access_token`. Use it on subsequent calls:
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiI…
+```
+
+### JWT claims
+
+| Claim | Type | Meaning |
+|-------|------|---------|
+| `sub` | UUID (string) | The user ID. |
+| `org` | UUID (string) | **Deprecated.** Set to the nil UUID. Org context is resolved from the URL path (`/api/v1/orgs/{org_id}/…`), not the token. |
+| `iat` | unix seconds | Issued-at. |
+| `exp` | unix seconds | Expiry. |
+| `iss` | string | Always `"conduit"`. |
+
+The signing algorithm is HS256 with `CONDUIT_JWT_SIGNING_KEY`.
+
+### Token lifetime
+
+`CONDUIT_JWT_TTL_SECONDS` controls the TTL; default `3600` (one hour). A re-login is needed when the token expires — there is no refresh-token flow today.
+
+### Changing a password
+
+```http
+POST /api/v1/auth/change-password
+Authorization: Bearer …
+Content-Type: application/json
+
+{ "current_password": "old", "new_password": "new" }
+```
+
+External-auth users are rejected. Existing JWTs are **not** invalidated on password change.
+
+## API keys
+
+Long-lived per-user tokens for service accounts, CI, and CLIs. They work across every org the owner is a member of.
+
+### Creating a key
+
+```http
+POST /api/v1/api-keys
+Authorization: Bearer …
+Content-Type: application/json
+
+{ "name": "ci-deploys" }
+```
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "id":            "…",
+  "name":          "ci-deploys",
+  "prefix":        "ck_a1b2c3d4",
+  "plaintext_key": "ck_a1b2c3d4xxxxxxxxxxxxxxxxxxxxxxxx",
+  "created_at":    "…"
+}
+```
+
+**The `plaintext_key` is returned exactly once.** It is never logged, never stored, and never echoed by any subsequent call. Lose it and you must create a new one.
+
+### Format
+
+- Prefix: 8 url-safe-base64 chars, indexed in the database for cheap lookup.
+- Body: 24 random bytes encoded.
+- The combination is what you send; the server splits on prefix, fetches the row, and verifies the full plaintext against an argon2 hash.
+
+### Using a key
+
+The header is identical to a JWT:
+
+```http
+Authorization: Bearer ck_a1b2c3d4xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+The Principal extractor recognises the `ck_` prefix and routes verification through the API-key path instead of JWT validation.
+
+### Listing and revoking
+
+```http
+GET    /api/v1/api-keys           # list your own keys
+DELETE /api/v1/api-keys/{id}      # soft-delete; sets revoked_at
+```
+
+Revoked keys stop working immediately. `last_used_at` is updated as a fire-and-forget write each time a key is used, so you can see which keys are active.
+
+## Bootstrap (first-boot admin)
+
+Bootstrap creates the **first user** so a fresh deployment is reachable. The logic runs after migrations and before the HTTP listener binds, and it is **idempotent** — once any user exists in the DB, it is a no-op.
+
+### Behaviour
+
+| Condition | Action |
+|-----------|--------|
+| `users` table has any row | No-op. |
+| `users` empty **and** `CONDUIT_BOOTSTRAP_ADMIN_EMAIL` + `CONDUIT_BOOTSTRAP_ADMIN_PASSWORD` set | Create the user with `auth_provider='internal'`, grant the global **PlatformAdmin** role. Log a loud `warn!`. |
+| `users` empty **and** env vars not set **and** `CONDUIT_TENANT_ISOLATION=single` | **Refuse to start.** A single-tenant deployment with no admin is unreachable. |
+| `users` empty **and** env vars not set | Start up, log a warning that no users exist. An operator must create one out-of-band. |
+
+### `CONDUIT_BOOTSTRAP_ADMIN_ORG_SLUG` is deprecated
+
+In earlier phases the bootstrap admin was placed inside a freshly-created org. The current model makes them a **global platform admin** instead — no org affiliation — so the env var is ignored. The bootstrap admin can subsequently create or join orgs through the normal API.
+
+If `CONDUIT_BOOTSTRAP_ADMIN_ORG_SLUG` is set, the process logs a deprecation warning and proceeds without it.
+
+## Signing key and rotation
+
+`CONDUIT_JWT_SIGNING_KEY` must be set. Treat it as a secret of the same sensitivity as the database password.
+
+Rotation today is a **single-key** operation: change the env var and restart. All outstanding JWTs become invalid; clients must log in again. API keys are unaffected — they live in the database and do not use the JWT key.
+
+A future change will allow multiple `kid`s for zero-downtime rotation.
+
+## Quick sanity check
+
+```bash
+# Get a token
+TOKEN=$(curl -s -X POST $CONDUIT/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"alice@example.com","password":"…"}' \
+  | jq -r .access_token)
+
+# Use it
+curl -H "Authorization: Bearer $TOKEN" $CONDUIT/api/v1/me
+```
+
+`/api/v1/me` returns the caller's identity plus a summary of every org they're a member of and the roles they hold — useful for confirming auth works before doing anything else.

@@ -83,3 +83,91 @@ If `resultVariable` is `totalCost`, the value is stored as the variable `totalCo
 ## Notes
 
 Script tasks execute synchronously inside the engine — they are not suitable for I/O-bound work (HTTP calls, database queries). For those use cases, use a [Service Task](/docs/elements/service-task/) instead.
+
+## Cookbook
+
+Script tasks have no mutation, so every "update a variable" idiom is **read the current value, return the new value**. The engine writes the result back to the instance — see [Variables & Scopes](/docs/concepts/variables/) for where it lands.
+
+The return value shape decides what happens:
+
+- **Context literal** `{ a: …, b: … }` — every key becomes a variable; `Result Variable` is ignored.
+- **Scalar** (number, string, boolean, list) — written to `Result Variable` if set; dropped silently otherwise.
+
+### Counter
+
+Increment a variable by one each time this task runs.
+
+```feel
+{ counter: (if counter = null then 0 else counter) + 1 }
+```
+
+First run: `counter` is missing → defaulted to `0` → returns `1`. Subsequent runs increment from the stored value.
+
+### Scalar counter
+
+Same effect, single variable, scalar return shape. Set `Result Variable = counter` on the task.
+
+```feel
+(if counter = null then 0 else counter) + 1
+```
+
+### Accumulator
+
+Sum a stream of inbound amounts.
+
+```feel
+{ total: (if total = null then 0 else total) + amount }
+```
+
+### Conditional counter
+
+Only increment when something is true; pass through otherwise.
+
+```feel
+{ retries: if lastResult = "failure"
+           then (if retries = null then 0 else retries) + 1
+           else (if retries = null then 0 else retries) }
+```
+
+### Two outputs from one task
+
+A context literal writes every key. Use it to set multiple related variables atomically.
+
+```feel
+{
+  counter:    (if counter = null then 0 else counter) + 1,
+  lastSeenAt: now()
+}
+```
+
+### List append
+
+Append an item to a list variable, initialising it the first time.
+
+```feel
+{ items: append(if items = null then [] else items, newItem) }
+```
+
+### Reset to a default
+
+```feel
+{ retries: 0 }
+```
+
+A flat literal writes `retries = 0` unconditionally. Use it after a successful retry to clear the counter.
+
+### Aggregated stats
+
+Build a nested structure as one variable.
+
+```feel
+{ stats:
+    {
+      count: count(orders),
+      total: sum(orders),
+      mean:  mean(orders)
+    }
+}
+```
+
+For more patterns (deep property access, null-safe accessors, gateway conditions) see the [Expressions Cookbook](/docs/concepts/expressions/) and the [FEEL Reference](/docs/decision-tables/feel-reference/).

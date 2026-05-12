@@ -1,0 +1,78 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'OIDC'
+---
+
+# OIDC
+
+External identity provider (OIDC) integration is **partially implemented** in Conduit today: the schema is in place, the configuration API works, and the UI lets administrators enter provider details — but the **token-exchange flow is not yet wired**. Internal-auth (email + password) is the only working sign-in path.
+
+This page sets expectations and describes what is and isn't possible.
+
+## What is in place
+
+### Configuration storage
+
+`migrations/020_org_auth_config.sql` defines one row per org:
+
+| Field | Description |
+|-------|-------------|
+| `org_id` | The org this config applies to. One row per org. |
+| `provider` | `internal` (default) or `oidc`. |
+| `oidc_issuer` | Discovery URL of the IdP (e.g. `https://login.microsoftonline.com/{tenant}/v2.0`). |
+| `oidc_client_id` | OAuth application ID. |
+| `oidc_client_secret_enc` | Client secret, encrypted at rest with the same ChaCha20-Poly1305 envelope used for [Secrets](/docs/operations/#secrets). |
+| `oidc_redirect_uri` | Where the IdP will send the browser after consent (must be allow-listed at the IdP). |
+
+### Configuration API
+
+```http
+GET   /api/v1/orgs/{org_id}/admin/auth-config   # auth_config.read
+PATCH /api/v1/orgs/{org_id}/admin/auth-config   # auth_config.update
+```
+
+The `PATCH` accepts the full config (provider, issuer, client ID, client secret in plaintext — encrypted on write — and redirect URI). The response never echoes the secret.
+
+### User-side schema
+
+The `users` table allows `auth_provider = 'external'` and stores `external_id` for IdP linkage. Login by password is **rejected** for external-auth users; they must rotate credentials at the IdP.
+
+### UI
+
+The Welcome wizard (`ui/src/pages/Welcome.tsx`, step 2) lets a new org pick `internal` or `oidc` and capture the four fields. After initial setup, the same fields are editable under the Admin area.
+
+## What is not yet wired
+
+- **No `/auth/oidc/start` endpoint** — there is no redirect-to-IdP flow.
+- **No `/auth/oidc/callback` endpoint** — Conduit cannot complete a code exchange.
+- **No JWKS fetching** — Conduit does not currently verify externally-issued ID tokens.
+- **No user provisioning on OIDC sign-in** — there is no path that creates a Conduit user from a successful IdP login.
+
+This means: configuring OIDC today **stores the configuration** but does not enable OIDC sign-in. Users with `auth_provider = 'external'` cannot currently authenticate to Conduit. A separate phase is planned to land the runtime flow.
+
+## What you can do today
+
+- Run with `provider = internal` (the default). Email/password login works fully.
+- Store OIDC configuration in anticipation of the flow being wired.
+- Continue to manage user identities and role assignments through the existing endpoints.
+
+## What you should not do
+
+- Set `provider = oidc` in production yet, expecting users to be able to log in via the IdP. They won't be able to.
+- Pre-create users with `auth_provider = 'external'` if they need to log in immediately — they'll be locked out.
+
+## When it ships
+
+The OIDC runtime flow is a planned future phase. When it lands the changes will be:
+
+1. New endpoints to initiate and complete the auth-code flow.
+2. JWKS caching and ID-token verification.
+3. A configurable `external_id ⇄ user_id` linking strategy (auto-provision new users? require pre-existing matches?).
+4. Per-org IdP selection at login time (the user identifies their org, Conduit redirects to that org's IdP).
+
+Until then, treat OIDC as a configuration sink and use internal auth or API keys for actual access.
+
+## Cross-references
+
+- The working login flow: [Authentication](/docs/admin/authentication/)
+- The encrypted-storage envelope used for client secrets: [Operations / Secrets](/docs/operations/#secrets)

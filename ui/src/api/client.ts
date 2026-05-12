@@ -34,7 +34,12 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     headers: { 'Content-Type': 'application/json', ...authHeader, ...init?.headers },
   })
 
-  if (res.status === 401) {
+  // 401 has two meanings: an expired/invalid token on an authed call (session
+  // gone — bounce to /login), or a public-endpoint auth failure such as a
+  // bad email/password on /auth/login (let the caller render the error).
+  // Only the first case warrants the redirect; gate it on whether we actually
+  // sent a token.
+  if (res.status === 401 && token) {
     console.error('[401] Unauthenticated response from:', path)
     localStorage.removeItem(TOKEN_KEY)
     window.location.href = '/login'

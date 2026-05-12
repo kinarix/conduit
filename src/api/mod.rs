@@ -12,6 +12,7 @@ pub mod messages;
 pub mod orgs;
 pub mod pagination;
 pub mod pg_role_assignments;
+pub mod platform_admins;
 pub mod process_groups;
 pub mod process_layouts;
 pub mod role_assignments;

@@ -39,6 +39,8 @@ CREATE TABLE role_permissions (
         'role_assignment.create', 'role_assignment.read', 'role_assignment.delete',
         -- per-org auth provider config
         'auth_config.read', 'auth_config.update',
+        -- per-org notification (email) provider config
+        'notification_config.read', 'notification_config.update',
         -- process definitions (BPMN)
         'process.create', 'process.read', 'process.update', 'process.delete',
         'process.deploy', 'process.disable',
@@ -93,6 +95,7 @@ CROSS JOIN (VALUES
     ('role.create'), ('role.read'), ('role.update'), ('role.delete'),
     ('role_assignment.create'), ('role_assignment.read'), ('role_assignment.delete'),
     ('auth_config.read'), ('auth_config.update'),
+    ('notification_config.read'), ('notification_config.update'),
     ('process.create'), ('process.read'), ('process.update'), ('process.delete'),
     ('process.deploy'), ('process.disable'),
     ('process_group.create'), ('process_group.read'),
@@ -112,6 +115,11 @@ CROSS JOIN (VALUES
 WHERE r.name = 'PlatformAdmin' AND r.org_id IS NULL;
 
 -- OrgOwner: everything inside an org except org.create.
+--
+-- Note (2026-05-12): role catalog management (create/update/delete) is
+-- intentionally NOT granted here. Custom roles are managed by platform
+-- admins; OrgOwner can read the catalog and *assign* roles to org
+-- members, but cannot add or modify role definitions.
 INSERT INTO role_permissions (role_id, permission)
 SELECT r.id, p.permission
 FROM roles r
@@ -120,9 +128,10 @@ CROSS JOIN (VALUES
     ('org_member.create'), ('org_member.read'), ('org_member.delete'),
     ('user.read'),
     ('user.reset_password'),
-    ('role.create'), ('role.read'), ('role.update'), ('role.delete'),
+    ('role.read'),
     ('role_assignment.create'), ('role_assignment.read'), ('role_assignment.delete'),
     ('auth_config.read'), ('auth_config.update'),
+    ('notification_config.read'), ('notification_config.update'),
     ('process.create'), ('process.read'), ('process.update'), ('process.delete'),
     ('process.deploy'), ('process.disable'),
     ('process_group.create'), ('process_group.read'),
@@ -141,9 +150,15 @@ CROSS JOIN (VALUES
 ) AS p(permission)
 WHERE r.name = 'OrgOwner' AND r.org_id IS NULL;
 
--- OrgAdmin: manage org users / roles / auth-config (including creating new
--- global user identities to invite into the org). No process / instance /
--- secret powers.
+-- OrgAdmin: manage org users + role assignments + auth/notification
+-- config (including creating new global user identities to invite into
+-- the org). No process / instance / secret powers.
+--
+-- Note (2026-05-12): the role *catalog* (role.create/update/delete) is
+-- managed by platform admins, not by org users. OrgAdmin keeps
+-- `role.read` so the role-picker in the user editor enumerates
+-- available roles, and keeps every `role_assignment.*` permission so
+-- they can grant/revoke roles to/from org members.
 INSERT INTO role_permissions (role_id, permission)
 SELECT r.id, p.permission
 FROM roles r
@@ -152,9 +167,10 @@ CROSS JOIN (VALUES
     ('org_member.create'), ('org_member.read'), ('org_member.delete'),
     ('user.create'), ('user.read'),
     ('user.reset_password'),
-    ('role.create'), ('role.read'), ('role.update'), ('role.delete'),
+    ('role.read'),
     ('role_assignment.create'), ('role_assignment.read'), ('role_assignment.delete'),
     ('auth_config.read'), ('auth_config.update'),
+    ('notification_config.read'), ('notification_config.update'),
     ('api_key.manage')
 ) AS p(permission)
 WHERE r.name = 'OrgAdmin' AND r.org_id IS NULL;

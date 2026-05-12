@@ -90,7 +90,11 @@ async fn bootstrap_admin_is_global_platform_admin_and_can_create_org() {
     let new_org: serde_json::Value = create_resp.json().await.unwrap();
     let new_org_id = Uuid::parse_str(new_org["id"].as_str().unwrap()).unwrap();
 
-    // Creating the org enrolled the creator as OrgOwner (see api::orgs::create).
+    // Per ADR-009 amendment (2026-05-12): when the creator is a global
+    // platform admin, the org-creation flow does NOT auto-add them as
+    // an org member or grant OrgOwner. Their global grant already lets
+    // them operate inside any org, and tenant cleanliness means a
+    // platform admin shouldn't appear in an org's member roster.
     let after: serde_json::Value = authed
         .get(format!("{}/api/v1/me", app.address))
         .send()
@@ -99,18 +103,31 @@ async fn bootstrap_admin_is_global_platform_admin_and_can_create_org() {
         .json()
         .await
         .unwrap();
-    let orgs = after["orgs"].as_array().unwrap();
-    assert_eq!(orgs.len(), 1, "creator becomes a member of the new org");
-    assert_eq!(orgs[0]["id"], new_org_id.to_string());
-    let roles: Vec<&str> = orgs[0]["roles"]
+    assert!(
+        after["orgs"].as_array().unwrap().is_empty(),
+        "bootstrap admin stays at zero memberships after creating an org",
+    );
+
+    // The created org is reachable via the platform-admin listing
+    // because that path returns every org, not just the user's
+    // memberships.
+    let list_resp: serde_json::Value = authed
+        .get(format!("{}/api/v1/orgs", app.address))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let ids: Vec<&str> = list_resp
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| v.as_str().unwrap())
+        .map(|o| o["id"].as_str().unwrap())
         .collect();
     assert!(
-        roles.contains(&"OrgOwner"),
-        "creator must be granted OrgOwner; got {roles:?}"
+        ids.contains(&new_org_id.to_string().as_str()),
+        "platform admin's /orgs list contains the newly-created org",
     );
 }
 

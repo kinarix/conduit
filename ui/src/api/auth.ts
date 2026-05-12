@@ -13,6 +13,10 @@ export interface MeOrgEntry {
   setup_completed: boolean
   /** Org-scope role grants the user holds in this org. */
   roles: string[]
+  /** Permissions granted via org-scope role assignments in this org.
+   *  Server resolves role → perms once. Does NOT include global grants —
+   *  the AuthContext `hasAny` helper unions with `global_permissions`. */
+  permissions: string[]
   /** Process-group-scope role grants inside this org. Empty for users
    *  whose access cascades from an org-level or global grant. */
   pg_roles: MeOrgPgRoleEntry[]

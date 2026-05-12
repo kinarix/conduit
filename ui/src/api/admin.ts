@@ -8,6 +8,10 @@ export interface AdminOrg {
   slug: string
   setup_completed: boolean
   created_at: string
+  admin_email: string | null
+  admin_name: string | null
+  support_email: string | null
+  description: string | null
 }
 
 export interface AuthConfig {
@@ -21,7 +25,25 @@ export interface AuthConfig {
 export const fetchAdminOrg = (orgId: string) =>
   apiFetch<AdminOrg>(`/api/v1/orgs/${orgId}/admin/org`)
 
-export const patchAdminOrg = (orgId: string, body: { name?: string; setup_completed?: boolean }) =>
+/**
+ * PATCH for the admin org settings.
+ *
+ * Contact / description fields use `string | null | undefined`:
+ * - `undefined` (or omitted): leave the column untouched server-side.
+ * - `null` or `""`: clear to NULL.
+ * - non-empty `string`: trim + set.
+ */
+export const patchAdminOrg = (
+  orgId: string,
+  body: {
+    name?: string
+    setup_completed?: boolean
+    admin_email?: string | null
+    admin_name?: string | null
+    support_email?: string | null
+    description?: string | null
+  },
+) =>
   apiFetch<AdminOrg>(`/api/v1/orgs/${orgId}/admin/org`, {
     method: 'PATCH',
     body: JSON.stringify(body),
@@ -38,6 +60,46 @@ export const patchAuthConfig = (orgId: string, body: {
   oidc_redirect_uri?: string | null
 }) =>
   apiFetch<AuthConfig>(`/api/v1/orgs/${orgId}/admin/auth-config`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+
+// ─── Notification (email) config ────────────────────────────────────────────
+
+export interface NotificationConfig {
+  provider: 'disabled' | 'sendgrid' | 'smtp'
+  from_email: string | null
+  from_name: string | null
+  /** True if a SendGrid API key has been stored. Plaintext is never returned. */
+  sendgrid_api_key_set: boolean
+  smtp_host: string | null
+  smtp_port: number | null
+  smtp_username: string | null
+  smtp_password_set: boolean
+  smtp_use_tls: boolean
+}
+
+export const fetchNotificationConfig = (orgId: string) =>
+  apiFetch<NotificationConfig>(`/api/v1/orgs/${orgId}/admin/notification-config`)
+
+/**
+ * Update the org's notification provider config. Omit `sendgrid_api_key`
+ * / `smtp_password` to preserve previously stored secrets while editing
+ * other fields; pass an empty string to clear is NOT supported by the
+ * server (clearing a secret is done by switching the provider).
+ */
+export const patchNotificationConfig = (orgId: string, body: {
+  provider: NotificationConfig['provider']
+  from_email?: string | null
+  from_name?: string | null
+  sendgrid_api_key?: string
+  smtp_host?: string | null
+  smtp_port?: number | null
+  smtp_username?: string | null
+  smtp_password?: string
+  smtp_use_tls?: boolean
+}) =>
+  apiFetch<NotificationConfig>(`/api/v1/orgs/${orgId}/admin/notification-config`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   })
@@ -193,6 +255,61 @@ export const grantGlobalRole = (userId: string, roleId: string) =>
 
 export const revokeGlobalRole = (assignmentId: string) =>
   apiFetch<void>(`/api/v1/admin/global-role-assignments/${assignmentId}`, { method: 'DELETE' })
+
+// ─── Platform admins ────────────────────────────────────────────────────────
+
+export interface PlatformAdmin {
+  user_id: string
+  email: string
+  name: string | null
+  auth_provider: string
+  user_created_at: string
+  assignment_id: string
+  granted_at: string
+  granted_by: string | null
+}
+
+export interface CreatePlatformAdminBody {
+  email: string
+  auth_provider: 'internal' | 'external'
+  password?: string
+  external_id?: string
+  name?: string
+  phone?: string
+}
+
+export const listPlatformAdmins = () =>
+  apiFetch<PlatformAdmin[]>('/api/v1/admin/platform-admins')
+
+export const createPlatformAdmin = (body: CreatePlatformAdminBody) =>
+  apiFetch<{
+    user_id: string
+    email: string
+    name: string | null
+    auth_provider: string
+    assignment_id: string
+  }>('/api/v1/admin/platform-admins', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const patchPlatformAdmin = (
+  userId: string,
+  body: { email?: string; name?: string },
+) =>
+  apiFetch<{
+    user_id: string
+    email: string
+    name: string | null
+  }>(`/api/v1/admin/platform-admins/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+
+export const revokePlatformAdmin = (userId: string) =>
+  apiFetch<void>(`/api/v1/admin/platform-admins/${userId}`, {
+    method: 'DELETE',
+  })
 
 // ─── Process-group-scoped role assignments ──────────────────────────────────
 

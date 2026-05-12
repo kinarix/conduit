@@ -147,6 +147,12 @@ struct MeOrgEntry {
     setup_completed: bool,
     /// Role names the user has in this org (org-scope grants).
     roles: Vec<String>,
+    /// Permissions granted via org-scope role assignments in this org.
+    /// Sorted. Lets the UI gate per-org admin views without resolving
+    /// roles → permissions client-side. Does NOT include global grants —
+    /// callers should union with `MeResponse.global_permissions` — and
+    /// does NOT include pg-scoped grants — those live in `pg_roles`.
+    permissions: Vec<String>,
     /// Process-group-scoped role grants the user holds inside this org.
     /// Each row is `(pg_id, pg_name, role_name)`. Empty for global admins
     /// (their access cascades from the global grant).
@@ -200,6 +206,11 @@ async fn me(State(state): State<Arc<AppState>>, principal: Principal) -> Result<
         let roles =
             db::role_assignments::role_names_for_user_in_org(&state.pool, principal.user_id, o.id)
                 .await?;
+        let perms_set =
+            db::role_assignments::load_org_permissions(&state.pool, principal.user_id, o.id)
+                .await?;
+        let mut permissions: Vec<String> = perms_set.iter().map(|p| p.to_string()).collect();
+        permissions.sort();
         let pg_rows = db::role_assignments::pg_role_names_for_user_in_org(
             &state.pool,
             principal.user_id,
@@ -220,6 +231,7 @@ async fn me(State(state): State<Arc<AppState>>, principal: Principal) -> Result<
             slug: o.slug,
             setup_completed: o.setup_completed,
             roles,
+            permissions,
             pg_roles,
         });
     }

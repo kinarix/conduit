@@ -15,12 +15,13 @@ import Secrets from './pages/Secrets'
 import Decisions from './pages/Decisions'
 import DecisionTableEditor from './pages/DecisionTableEditor'
 import { fetchDeployment } from './api/deployments'
-import { useAuth } from './context/AuthContext'
+import { useAuth, useCurrentPerms } from './context/AuthContext'
 import AdminShell from './pages/admin/AdminShell'
 import AdminUsers from './pages/admin/AdminUsers'
 import AdminRoles from './pages/admin/AdminRoles'
-import AdminAuth from './pages/admin/AdminAuth'
-import AdminSettings from './pages/admin/AdminSettings'
+import GeneralSection from './pages/admin/settings/GeneralSection'
+import AuthSection from './pages/admin/settings/AuthSection'
+import NotificationsSection from './pages/admin/settings/NotificationsSection'
 import AdminAccount from './pages/admin/AdminAccount'
 
 export interface Org {
@@ -70,13 +71,14 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RequirePerm({ anyOf, children }: { anyOf: string[]; children: React.ReactNode }) {
-  const { user } = useAuth()
-  // Global admins bypass UI permission gates — server-side authorisation
-  // still applies on every request.
-  if (user?.is_global_admin) return <>{children}</>
-  const perms = new Set(user?.global_permissions ?? [])
-  const ok = anyOf.some(p => perms.has(p))
-  if (!ok) return <Navigate to="/" replace />
+  const { org } = useOrg()
+  const { hasAny } = useCurrentPerms(org?.id)
+  // Global admins bypass UI permission gates (server-side authorisation
+  // still applies on every request). For everyone else, the check
+  // considers BOTH global grants and the user's role grants in the
+  // currently-selected org — so an OrgAdmin can reach `/admin/*` for
+  // their own org.
+  if (!hasAny(anyOf)) return <Navigate to="/" replace />
   return <>{children}</>
 }
 
@@ -129,6 +131,7 @@ export default function App() {
                 'role.read', 'role.create',
                 'role_assignment.read', 'role_assignment.create',
                 'auth_config.read', 'auth_config.update',
+                'notification_config.read', 'notification_config.update',
               ]}>
                 <AdminShell />
               </RequirePerm>
@@ -141,16 +144,23 @@ export default function App() {
             />
             <Route
               path="roles"
-              element={<RequirePerm anyOf={['role.read', 'role.create']}><AdminRoles /></RequirePerm>}
+              element={<RequirePerm anyOf={['role.create', 'role.update', 'role.delete']}><AdminRoles /></RequirePerm>}
+            />
+            <Route
+              path="general"
+              element={<RequirePerm anyOf={['org.read', 'org.update']}><GeneralSection /></RequirePerm>}
             />
             <Route
               path="auth"
-              element={<RequirePerm anyOf={['auth_config.read', 'auth_config.update']}><AdminAuth /></RequirePerm>}
+              element={<RequirePerm anyOf={['auth_config.read', 'auth_config.update']}><AuthSection /></RequirePerm>}
             />
             <Route
-              path="settings"
-              element={<RequirePerm anyOf={['org.read', 'org.update']}><AdminSettings /></RequirePerm>}
+              path="notifications"
+              element={<RequirePerm anyOf={['notification_config.read', 'notification_config.update']}><NotificationsSection /></RequirePerm>}
             />
+            {/* Back-compat: the old /admin/settings path used to render the
+                org rename / slug pane. Redirect to /admin/general. */}
+            <Route path="settings" element={<Navigate to="../general" replace />} />
           </Route>
         </Route>
       </Routes>

@@ -10,6 +10,10 @@ pub struct Org {
     pub slug: String,
     pub created_at: DateTime<Utc>,
     pub setup_completed: bool,
+    pub admin_email: Option<String>,
+    pub admin_name: Option<String>,
+    pub support_email: Option<String>,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

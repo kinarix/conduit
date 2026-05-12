@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { fetchAuthConfig, patchAuthConfig } from '../../api/admin'
-import { useOrg } from '../../App'
+import { fetchAuthConfig, patchAuthConfig } from '../../../api/admin'
+import { useOrg } from '../../../App'
 
-export default function AdminAuth() {
+export default function AuthSection() {
   const qc = useQueryClient()
   const { org } = useOrg()
   const orgId = org?.id

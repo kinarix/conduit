@@ -60,14 +60,45 @@ pub async fn list_for_user(pool: &PgPool, user_id: uuid::Uuid) -> Result<Vec<Org
 // sign-in then drives the org / process-group / first-process wizard, which
 // flips this to TRUE on completion.
 pub async fn insert(pool: &PgPool, name: &str, slug: &str) -> Result<Org> {
+    insert_with_contacts(pool, name, slug, NewOrgContacts::default()).await
+}
+
+/// Extended variant of `insert` used by the platform-admin create-org
+/// endpoint, where the operator can capture admin/support contacts and
+/// a short description up-front. Tests and other call sites that don't
+/// care about contact metadata go through `insert`.
+pub async fn insert_with_contacts(
+    pool: &PgPool,
+    name: &str,
+    slug: &str,
+    contacts: NewOrgContacts<'_>,
+) -> Result<Org> {
     let row = sqlx::query_as::<_, Org>(
-        "INSERT INTO orgs (name, slug, setup_completed) VALUES ($1, $2, FALSE) RETURNING *",
+        r#"
+        INSERT INTO orgs (name, slug, setup_completed, admin_email, admin_name, support_email, description)
+        VALUES ($1, $2, FALSE, $3, $4, $5, $6)
+        RETURNING *
+        "#,
     )
     .bind(name)
     .bind(slug)
+    .bind(contacts.admin_email)
+    .bind(contacts.admin_name)
+    .bind(contacts.support_email)
+    .bind(contacts.description)
     .fetch_one(pool)
     .await?;
     Ok(row)
+}
+
+/// Optional create-time metadata for an org. Each field is independently
+/// nullable; callers that don't care can pass `NewOrgContacts::default()`.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NewOrgContacts<'a> {
+    pub admin_email: Option<&'a str>,
+    pub admin_name: Option<&'a str>,
+    pub support_email: Option<&'a str>,
+    pub description: Option<&'a str>,
 }
 
 pub async fn set_setup_completed(pool: &PgPool, id: uuid::Uuid, completed: bool) -> Result<()> {
@@ -87,6 +118,77 @@ pub async fn update_name(pool: &PgPool, id: uuid::Uuid, name: &str) -> Result<Or
         .await?
         .ok_or_else(|| crate::error::EngineError::NotFound(format!("org {id} not found")))?;
     Ok(row)
+}
+
+/// PATCH for the optional contact / description columns. Each `Some` is
+/// applied (use `Some(None)` semantics by passing an `Option<Option<&str>>`
+/// in a future iteration if we ever need to clear *some* fields without
+/// touching others; today the admin UI sends every field on every save).
+pub async fn update_contacts(
+    pool: &PgPool,
+    id: uuid::Uuid,
+    admin_email: Option<&str>,
+    admin_name: Option<&str>,
+    support_email: Option<&str>,
+    description: Option<&str>,
+) -> Result<Org> {
+    let row = sqlx::query_as::<_, Org>(
+        r#"
+        UPDATE orgs
+        SET admin_email = $2,
+            admin_name = $3,
+            support_email = $4,
+            description = $5
+        WHERE id = $1
+        RETURNING *
+        "#,
+    )
+    .bind(id)
+    .bind(admin_email)
+    .bind(admin_name)
+    .bind(support_email)
+    .bind(description)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| crate::error::EngineError::NotFound(format!("org {id} not found")))?;
+    Ok(row)
+}
+
+/// Counts of every entity that could keep an org "non-empty" — the
+/// platform-admin delete flow shows these to the operator and refuses
+/// the delete if any are non-zero. Returned as `i64` because that's what
+/// PG's `count(*)` yields; callers can compare against 0 directly.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OrgStats {
+    pub members: i64,
+    pub processes: i64,
+    pub decisions: i64,
+    pub instances: i64,
+}
+
+impl OrgStats {
+    pub fn is_empty(&self) -> bool {
+        self.members == 0 && self.processes == 0 && self.decisions == 0 && self.instances == 0
+    }
+}
+
+pub async fn stats(pool: &PgPool, id: uuid::Uuid) -> Result<OrgStats> {
+    // One round-trip via correlated scalar subqueries — cheaper than
+    // four separate count(*)s, and easier than aggregating per-table.
+    // All four tables have an `org_id` column.
+    let (members, processes, decisions, instances): (i64, i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+            (SELECT COUNT(*) FROM org_members            WHERE org_id = $1),
+            (SELECT COUNT(*) FROM process_definitions    WHERE org_id = $1),
+            (SELECT COUNT(*) FROM decision_definitions   WHERE org_id = $1),
+            (SELECT COUNT(*) FROM process_instances      WHERE org_id = $1)
+        "#,
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?;
+    Ok(OrgStats { members, processes, decisions, instances })
 }
 
 pub async fn delete(pool: &PgPool, id: uuid::Uuid) -> Result<()> {

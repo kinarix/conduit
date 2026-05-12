@@ -169,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(api::auth::routes())
         .merge(api::admin::routes())
         .merge(api::admin_users::routes())
+        .merge(api::platform_admins::routes())
         .merge(api::orgs::routes())
         .merge(api::users::routes())
         .merge(api::deployments::routes())

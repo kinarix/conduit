@@ -208,6 +208,36 @@ async fn remove_from_org(
             "cannot remove yourself from the org".into(),
         ));
     }
+
+    // Privilege guard: an OrgAdmin must not be able to remove an
+    // OrgOwner. Without this, anyone holding `org_member.delete` could
+    // strip the chain of custody from a tenant. A global platform admin
+    // is exempt — they sit above the org-scope role hierarchy.
+    //
+    // Rule: if the target holds the built-in OrgOwner role in this org,
+    // the caller must also hold OrgOwner in this org (or be global).
+    if !principal.is_global_admin {
+        let target_roles = crate::db::role_assignments::role_names_for_user_in_org(
+            &state.pool,
+            user_id,
+            org_id,
+        )
+        .await?;
+        if target_roles.iter().any(|r| r == "OrgOwner") {
+            let caller_roles = crate::db::role_assignments::role_names_for_user_in_org(
+                &state.pool,
+                principal.user_id,
+                org_id,
+            )
+            .await?;
+            if !caller_roles.iter().any(|r| r == "OrgOwner") {
+                return Err(EngineError::Forbidden(
+                    "only an OrgOwner (or platform admin) can remove another OrgOwner".into(),
+                ));
+            }
+        }
+    }
+
     let removed = org_members::delete(&state.pool, user_id, org_id).await?;
     if !removed {
         return Err(EngineError::NotFound(format!(

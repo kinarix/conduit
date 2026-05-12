@@ -7,68 +7,6 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { TOKEN_KEY } from '../api/client'
 
-// ─── Concept card SVGs ────────────────────────────────────────────────────────
-
-const STROKE = 'var(--color-text-muted)'
-const ACCENT = 'var(--color-primary)'
-
-const CONCEPTS = [
-  {
-    title: 'Process Group',
-    blurb: 'Org units inside an organization. Group related processes by team, domain, or business unit.',
-    svg: (
-      <svg viewBox="0 0 120 80" width="120" height="80" fill="none">
-        <path d="M14 22 L14 64 Q14 68 18 68 L102 68 Q106 68 106 64 L106 30 Q106 26 102 26 L56 26 L48 18 L18 18 Q14 18 14 22 Z"
-          stroke={ACCENT} strokeWidth="1.5" />
-        <line x1="28" y1="42" x2="92" y2="42" stroke={STROKE} strokeWidth="1" opacity="0.5" />
-        <line x1="28" y1="50" x2="80" y2="50" stroke={STROKE} strokeWidth="1" opacity="0.5" />
-        <line x1="28" y1="58" x2="70" y2="58" stroke={STROKE} strokeWidth="1" opacity="0.5" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Process Definition',
-    blurb: 'A BPMN blueprint — the steps, gateways, and events that describe how work flows.',
-    svg: (
-      <svg viewBox="0 0 120 80" width="120" height="80" fill="none">
-        <circle cx="16" cy="40" r="6" stroke={ACCENT} strokeWidth="1.5" />
-        <rect x="34" y="32" width="22" height="16" rx="2" stroke={STROKE} strokeWidth="1.5" />
-        <path d="M68 32 L80 40 L68 48 L56 40 Z" stroke={STROKE} strokeWidth="1.5" />
-        <rect x="86" y="32" width="22" height="16" rx="2" stroke={STROKE} strokeWidth="1.5" />
-        <line x1="22" y1="40" x2="34" y2="40" stroke={STROKE} strokeWidth="1.2" />
-        <line x1="56" y1="40" x2="56" y2="40" stroke={STROKE} strokeWidth="1.2" />
-        <line x1="80" y1="40" x2="86" y2="40" stroke={STROKE} strokeWidth="1.2" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Process Instance',
-    blurb: 'A live execution of a definition. Each instance carries its own variables and history.',
-    svg: (
-      <svg viewBox="0 0 120 80" width="120" height="80" fill="none">
-        <rect x="14" y="14" width="92" height="20" rx="3" stroke={STROKE} strokeWidth="1.2" opacity="0.45" />
-        <rect x="14" y="38" width="92" height="20" rx="3" stroke={ACCENT} strokeWidth="1.5" />
-        <circle cx="26" cy="48" r="3" fill={ACCENT} />
-        <line x1="34" y1="48" x2="94" y2="48" stroke={ACCENT} strokeWidth="1.2" strokeDasharray="2 3" />
-        <rect x="14" y="62" width="92" height="10" rx="3" stroke={STROKE} strokeWidth="1.2" opacity="0.3" />
-      </svg>
-    ),
-  },
-  {
-    title: 'Task',
-    blurb: 'A unit of work waiting on a person or external worker. Completing it advances the instance.',
-    svg: (
-      <svg viewBox="0 0 120 80" width="120" height="80" fill="none">
-        <rect x="22" y="16" width="76" height="48" rx="4" stroke={ACCENT} strokeWidth="1.5" />
-        <line x1="32" y1="30" x2="56" y2="30" stroke={STROKE} strokeWidth="1.2" />
-        <line x1="32" y1="40" x2="78" y2="40" stroke={STROKE} strokeWidth="1.2" opacity="0.6" />
-        <line x1="32" y1="50" x2="68" y2="50" stroke={STROKE} strokeWidth="1.2" opacity="0.6" />
-        <path d="M76 28 L82 34 L92 22" stroke={ACCENT} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    ),
-  },
-]
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 type StepNum = 1 | 2 | 3
@@ -633,41 +571,6 @@ export default function Welcome() {
         )}
       </div>
 
-      {/* ── Divider ── */}
-      <div style={{ borderTop: '1px solid var(--color-border)', marginBottom: 32 }} />
-
-      {/* ── Concept cards ── */}
-      <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
-        Core concepts
-      </h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-        {CONCEPTS.map(c => (
-          <div
-            key={c.title}
-            style={{
-              border: '1px solid var(--color-border)',
-              borderRadius: 6,
-              padding: 16,
-              background: 'var(--color-surface)',
-            }}
-          >
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'var(--color-surface-2)',
-              borderRadius: 4,
-              marginBottom: 12,
-              padding: 8,
-              minHeight: 96,
-            }}>
-              {c.svg}
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>{c.title}</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-muted)', lineHeight: 1.5 }}>{c.blurb}</div>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }

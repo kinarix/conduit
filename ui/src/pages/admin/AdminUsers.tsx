@@ -19,6 +19,7 @@ import {
 } from '../../api/admin'
 import { fetchProcessGroups, type ProcessGroup } from '../../api/processGroups'
 import { useOrg } from '../../App'
+import { useAuth } from '../../context/AuthContext'
 import ResetPasswordModal from '../../components/ResetPasswordModal'
 
 /**
@@ -44,6 +45,7 @@ const PERMISSION_IS_ORG_ONLY = (p: string): boolean => {
     p.startsWith('role.') ||
     p.startsWith('role_assignment.') ||
     p.startsWith('auth_config.') ||
+    p.startsWith('notification_config.') ||
     p.startsWith('secret.') ||
     p === 'api_key.manage' ||
     p === 'process_group.create' ||
@@ -59,6 +61,15 @@ export default function AdminUsers() {
   const qc = useQueryClient()
   const { org } = useOrg()
   const orgId = org?.id
+  const { user: me } = useAuth()
+  const myId = me?.user_id
+  // Roles the *caller* holds in the current org — used to hide actions
+  // they aren't allowed to perform (e.g. an OrgAdmin cannot remove an
+  // OrgOwner). Global admins bypass.
+  const callerOrgRoles = new Set(
+    me?.orgs.find(o => o.id === orgId)?.roles ?? [],
+  )
+  const callerIsOrgOwner = me?.is_global_admin || callerOrgRoles.has('OrgOwner')
 
   const usersQ = useQuery({
     queryKey: ['org-users', orgId],
@@ -157,6 +168,10 @@ export default function AdminUsers() {
   const removeMut = useMutation({
     mutationFn: (userId: string) => removeOrgUser(orgId!, userId),
     onSuccess: () => { invalidate(); setRemovingId(null) },
+    // No onError — we surface `removeMut.error` inline in the row so the
+    // user sees the server's reason (e.g. "cannot remove yourself",
+    // "only an OrgOwner can remove another OrgOwner") instead of a
+    // silent no-op.
   })
 
   const createMut = useMutation({
@@ -268,6 +283,17 @@ export default function AdminUsers() {
             <tbody>
               {users.map((user, idx) => {
                 const userAssignments = assignmentsByUser.get(user.id) ?? []
+                // Hide the destructive Remove action when the server would
+                // reject it anyway:
+                //   - self-removal is blocked unconditionally
+                //   - removing an OrgOwner requires the caller to also be
+                //     OrgOwner (or global admin)
+                const isSelf = !!myId && user.id === myId
+                const targetIsOrgOwner = userAssignments.some(a => {
+                  const r = allRoles.find(r => r.id === a.role_id)
+                  return a.scope.kind === 'org' && r?.name === 'OrgOwner'
+                })
+                const canRemove = !isSelf && (callerIsOrgOwner || !targetIsOrgOwner)
                 return (
                   <tr
                     key={user.id}
@@ -312,22 +338,29 @@ export default function AdminUsers() {
                     </td>
                     <td style={{ ...tdStyle, textAlign: 'right' }}>
                       {removingId === user.id ? (
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <button
-                            className="btn-ghost"
-                            style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
-                            disabled={removeMut.isPending}
-                            onClick={() => removeMut.mutate(user.id)}
-                          >
-                            {removeMut.isPending ? 'Removing…' : 'Confirm remove'}
-                          </button>
-                          <button
-                            className="btn-ghost"
-                            style={{ fontSize: 12, padding: '3px 8px' }}
-                            onClick={() => setRemovingId(null)}
-                          >
-                            Cancel
-                          </button>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button
+                              className="btn-ghost"
+                              style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
+                              disabled={removeMut.isPending}
+                              onClick={() => removeMut.mutate(user.id)}
+                            >
+                              {removeMut.isPending ? 'Removing…' : 'Confirm remove'}
+                            </button>
+                            <button
+                              className="btn-ghost"
+                              style={{ fontSize: 12, padding: '3px 8px' }}
+                              onClick={() => { removeMut.reset(); setRemovingId(null) }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          {removeMut.isError && (
+                            <div style={{ fontSize: 11, color: 'var(--status-error)', maxWidth: 320, textAlign: 'right' }}>
+                              {(removeMut.error as Error).message}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -347,13 +380,15 @@ export default function AdminUsers() {
                               Reset password
                             </button>
                           )}
+                          {canRemove && (
                           <button
                             className="btn-ghost"
                             style={{ fontSize: 12, padding: '3px 8px', color: 'var(--status-error)' }}
-                            onClick={() => setRemovingId(user.id)}
+                            onClick={() => { removeMut.reset(); setRemovingId(user.id) }}
                           >
                             Remove
                           </button>
+                          )}
                         </div>
                       )}
                     </td>

@@ -42,6 +42,9 @@ pub enum Permission {
     // per-org auth provider config
     AuthConfigRead,
     AuthConfigUpdate,
+    // per-org notification (email) provider config
+    NotificationConfigRead,
+    NotificationConfigUpdate,
     // process definitions (BPMN)
     ProcessCreate,
     ProcessRead,
@@ -113,6 +116,8 @@ impl Permission {
             Self::RoleAssignmentDelete => "role_assignment.delete",
             Self::AuthConfigRead => "auth_config.read",
             Self::AuthConfigUpdate => "auth_config.update",
+            Self::NotificationConfigRead => "notification_config.read",
+            Self::NotificationConfigUpdate => "notification_config.update",
             Self::ProcessCreate => "process.create",
             Self::ProcessRead => "process.read",
             Self::ProcessUpdate => "process.update",
@@ -214,6 +219,8 @@ impl Permission {
         Self::RoleAssignmentDelete,
         Self::AuthConfigRead,
         Self::AuthConfigUpdate,
+        Self::NotificationConfigRead,
+        Self::NotificationConfigUpdate,
         Self::ProcessCreate,
         Self::ProcessRead,
         Self::ProcessUpdate,
@@ -352,6 +359,8 @@ mod tests {
             RoleAssignmentDelete,
             AuthConfigRead,
             AuthConfigUpdate,
+            NotificationConfigRead,
+            NotificationConfigUpdate,
             ProcessGroupCreate,
             SecretCreate,
             SecretReadMetadata,

@@ -90,6 +90,47 @@ export function PencilIcon({ size = 12 }: IconProps) {
   )
 }
 
+export function UsersIcon({ size = 14 }: IconProps) {
+  // Two stacked silhouettes — front user (head + shoulders) and a
+  // partial second figure behind. Stroked, no fill, follows
+  // currentColor like the other icons in this set.
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="6" cy="5" r="2.2" stroke="currentColor" strokeWidth="1.2" />
+      <path
+        d="M1.8 13c0-2.4 1.9-4 4.2-4s4.2 1.6 4.2 4"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10.4 4.2a1.9 1.9 0 1 1 .8 3.6M11.4 9.2c1.6.4 2.8 1.7 2.8 3.4"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  )
+}
+
+export function KeyIcon({ size = 12 }: IconProps) {
+  // Bow on the left, blade with a single tooth on the right —
+  // suggests "credential/password reset" without leaning on a lock
+  // glyph (which we use for permissions elsewhere).
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
+      <circle cx="5" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M7.5 8h7M12.5 8v2.2M14.5 8v1.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
 export function InboxIcon({ size = 14 }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>

@@ -3,20 +3,28 @@ import { useQuery } from '@tanstack/react-query'
 import { fetchTasks } from '../../api/tasks'
 import { fetchInstances } from '../../api/instances'
 import { useOrg } from '../../App'
-import { useAuth } from '../../context/AuthContext'
+import { useCurrentPerms } from '../../context/AuthContext'
 import { InboxIcon, ListIcon } from './SidebarIcons'
 import styles from './Sidebar.module.css'
 
 export default function FooterNav() {
   const location = useLocation()
   const { org } = useOrg()
-  const { user } = useAuth()
-  const isGlobalAdmin = user?.is_global_admin ?? false
-  const globalPerms = new Set(user?.global_permissions ?? [])
-  const adminPerms = ['org.read', 'org.update', 'user.read', 'role.read', 'role_assignment.read', 'auth_config.read']
-  const secretPerms = ['secret.create', 'secret.read_metadata', 'secret.read_plaintext', 'secret.update', 'secret.delete']
-  const canAdmin = isGlobalAdmin || adminPerms.some(p => globalPerms.has(p))
-  const canManageSecrets = isGlobalAdmin || secretPerms.some(p => globalPerms.has(p))
+  // Org admins' grants are org-scoped — pass the current org so the
+  // Admin link surfaces for OrgAdmin/OrgOwner role holders.
+  const { hasAny } = useCurrentPerms(org?.id)
+  const adminPerms = [
+    'org.read', 'org.update',
+    'user.read', 'role.read',
+    'role_assignment.read', 'auth_config.read',
+    'notification_config.read',
+  ]
+  const secretPerms = [
+    'secret.create', 'secret.read_metadata', 'secret.read_plaintext',
+    'secret.update', 'secret.delete',
+  ]
+  const canAdmin = hasAny(adminPerms)
+  const canManageSecrets = hasAny(secretPerms)
 
   const tasksQ = useQuery({
     queryKey: ['tasks', org?.id],

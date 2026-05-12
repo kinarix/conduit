@@ -7,6 +7,7 @@ pub mod jobs;
 pub mod models;
 pub mod org_auth_config;
 pub mod org_members;
+pub mod org_notification_config;
 pub mod orgs;
 pub mod process_definitions;
 pub mod process_events;

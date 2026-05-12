@@ -78,3 +78,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export const useAuth = () => useContext(AuthContext)
+
+/**
+ * Resolve the caller's effective permission set in the context of an org.
+ *
+ * Global admins satisfy every check (server-side authorisation still
+ * applies on each request — this only drives UI visibility).
+ *
+ * For non-admins, `hasAny` returns true when ANY of the supplied
+ * permission strings is present in either:
+ *   - `user.global_permissions` (cross-cutting grants), or
+ *   - `user.orgs.find(o => o.id === orgId)?.permissions` when `orgId` is
+ *     passed (the per-org bundle resolved server-side from role grants).
+ *
+ * Pass `orgId` whenever the gate guards an org-scoped surface (admin tabs,
+ * the Admin nav link in the current org). Pass `undefined` only for
+ * surfaces that genuinely have no org context.
+ */
+export function useCurrentPerms(orgId?: string | null) {
+  const { user } = useAuth()
+  const isGlobalAdmin = user?.is_global_admin ?? false
+  // When the caller knows the org, only look at that bundle. When it's
+  // still resolving (sidebar hasn't picked an org yet, e.g. direct
+  // navigation to `/admin/...`), fall back to the union of all orgs the
+  // user belongs to so the gate doesn't flicker-redirect. Per-page
+  // queries are still org-scoped and will reject in the wrong org.
+  const orgPerms = orgId
+    ? user?.orgs.find(o => o.id === orgId)?.permissions ?? []
+    : (user?.orgs.flatMap(o => o.permissions) ?? [])
+  const merged = new Set<string>([
+    ...(user?.global_permissions ?? []),
+    ...orgPerms,
+  ])
+  const hasAny = (perms: string[]) =>
+    isGlobalAdmin || perms.some(p => merged.has(p))
+  return { isGlobalAdmin, hasAny }
+}

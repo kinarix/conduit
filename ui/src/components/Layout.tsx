@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { fetchOrgs } from '../api/orgs'
 import Sidebar from './Sidebar/Sidebar'
+import TopTabs from './TopTabs'
 import Welcome from '../pages/Welcome'
 import PlatformShell from '../pages/platform/PlatformShell'
 import AccountMenu from './AccountMenu'
-import { useAuth } from '../context/AuthContext'
+import { useAuth, useCurrentPerms } from '../context/AuthContext'
+import { useOrg } from '../App'
 
 const SIDEBAR_MIN = 160
 const SIDEBAR_MAX = 520
@@ -23,6 +25,33 @@ function readSavedWidth() {
 export default function Layout() {
   const { user } = useAuth()
   const isPlatformAdmin = user?.is_global_admin ?? false
+  // Sidebar visibility rules:
+  //   - Admin routes: always hide. The AdminShell has its own side
+  //     panel; the org tree is irrelevant there.
+  //   - Dashboard `/`: hide only when the user has zero operational
+  //     access. A pure admin (OrgAdmin alone) would see an empty tree
+  //     and clutter; a Developer / Operator / mixed-role user needs
+  //     the tree to navigate to processes, decisions, tasks, etc.
+  //     from the landing page.
+  //   - Everywhere else: show. These routes ARE the tree's domain.
+  const location = useLocation()
+  const path = location.pathname
+  const { org } = useOrg()
+  const { hasAny } = useCurrentPerms(org?.id)
+  const isAdminRoute = path === '/admin' || path.startsWith('/admin/')
+  const isDashboardRoute = path === '/'
+  // Any of these is enough to make the org-tree useful: pg/process
+  // browsing, instance/task work, decisions, secrets, layouts.
+  const hasOperationalAccess = isPlatformAdmin || hasAny([
+    'process_group.read', 'process_group.create',
+    'process.read', 'process.create', 'process.deploy',
+    'instance.read', 'instance.start',
+    'task.read', 'task.complete',
+    'decision.read', 'decision.create',
+    'secret.read_metadata', 'secret.create',
+    'process_layout.read',
+  ])
+  const hideSidebar = isAdminRoute || (isDashboardRoute && !hasOperationalAccess)
 
   const { isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['orgs'],
@@ -72,34 +101,43 @@ export default function Layout() {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', cursor: dragging ? 'col-resize' : undefined }}>
       <AccountMenu />
-      <Sidebar width={sidebarWidth} />
+      {!hideSidebar && <Sidebar width={sidebarWidth} />}
 
-      <div
-        style={{
-          width: 4,
-          flexShrink: 0,
-          cursor: 'col-resize',
-          background: dragging ? 'var(--accent)' : 'transparent',
-          transition: dragging ? 'none' : 'background 0.15s',
-          userSelect: 'none',
-        }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        onMouseEnter={e => { if (!dragging) (e.currentTarget as HTMLDivElement).style.background = 'var(--border-primary)' }}
-        onMouseLeave={e => { if (!dragging) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
-      />
+      {!hideSidebar && (
+        <div
+          style={{
+            width: 4,
+            flexShrink: 0,
+            cursor: 'col-resize',
+            background: dragging ? 'var(--accent)' : 'transparent',
+            transition: dragging ? 'none' : 'background 0.15s',
+            userSelect: 'none',
+          }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onMouseEnter={e => { if (!dragging) (e.currentTarget as HTMLDivElement).style.background = 'var(--border-primary)' }}
+          onMouseLeave={e => { if (!dragging) (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
+        />
+      )}
 
-      <main style={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
+      <main style={{ flex: 1, overflow: 'auto', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* setup_completed is per-org under phase-23.1; show Welcome if the
             user's first/only org is still pending setup. Multi-org users
             see the regular shell — the org switcher (TODO) will let them
-            pick which one to operate in. */}
-        {user?.orgs?.length === 1 && user.orgs[0].setup_completed === false ? (
+            pick which one to operate in. Admin routes bypass Welcome
+            entirely so an org admin can configure a freshly-bootstrapped
+            org before it's marked setup-complete. */}
+        {!isAdminRoute && user?.orgs?.length === 1 && user.orgs[0].setup_completed === false ? (
           <Welcome />
         ) : (
-          <Outlet />
+          <>
+            {(isAdminRoute || isDashboardRoute) && <TopTabs />}
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              <Outlet />
+            </div>
+          </>
         )}
       </main>
     </div>

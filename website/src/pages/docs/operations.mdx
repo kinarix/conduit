@@ -120,6 +120,38 @@ curl http://localhost:8080/api/v1/secrets -H 'x-org-id: <uuid>'
 
 Secrets are resolved at request time inside HTTP push connectors. They are never written to logs, traces, or the execution history audit table.
 
+## Script Task pipeline test endpoint
+
+`POST /api/v1/scripts/execute` runs a [Script Task](/docs/elements/script-task/) pipeline against caller-supplied sample variables, without starting an instance or writing to the database. It powers the modeller's "Run Pipeline" and per-step "Test" buttons.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/scripts/execute \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "steps": [
+      {"name": "Extract", "type": "jq", "expression": "{ doc_no: .grn.header.docNo }"}
+    ],
+    "variables": { "grn": { "header": { "docNo": "A123" } } },
+    "run_until_step": null
+  }'
+```
+
+Response includes per-step `status` (`ok` / `error`), `output`, `duration_ms`, and the final accumulated `variables_after`. Validation errors (`U020` invalid step type, `U021` empty expression) return `400`; runtime step errors are reported as `status: "error"` inside a `200 OK` so callers can render the failing step's message and line / column.
+
+### Rhai sandbox
+
+Rhai steps inside a pipeline run under per-engine limits. These four env vars are the **single source of truth**:
+
+| Variable | Default | Description |
+|---|---|---|
+| `CONDUIT_RHAI_MAX_OPERATIONS` | `100000` | Hard cap on operations per script (kills runaway loops) |
+| `CONDUIT_RHAI_MAX_CALL_LEVELS` | `20` | Maximum function-call stack depth |
+| `CONDUIT_RHAI_MAX_EXPR_DEPTHS` | `64` | Maximum expression / statement nesting depth |
+| `CONDUIT_RHAI_DISABLED_SYMBOLS` | `eval,print,debug` | Comma-separated. `eval` is a **hard floor**: it is always disabled, even if you omit it from the list |
+
+No filesystem, process, or network functions are registered on the Rhai engine — sandboxing comes from the limits plus the absence of dangerous bindings.
+
 ## Health and metrics
 
 | Endpoint | Purpose |

@@ -1,0 +1,271 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'jq Cookbook (Script Tasks)'
+description: 'Practical jq patterns for reshaping process variables inside a Script Task pipeline.'
+---
+
+# jq Cookbook
+
+`jq` steps in a [Script Task](/docs/elements/script-task/) pipeline are run against the full variable map serialized as a JSON object. **The step's output must itself be an object** — every key it emits is merged back into the variable map. Non-object output is a step error.
+
+The engine runs filters via [`jaq-interpret`](https://crates.io/crates/jaq-interpret), which implements a strict subset of [jq](https://jqlang.github.io/jq/). Sandbox-incompatible features (`@sh`, `input`, IO functions) are not registered.
+
+For the syntax cheat-sheet, see the [official jq manual](https://jqlang.github.io/jq/manual/). What follows are the patterns that come up most often in Conduit pipelines.
+
+## Reading and reshaping
+
+### 1. Pick a single field
+
+```jq
+{ doc_no: .grn.header.docNo }
+```
+
+### 2. Pick several fields
+
+```jq
+{ doc_no: .grn.header.docNo, vendor: .grn.header.vendor, ts: .grn.header.timestamp }
+```
+
+### 3. Rename keys
+
+```jq
+{ orderId: .order.id, customerId: .order.buyer.id }
+```
+
+### 4. Pass-through with overrides
+
+Keep every existing variable, but set or replace a few:
+
+```jq
+. + { status: "validated", checked_at: now }
+```
+
+`. + { … }` does shallow object merge; the right-hand side wins on conflicts.
+
+### 5. Subset of keys
+
+Keep only `orderId` and `total`:
+
+```jq
+{ orderId, total }
+```
+
+Shorthand: `{ key }` is `{ key: .key }`.
+
+### 6. Omit a key
+
+jq has no built-in "omit"; build the object explicitly or use `with_entries`:
+
+```jq
+with_entries(select(.key != "secret_token"))
+```
+
+### 7. Promote a nested field to the top
+
+```jq
+. + { customerEmail: .customer.contact.email }
+```
+
+### 8. Default for a missing field
+
+```jq
+{ retries: (.retries // 0) + 1 }
+```
+
+`a // b` returns `b` if `a` is `null` or `false`.
+
+### 9. Coalesce a chain
+
+```jq
+{ name: (.preferred_name // .legal_name // "Anonymous") }
+```
+
+## Arrays
+
+### 10. Map over an array
+
+```jq
+{ totals: [ .items[] | .price * .qty ] }
+```
+
+`.items[]` streams each element, `[ … ]` collects back into an array.
+
+### 11. Filter an array
+
+```jq
+{ active: [ .users[] | select(.disabled_at == null) ] }
+```
+
+### 12. Sum a field
+
+```jq
+{ subtotal: ([ .items[] | .price * .qty ] | add) }
+```
+
+`add` sums a list. An empty list adds to `null`, so guard if needed: `([ … ] | add) // 0`.
+
+### 13. Group by
+
+```jq
+{ by_country: ( .customers | group_by(.country) ) }
+```
+
+### 14. Sort by
+
+```jq
+{ recent: ( .orders | sort_by(.created_at) | reverse ) }
+```
+
+### 15. Unique by
+
+```jq
+{ vendors: ( .lines | map(.vendor) | unique ) }
+```
+
+### 16. Min and max by
+
+```jq
+{ smallest: ( .quotes | min_by(.amount) ), largest: ( .quotes | max_by(.amount) ) }
+```
+
+### 17. Top N
+
+```jq
+{ top_three: ( .items | sort_by(-.score) | .[0:3] ) }
+```
+
+### 18. Flatten one level
+
+```jq
+{ all_tags: ( [ .posts[].tags ] | add ) }
+```
+
+## Conditionals
+
+### 19. Conditional value
+
+```jq
+{ tier: ( if .total >= 1000 then "gold" else "silver" end ) }
+```
+
+### 20. Multi-branch tier
+
+```jq
+{ tier: (
+    if .total >= 5000 then "platinum"
+    elif .total >= 1000 then "gold"
+    elif .total >= 100 then "silver"
+    else "bronze"
+    end
+) }
+```
+
+### 21. Set a field only when missing
+
+```jq
+. + (if .correlation_id == null then { correlation_id: ($ENV.HOSTNAME + "-" + (now|tostring)) } else {} end)
+```
+
+## Strings
+
+### 22. String interpolation
+
+```jq
+{ ref: "GRN-\(.vendor)-\(.doc_no)" }
+```
+
+### 23. Uppercase / lowercase
+
+```jq
+{ tag: ( .vendor | ascii_upcase ) }
+```
+
+### 24. Split and trim
+
+```jq
+{ first_word: ( .description | split(" ") | .[0] ) }
+```
+
+### 25. Regex test and capture
+
+```jq
+{ is_email: ( .raw | test("^[^@]+@[^@]+\\.[^@]+$") ) }
+```
+
+```jq
+{ parts: ( .raw | capture("^(?<user>[^@]+)@(?<host>.+)$") ) }
+```
+
+## From-entries / to-entries
+
+### 26. Convert object to list of pairs
+
+```jq
+{ pairs: ( .counts | to_entries ) }
+```
+
+Yields `[ { key: "...", value: ... }, ... ]`.
+
+### 27. Build an object from a list of pairs
+
+```jq
+{ scores: ( [ .results[] | { key: .id, value: .score } ] | from_entries ) }
+```
+
+### 28. Filter object entries
+
+```jq
+{ public: ( .config | with_entries(select(.key | startswith("public_"))) ) }
+```
+
+## Error handling
+
+### 29. Optional path access
+
+`?` swallows the "not an object/array" error so the step still returns a value:
+
+```jq
+{ city: ( .customer.address.city? // "Unknown" ) }
+```
+
+### 30. Try with fallback
+
+```jq
+{ port: ( try (.config.port | tonumber) catch 8080 ) }
+```
+
+## Math and dates
+
+### 31. Round to two decimals
+
+```jq
+{ rate_pct: ( ((.received / .ordered) * 10000 | floor) / 100 ) }
+```
+
+### 32. Epoch seconds → ISO date
+
+```jq
+{ today_iso: ( now | todate ) }
+```
+
+## Putting it together
+
+A two-step pipeline that pulls fields out of a nested object, then computes a derived total:
+
+```
+Step 1 (jq):
+  { lines: [ .order.lines[] | { sku, qty, price, line_total: (.qty * .price) } ] }
+
+Step 2 (jq):
+  { subtotal: ( [ .lines[].line_total ] | add ),
+    line_count: ( .lines | length ) }
+```
+
+After running, the instance has `lines`, `subtotal`, and `line_count` set.
+
+## See also
+
+- [Script Task](/docs/elements/script-task/) — how pipeline steps merge their output back into variables
+- [Expressions (FEEL)](/docs/concepts/expressions/) — FEEL cookbook for the same pipeline
+- [Rhai Cookbook](/docs/concepts/rhai/) — when jq + FEEL aren't enough
+- [jq manual](https://jqlang.github.io/jq/manual/) — full language reference

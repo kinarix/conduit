@@ -11,163 +11,149 @@ import SimpleFlowDiagram from '../../../components/diagrams/SimpleFlowDiagram.ts
 
 <SimpleFlowDiagram label="Script Task" icon="script" client:load />
 
-Evaluates an inline [FEEL](https://www.omg.org/spec/DMN/) expression and stores the result as process variables — no external worker or HTTP call needed. The engine runs the script synchronously before advancing the token.
+Evaluates an ordered **pipeline** of compute steps against the current process variables and writes the results back. No external worker or HTTP call is involved — the engine runs the pipeline synchronously before advancing the token.
 
-## Properties
+Each step is one of three types — `jq`, `feel`, or `rhai` — and later steps see everything earlier steps wrote.
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| ID | string | yes | Unique element identifier |
-| Name | string | yes | Display label |
-| Script | FEEL expression | yes | Expression to evaluate |
-| Result Variable | string | conditional | Variable name for scalar output (omit when using context output) |
+## Step Types
 
-## Output Modes
+| Type | What it's for | Engine |
+|------|---------------|--------|
+| `jq` | JSON navigation and reshaping (extract a sub-object, rename keys, build a new shape) | [jq](https://jqlang.github.io/jq/) via `jaq-interpret` |
+| `feel` | Business logic, conditions, numeric and date computation | [FEEL](https://www.omg.org/spec/DMN/) via `dsntk-feel-evaluator` |
+| `rhai` | General scripting — string building, loops, multi-statement logic | [Rhai](https://rhai.rs/) (sandboxed) |
 
-### Context output
+Gateway conditions and DMN decisions remain **FEEL-only**. Rhai is available **only inside a Script Task pipeline**.
 
-When the expression returns a context literal `{ key: value, ... }`, each key is stored as a separate process variable:
+## How Steps Write Back
 
-```feel
-{ fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }
-```
+Every step receives the current variable map as input and writes results back into it. The merge rule depends on the step type:
 
-Both `fee` and `tier` become available to subsequent elements.
+- **`jq`** — fed the full variable map as a JSON object. The step's output **must be a JSON object**; each of its keys is merged into the variable map. Non-object output is a step error.
+- **`feel`** — evaluated against the variable map.
+  - If the result is an object (context literal), each key is merged.
+  - If the result is a scalar (number, string, boolean, list), the step's **Result Variable** is required and stores the value.
+- **`rhai`** — the Rhai scope is seeded with every current variable that is a valid identifier. After the script runs, every scope entry that was added or changed is merged back into the variable map.
 
-### Scalar output
+If any step fails, the pipeline stops, the failing step's error is recorded against the instance, and the instance is marked as `error`.
 
-When the expression returns a single value, set **Result Variable** to name where it is stored:
-
-```feel
-amount + shipping
-```
-
-If `resultVariable` is `totalCost`, the value is stored as the variable `totalCost`.
-
-## FEEL Quick Reference
-
-| Concept | Syntax |
-|---------|--------|
-| Equality | `=` (not `==`) |
-| Inequality | `!=` |
-| Boolean operators | `and`, `or`, `not(expr)` |
-| String literals | `"double quotes"` |
-| Context literal | `{ key: expr, key2: expr2 }` |
-| Conditional | `if condition then value1 else value2` |
-| List length | `count(myList)` |
-| List access | `myList[1]` (1-based index) |
-| Substring | `substring("hello", 1, 3)` → `"hel"` |
-
-## XML Example
+## XML
 
 ```xml
-<bpmn:scriptTask id="calc_fee" name="Calculate Fee" scriptFormat="FEEL">
-  <bpmn:script>
-    { fee: amount * 0.05, tier: if amount > 1000 then "premium" else "standard" }
-  </bpmn:script>
+<bpmn:scriptTask id="calc_fee" name="Calculate Fee">
+  <bpmn:extensionElements>
+    <conduit:pipeline xmlns:conduit="http://conduit.io/ext">
+      <conduit:step type="jq" name="Extract header">
+        { doc_no: .grn.header.docNo, vendor: .grn.header.vendor }
+      </conduit:step>
+      <conduit:step type="feel" name="Shortage %" resultVariable="shortage_pct">
+        (ordered - received) / ordered * 100
+      </conduit:step>
+      <conduit:step type="rhai" name="Build reference">
+        let grn_ref = "GRN-" + vendor + "-" + doc_no;
+      </conduit:step>
+    </conduit:pipeline>
+  </bpmn:extensionElements>
   <bpmn:incoming>flow_to_calc</bpmn:incoming>
   <bpmn:outgoing>flow_to_next</bpmn:outgoing>
 </bpmn:scriptTask>
 ```
 
+After this pipeline runs, the instance has `doc_no`, `vendor`, `shortage_pct`, and `grn_ref` set.
+
+## Testing in the Modeller
+
+A stateless endpoint, `POST /api/v1/scripts/execute`, runs a pipeline against caller-supplied sample variables — no instance is started, no DB writes happen. The BPMN editor uses it to power the **Run Pipeline** and per-step **Test** buttons so you can close the write → test → adjust loop without re-deploying.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/scripts/execute \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "steps": [
+      {"name": "Extract header", "type": "jq", "expression": "{ doc_no: .grn.header.docNo }"},
+      {"name": "Reference", "type": "rhai", "expression": "let grn_ref = \"GRN-\" + doc_no;"}
+    ],
+    "variables": { "grn": { "header": { "docNo": "A123" } } }
+  }'
+```
+
+The response includes per-step status, output, timing, and the final accumulated variable map. Use the optional `run_until_step` (0-based index) to stop after a specific step.
+
+## Rhai Sandbox
+
+The Rhai engine is constructed per call with strict per-engine limits and **no IO functions registered** — Rhai steps cannot read files, open sockets, or shell out. All knobs come from environment variables (single source of truth — see [Operations](/docs/operations/)):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CONDUIT_RHAI_MAX_OPERATIONS` | `100000` | Hard cap on operations executed per script (kills `while true {}`-style loops) |
+| `CONDUIT_RHAI_MAX_CALL_LEVELS` | `20` | Maximum function-call stack depth |
+| `CONDUIT_RHAI_MAX_EXPR_DEPTHS` | `64` | Maximum expression and statement nesting depth |
+| `CONDUIT_RHAI_DISABLED_SYMBOLS` | `eval,print,debug` | Comma-separated. `eval` is a **hard floor** — it is unioned in even if you omit it |
+
+## Legacy Single-Expression Form
+
+The older form is still parsed for back-compat. A plain `<bpmn:script>…</bpmn:script>` (optionally with `<conduit:resultVariable>`) is lowered to a single FEEL step named `Script`. New work should use `<conduit:pipeline>` directly.
+
 ```xml
-<!-- Scalar output with result variable -->
-<bpmn:scriptTask id="sum_total" name="Sum Total" scriptFormat="FEEL"
+<bpmn:scriptTask id="sum_total" name="Sum Total"
   conduit:resultVariable="totalCost">
   <bpmn:script>amount + shipping</bpmn:script>
-  <bpmn:incoming>flow_in</bpmn:incoming>
-  <bpmn:outgoing>flow_out</bpmn:outgoing>
 </bpmn:scriptTask>
 ```
 
+## Per-Step History
+
+Each pipeline step produces its own `execution_history` row carrying `step_name`, `step_index`, and `step_type` alongside the outer scriptTask entry. The events stream also emits a `script_step_completed` or `script_step_failed` event per step, so post-mortem and timeline UIs can show exactly which step produced which variables.
+
 ## Notes
 
-Script tasks execute synchronously inside the engine — they are not suitable for I/O-bound work (HTTP calls, database queries). For those use cases, use a [Service Task](/docs/elements/service-task/) instead.
+Script tasks execute synchronously inside the engine — they are not suitable for I/O-bound work (HTTP calls, database queries). For those use cases, use a [Service Task](/docs/elements/service-task/) with a worker subscription.
 
 ## Cookbook
 
-Script tasks have no mutation, so every "update a variable" idiom is **read the current value, return the new value**. The engine writes the result back to the instance — see [Variables & Scopes](/docs/concepts/variables/) for where it lands.
+The return shape decides what happens — for FEEL steps:
 
-The return value shape decides what happens:
+- **Context literal** `{ a: …, b: … }` — every key becomes a variable; the step's Result Variable is ignored.
+- **Scalar** (number, string, boolean, list) — written to the step's Result Variable; required.
 
-- **Context literal** `{ a: …, b: … }` — every key becomes a variable; `Result Variable` is ignored.
-- **Scalar** (number, string, boolean, list) — written to `Result Variable` if set; dropped silently otherwise.
-
-### Counter
-
-Increment a variable by one each time this task runs.
+### Counter (FEEL)
 
 ```feel
 { counter: (if counter = null then 0 else counter) + 1 }
 ```
 
-First run: `counter` is missing → defaulted to `0` → returns `1`. Subsequent runs increment from the stored value.
-
-### Scalar counter
-
-Same effect, single variable, scalar return shape. Set `Result Variable = counter` on the task.
-
-```feel
-(if counter = null then 0 else counter) + 1
-```
-
-### Accumulator
-
-Sum a stream of inbound amounts.
+### Accumulator (FEEL)
 
 ```feel
 { total: (if total = null then 0 else total) + amount }
 ```
 
-### Conditional counter
+### Extract + compose (jq + Rhai)
 
-Only increment when something is true; pass through otherwise.
+A two-step pipeline that pulls fields out of a nested object then builds a reference string:
 
-```feel
-{ retries: if lastResult = "failure"
-           then (if retries = null then 0 else retries) + 1
-           else (if retries = null then 0 else retries) }
+```
+Step 1 (jq):   { doc_no: .grn.header.docNo, vendor: .grn.header.vendor }
+Step 2 (rhai): let grn_ref = "GRN-" + vendor + "-" + doc_no;
 ```
 
-### Two outputs from one task
+After running, `doc_no`, `vendor`, and `grn_ref` are all set on the instance.
 
-A context literal writes every key. Use it to set multiple related variables atomically.
-
-```feel
-{
-  counter:    (if counter = null then 0 else counter) + 1,
-  lastSeenAt: now()
-}
-```
-
-### List append
-
-Append an item to a list variable, initialising it the first time.
+### List append (FEEL)
 
 ```feel
 { items: append(if items = null then [] else items, newItem) }
 ```
 
-### Reset to a default
+For more patterns see the language-specific cookbooks:
 
-```feel
-{ retries: 0 }
-```
+- [jq Cookbook](/docs/concepts/jq/) — ~30 reshape, array, conditional and string recipes
+- [Expressions (FEEL Cookbook)](/docs/concepts/expressions/) — null-safe patterns, counters, accumulators, list and date recipes
+- [Rhai Cookbook](/docs/concepts/rhai/) — multi-statement logic, loops, error handling
 
-A flat literal writes `retries = 0` unconditionally. Use it after a successful retry to clear the counter.
+And the syntax indexes:
 
-### Aggregated stats
-
-Build a nested structure as one variable.
-
-```feel
-{ stats:
-    {
-      count: count(orders),
-      total: sum(orders),
-      mean:  mean(orders)
-    }
-}
-```
-
-For more patterns (deep property access, null-safe accessors, gateway conditions) see the [Expressions Cookbook](/docs/concepts/expressions/) and the [FEEL Reference](/docs/decision-tables/feel-reference/).
+- [FEEL Reference](/docs/decision-tables/feel-reference/)
+- [jq manual](https://jqlang.github.io/jq/manual/) (external)
+- [The Rhai Book](https://rhai.rs/book/) (external)

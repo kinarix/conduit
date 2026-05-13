@@ -1,0 +1,331 @@
+---
+layout: '../../../layouts/DocsLayout.astro'
+title: 'Rhai Cookbook (Script Tasks)'
+description: 'Practical Rhai patterns for multi-statement logic inside a Script Task pipeline.'
+---
+
+# Rhai Cookbook
+
+Rhai is the general-purpose scripting option in a [Script Task](/docs/elements/script-task/) pipeline. Reach for it when a single FEEL expression or jq filter is awkward — building reference strings from many pieces, looping with intermediate state, conditional multi-statement logic.
+
+The Rhai engine is constructed fresh per call with strict per-engine limits and **no IO functions registered** — Rhai steps cannot read files, open sockets, or shell out. See [Script Task](/docs/elements/script-task/#rhai-sandbox) for the limit knobs.
+
+How Rhai writes back: the Rhai scope is seeded with every current variable that is a valid identifier. After the script runs, every scope entry that was added or changed is merged into the process variable map. There is no "result variable" for Rhai — assigning to a name *is* the write.
+
+For the full language reference see [The Rhai Book](https://rhai.rs/book/). What follows are the patterns that come up most often in Conduit pipelines.
+
+## Setting variables
+
+### 1. A single new variable
+
+```rhai
+let total = price * qty;
+```
+
+### 2. Multiple new variables
+
+```rhai
+let subtotal = price * qty;
+let tax       = subtotal * 0.10;
+let grand     = subtotal + tax;
+```
+
+### 3. Mutate an existing variable
+
+```rhai
+counter += 1;
+```
+
+The variable must already exist in the scope (i.e. it was set on the instance before this step).
+
+### 4. Set with a default if missing
+
+```rhai
+if !is_def_var("retries") { let retries = 0; }
+retries += 1;
+```
+
+### 5. Compute one field from many
+
+```rhai
+let grn_ref = "GRN-" + vendor + "-" + doc_no + "-" + ts.to_string();
+```
+
+## Strings
+
+### 6. Concatenation
+
+```rhai
+let label = customer_name + " (" + customer_id + ")";
+```
+
+### 7. Uppercase / lowercase
+
+```rhai
+let tag = vendor.to_upper();
+```
+
+### 8. Substring
+
+```rhai
+let prefix = sku.sub_string(0, 4);
+```
+
+### 9. Replace
+
+```rhai
+let safe = description.replace(",", "·");
+```
+
+### 10. Contains / starts-with / ends-with
+
+```rhai
+let is_invoice_ref = ref.starts_with("INV-");
+```
+
+### 11. Split into an array
+
+```rhai
+let parts = email.split("@");
+let user  = parts[0];
+let host  = parts[1];
+```
+
+### 12. Pad with leading zeros
+
+```rhai
+let padded = ("00000" + counter.to_string());
+let padded = padded.sub_string(padded.len() - 5, 5);
+```
+
+## Numbers
+
+### 13. Arithmetic
+
+```rhai
+let total = (subtotal * (1.0 + tax_rate)).to_int();
+```
+
+### 14. Round to two decimals
+
+```rhai
+let rate = ((received.to_float() / ordered.to_float()) * 10000.0).to_int().to_float() / 100.0;
+```
+
+### 15. Min / max
+
+```rhai
+let capped = if amount > 1000 { 1000 } else { amount };
+```
+
+## Booleans and conditionals
+
+### 16. If-else expression
+
+```rhai
+let tier = if total >= 1000 { "gold" } else { "silver" };
+```
+
+### 17. Multi-branch tier
+
+```rhai
+let tier = if total >= 5000 {
+    "platinum"
+} else if total >= 1000 {
+    "gold"
+} else if total >= 100 {
+    "silver"
+} else {
+    "bronze"
+};
+```
+
+### 18. Switch on a value
+
+```rhai
+let label = switch status {
+    "pending"   => "Awaiting approval",
+    "approved" => "Ready to ship",
+    "rejected" => "Closed",
+    _           => "Unknown",
+};
+```
+
+### 19. Type-of guard
+
+```rhai
+let normalized_qty = if type_of(qty) == "i64" { qty.to_float() } else { qty };
+```
+
+## Loops
+
+### 20. For over a range
+
+```rhai
+let sum = 0;
+for i in 0..10 { sum += i; }
+```
+
+### 21. For over an array
+
+```rhai
+let total = 0;
+for line in order_lines {
+    total += line.qty * line.price;
+}
+```
+
+### 22. While
+
+```rhai
+let i = 0;
+while i < retries { i += 1; }
+```
+
+### 23. Break and continue
+
+```rhai
+let first_error = ();
+for r in results {
+    if r.status == "ok" { continue; }
+    first_error = r;
+    break;
+}
+```
+
+The unit literal `()` represents "no value"; the engine drops it on merge-back.
+
+## Arrays
+
+### 24. Build an array
+
+```rhai
+let tags = [];
+tags.push("priority");
+if customer.tier == "gold" { tags.push("vip"); }
+```
+
+### 25. Length
+
+```rhai
+let line_count = order_lines.len();
+```
+
+### 26. Filter into a new array
+
+```rhai
+let active = users.filter(|u| u.disabled_at == ());
+```
+
+### 27. Map into a new array
+
+```rhai
+let amounts = invoices.map(|i| i.total);
+```
+
+### 28. Reduce / fold
+
+```rhai
+let total = invoices.reduce(|acc, i| acc + i.total, 0);
+```
+
+### 29. Sort
+
+```rhai
+let by_date = orders.clone();
+by_date.sort(|a, b| a.created_at.compare(b.created_at));
+```
+
+## Objects (object maps)
+
+### 30. Build a map
+
+```rhai
+let summary = #{
+    total:      grand,
+    line_count: order_lines.len(),
+    has_tax:    tax > 0.0,
+};
+```
+
+`#{}` is Rhai's object-map literal.
+
+### 31. Read a field that may not exist
+
+```rhai
+let zip = if customer.contains("address") && customer.address.contains("zip") {
+    customer.address.zip
+} else {
+    ""
+};
+```
+
+## Error handling
+
+### 32. Try / catch
+
+```rhai
+let port = 0;
+try {
+    port = config_port.to_int();
+} catch (err) {
+    port = 8080;
+}
+```
+
+### 33. Throw to fail the step
+
+```rhai
+if amount < 0 { throw "amount must be non-negative"; }
+```
+
+A thrown value fails the step with the message wrapped into a Rhai script error.
+
+## Counters and accumulators
+
+### 34. Increment-or-create
+
+```rhai
+if !is_def_var("counter") { let counter = 0; }
+counter += 1;
+```
+
+### 35. Append-or-create a list
+
+```rhai
+if !is_def_var("history") { let history = []; }
+history.push(#{ ts: ts, status: status });
+```
+
+### 36. Conditional accumulator
+
+```rhai
+if status == "shipped" {
+    if !is_def_var("shipped_count") { let shipped_count = 0; }
+    shipped_count += 1;
+}
+```
+
+## Putting it together
+
+A two-step pipeline that aggregates over a list, then formats a human label:
+
+```
+Step 1 (rhai):
+  let total = 0;
+  for line in order_lines { total += line.qty * line.price; }
+  let line_count = order_lines.len();
+
+Step 2 (rhai):
+  let summary_label = "Order " + order_id + ": " + line_count.to_string()
+                      + " lines, total " + total.to_string();
+```
+
+After running, the instance has `total`, `line_count`, and `summary_label` set.
+
+## See also
+
+- [Script Task](/docs/elements/script-task/) — pipeline merge rules and Rhai sandbox limits
+- [jq Cookbook](/docs/concepts/jq/) — when you mostly need to reshape JSON
+- [Expressions (FEEL)](/docs/concepts/expressions/) — FEEL cookbook
+- [The Rhai Book](https://rhai.rs/book/) — full language reference

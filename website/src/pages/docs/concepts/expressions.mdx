@@ -221,9 +221,263 @@ Use parentheses freely — they're free, and they make intent unambiguous.
 
 For gateway conditions, an unmatched outgoing flow falls back to the **default flow** if one is configured; otherwise the instance errors. See [Exclusive Gateway](/docs/elements/exclusive-gateway/) for the full rules.
 
+## Iteration
+
+FEEL's iteration constructs return a *new* value — they never mutate the source.
+
+### `for` produces a new list
+
+```feel
+{ totals: for line in order_lines return line.qty * line.price }
+```
+
+This is FEEL's analogue of `map` — one output element per input.
+
+### Iterate with the index
+
+`for x in 1..count(list)` walks indices; combine with `list[i]`:
+
+```feel
+{
+  numbered:
+    for i in 1..count(items)
+    return { idx: i, name: items[i].name }
+}
+```
+
+### Filtered iteration
+
+FEEL has no `filter` keyword; combine `for` with `if`:
+
+```feel
+{ premium_lines: [ line in order_lines : line.price > 100 ] }
+```
+
+The `[ x in list : cond ]` list-comprehension form is the canonical way to filter.
+
+### Existential and universal
+
+```feel
+{ has_priority: some line in order_lines satisfies line.priority = "high" }
+```
+
+```feel
+{ all_paid: every inv in invoices satisfies inv.status = "paid" }
+```
+
+## Numeric recipes
+
+### Round to two decimals
+
+```feel
+{ rate_pct: decimal((received / ordered) * 100, 2) }
+```
+
+### Clamp to a range
+
+```feel
+{ capped: if amount > 1000 then 1000 else (if amount < 0 then 0 else amount) }
+```
+
+### Percent change with zero guard
+
+```feel
+{
+  pct_change:
+    if previous = null or previous = 0
+    then null
+    else decimal((current - previous) / previous * 100, 2)
+}
+```
+
+### Sum a list of objects' fields
+
+```feel
+{ subtotal: sum(for line in order_lines return line.qty * line.price) }
+```
+
+`sum` expects a list of numbers; the `for` expression produces exactly that.
+
+## String recipes
+
+### Pad with leading zeros
+
+```feel
+{
+  ref:
+    "INV-" +
+    (if string length(string(counter)) >= 5
+     then string(counter)
+     else substring("00000" + string(counter), -5))
+}
+```
+
+### Lowercase a token
+
+```feel
+{ slug: lower case(replace(name, " ", "-")) }
+```
+
+### Conditional prefix
+
+```feel
+{
+  label:
+    if vendor = null
+    then sku
+    else vendor + " · " + sku
+}
+```
+
+### Build a comma-separated list of names
+
+```feel
+{ tag_line: string join(for u in users return u.name, ", ") }
+```
+
+## Date and time recipes
+
+FEEL has native date / time / date-and-time / duration types. Use `date(s)`, `time(s)`, `date and time(s)`, and `duration(s)` to parse.
+
+### Today as a string
+
+```feel
+{ today: string(date(date and time(today() + duration("P0D")))) }
+```
+
+### Days between two dates
+
+```feel
+{ days: (date(end) - date(start)).days }
+```
+
+`date - date` yields a years-months duration; for accurate day counts, parse both as date-and-time and subtract:
+
+```feel
+{ days: ((date and time(end + "T00:00:00") - date and time(start + "T00:00:00")) / duration("P1D")) }
+```
+
+### Add a duration
+
+```feel
+{ due_at: date and time(created_at) + duration("P7D") }
+```
+
+### Is a date in the past?
+
+```feel
+{ overdue: date and time(due_at) < date and time(today() + "T00:00:00") }
+```
+
+### Day-of-week
+
+```feel
+{ weekday: day of week(date(orderDate)) }
+```
+
+Returns a string like `"Monday"`.
+
+## List recipes
+
+### Distinct values
+
+```feel
+{ vendors: distinct values(for line in order_lines return line.vendor) }
+```
+
+### Find first matching
+
+FEEL has no built-in `first match`; combine `[ x : cond ]` with `[1]`:
+
+```feel
+{ first_failure:
+    if count([ r in results : r.status = "error" ]) = 0
+    then null
+    else [ r in results : r.status = "error" ][1]
+}
+```
+
+FEEL list indices are **1-based**.
+
+### Count matching
+
+```feel
+{ error_count: count([ r in results : r.status = "error" ]) }
+```
+
+### Index of an item
+
+```feel
+{ pos: index of(skus, "ABC-123")[1] }
+```
+
+`index of` returns a list of all matching positions; take the first.
+
+### Sort numerically
+
+```feel
+{ ascending: sort(amounts, function(a, b) a < b) }
+```
+
+`sort` takes a comparator function. To sort objects by a field:
+
+```feel
+{ by_price: sort(order_lines, function(a, b) a.price < b.price) }
+```
+
+### Build a histogram
+
+```feel
+{
+  by_status:
+    {
+      pending:  count([ r in results : r.status = "pending"  ]),
+      success: count([ r in results : r.status = "success" ]),
+      error:    count([ r in results : r.status = "error"    ])
+    }
+}
+```
+
+## Working with nested objects
+
+### Pick a sub-tree
+
+```feel
+{ contact: customer.contact }
+```
+
+### Spread an object via context literal
+
+FEEL has no spread operator. Enumerate the keys you need:
+
+```feel
+{
+  customer_id:    customer.id,
+  customer_name: customer.name,
+  customer_tier: customer.tier
+}
+```
+
+If your shape is deep and stable, a `jq` step is usually a better fit.
+
+## Function literals
+
+Inline functions are useful with `sort`, `some`, `every`, and as filter predicates:
+
+```feel
+{ adults: sort([ p in people : p.age >= 18 ], function(a, b) a.age < b.age) }
+```
+
+```feel
+{ has_blocker: some t in tasks satisfies function(x) x.priority = "high" and x.status != "done" (t) }
+```
+
+The `function(args) body` form defines an anonymous function; the trailing `(t)` invokes it with the iteration variable.
+
 ## Cross-references
 
 - Full FEEL syntax: [FEEL Reference](/docs/decision-tables/feel-reference/)
 - Where script outputs go: [Script Task](/docs/elements/script-task/)
+- Other languages in the pipeline: [jq Cookbook](/docs/concepts/jq/), [Rhai Cookbook](/docs/concepts/rhai/)
 - Variable storage and scopes: [Variables & Scopes](/docs/concepts/variables/)
 - Decision tables (the other main FEEL host): [Decision Tables Overview](/docs/decision-tables/)
